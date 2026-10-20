@@ -91,3 +91,20 @@ def search(erddap: str, words: str, http: httpx.Client | None = None, limit: int
         if rec.get("griddap"):
             out.append({"id": rec.get("Dataset ID"), "title": rec.get("Title"), "griddap": rec.get("griddap")})
     return out
+
+
+
+def list_datasets(erddap: str, title_regex: str, http: httpx.Client | None = None) -> list[dict]:
+    """Every gridded dataset whose title matches, newest data first, from ERDDAP's own catalog table
+    (much lighter for the server than a full-text search, which often times out)."""
+    import csv
+    import io as _io
+    from urllib.parse import quote
+    http = http or httpx.Client(timeout=90, follow_redirects=True)
+    url = (f"{erddap.rstrip('/')}/tabledap/allDatasets.csv?datasetID%2Ctitle%2CmaxTime"
+           f"&dataStructure=%22grid%22&title=~%22{quote(title_regex, safe='')}%22")
+    r = http.get(url)
+    r.raise_for_status()
+    rows = list(csv.reader(_io.StringIO(r.text)))[2:]   # skip the header and units rows
+    out = [{"id": row[0], "title": row[1], "max_time": row[2] if len(row) > 2 else ""} for row in rows if row and row[0]]
+    return sorted(out, key=lambda x: x["max_time"] or "", reverse=True)

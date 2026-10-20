@@ -174,3 +174,23 @@ def test_blank_settings_fall_back_to_defaults():
     finally:
         del os.environ["SST_DATASET"], os.environ["MPA_URL"]
         importlib.reload(reg); importlib.reload(rl)
+
+
+def test_list_datasets_parses_erddap_catalog():
+    from ocean.erddap import list_datasets
+    body = ("datasetID,title,maxTime\n,,UTC\n"
+            "old1,Chlorophyll old,2026-04-29T12:00:00Z\nnew1,Chlorophyll new,2026-10-19T12:00:00Z\n")
+    seen = {}
+
+    class Resp:
+        text = body
+        def raise_for_status(self):
+            pass
+
+    class Client:
+        def get(self, url):
+            seen["url"] = url
+            return Resp()
+    rows = list_datasets("https://x/erddap", "(?i).*chlorophyll.*", Client())
+    assert [r["id"] for r in rows] == ["new1", "old1"]
+    assert "allDatasets.csv" in seen["url"] and "title=~" in seen["url"]

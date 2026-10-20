@@ -5,7 +5,7 @@ values
  ('SST (MUR gap-filled)', 'NASA JPL / NOAA CoastWatch ERDDAP', 'Multi-scale Ultra-high Resolution SST', 'jplMURSST41',
   'https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41', 'https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41.html',
   'NASA JPL MUR SST via NOAA CoastWatch', '~1 km', 'daily', 'daily, ~1 day latency', 'Interpolated product: label as satellite blend. Verify terms.', true),
- ('Chlorophyll-a (VIIRS)', 'NOAA CoastWatch ERDDAP', 'VIIRS chlorophyll-a daily', 'nesdisVHNSQchlaDaily',
+ ('Chlorophyll-a (VIIRS)', 'NOAA CoastWatch ERDDAP', 'VIIRS chlorophyll-a daily', 'nesdisVHNnoaa20chlaDaily',
   'https://coastwatch.pfeg.noaa.gov/erddap', 'https://coastwatch.noaa.gov/', 'NOAA CoastWatch', '750 m', 'daily', 'daily',
   'VERIFY dataset ID with `python -m ocean.jobs discover`.', true),
  ('Bathymetry baseline (ETOPO)', 'NOAA NCEI via CoastWatch ERDDAP', 'ETOPO global relief', 'etopo180',

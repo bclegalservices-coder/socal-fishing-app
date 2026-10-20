@@ -169,17 +169,19 @@ def _load_local_dem(path: str) -> Grid:
 
 
 def discover():
-    http = httpx.Client(timeout=60, follow_redirects=True)
-    for erddap in ("https://coastwatch.pfeg.noaa.gov/erddap", "https://coastwatch.noaa.gov/erddap"):
-        for words in ("sea surface temperature daily", "chlorophyll VIIRS daily", "chlorophyll DINEOF gap-filled"):
+    """Lists the datasets NOAA currently offers (newest data first), so a renamed one can be swapped in."""
+    from .erddap import list_datasets
+    http = httpx.Client(timeout=90, follow_redirects=True)
+    for erddap in ("https://coastwatch.pfeg.noaa.gov/erddap", "https://coastwatch.noaa.gov/erddap", "https://polarwatch.noaa.gov/erddap"):
+        for label, rx in (("sea surface temperature", "(?i).*(sea surface temperature|SST).*"), ("chlorophyll", "(?i).*chlorophyll.*")):
             try:
-                found = search(erddap, words, http)
+                found = list_datasets(erddap, rx, http)
             except Exception as e:
-                log(f"{erddap} '{words}': {e}")
+                log(f"{erddap} {label}: {e}")
                 continue
-            print(f"\n== {erddap} :: {words}")
-            for f in found[:15]:
-                print(f"  {f['id']:<40} {f['title'][:90]}")
+            print(f"\n== {erddap} :: {label} ({len(found)} datasets, newest first)")
+            for f in found[:20]:
+                print(f"  {f['id']:<45} data to {f['max_time'][:10]:<10}  {f['title'][:80]}")
     print("\nSet SST_DATASET / CHL_DATASET (and _VARIABLE / _ERDDAP) to pick one, then run `verify`.")
 
 
@@ -219,12 +221,25 @@ def main(argv=None):
         return log(f"wind: run {m['run']}, {len(m['hours'])} forecast hours")
     if a.job == "verify":
         return verify()
+    # One layer failing (e.g. NOAA renaming a dataset) must not stop the others from updating.
+    failed = []
+
+    def step(name, fn, *args):
+        try:
+            fn(*args)
+        except Exception as e:
+            failed.append(name)
+            log(f"FAILED {name}: {e}")
+
     if a.job in ("sst", "all"):
-        run_surface("sst", a.region, days)
+        step("sst", run_surface, "sst", a.region, days)
     if a.job in ("chl", "all"):
-        run_surface("chl", a.region, days)
+        step("chl", run_surface, "chl", a.region, days)
     if a.job == "bathy" or (a.job == "all" and get_store().get(f"manifests/bathy.json") is None):
-        run_bathy(a.region, a.file)
+        step("bathy", run_bathy, a.region, a.file)
+    if failed:
+        log(f"Finished with failures: {', '.join(failed)} (the other layers were updated)")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

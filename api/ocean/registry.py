@@ -49,7 +49,7 @@ DATASETS: dict[str, GridDataset] = {
     # Chlorophyll-a, VIIRS. Observed (gaps where clouds). VERIFY the ID with `discover`.
     "chl": GridDataset(
         key="chl", label="Chlorophyll-a",
-        erddap=_env("CHL_ERDDAP", PFEG), dataset_id=_env("CHL_DATASET", "nesdisVHNSQchlaDaily"),
+        erddap=_env("CHL_ERDDAP", PFEG), dataset_id=_env("CHL_DATASET", "nesdisVHNnoaa20chlaDaily"),
         variable=_env("CHL_VARIABLE", "chlor_a"), dims=("time", "altitude", "latitude", "longitude"),
         units="mg m-3", kind="observed", resolution_m=750, source="NOAA VIIRS ocean color via CoastWatch ERDDAP",
         fixed={"altitude": 0.0},
