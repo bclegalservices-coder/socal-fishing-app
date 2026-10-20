@@ -1,0 +1,122 @@
+"""Temperature-break and chlorophyll-edge detection (spec §12, §15).
+
+1. Fill small gaps, smooth gently (Gaussian) so sensor noise isn't called a break.
+2. Gradient magnitude in units per nautical mile (accounts for longitude shrinking with latitude).
+3. Isolines every `interval`, kept only where the gradient is moderate or strong.
+"""
+import math
+
+import numpy as np
+from scipy import ndimage
+
+from .contours import segments, to_multiline
+from .grid import Grid
+
+
+def nan_gaussian(values: np.ndarray, sigma: float) -> np.ndarray:
+    """Gaussian smoothing that ignores NaN instead of spreading it."""
+    v = np.where(np.isnan(values), 0.0, values).astype(np.float64)
+    w = (~np.isnan(values)).astype(np.float64)
+    vs = ndimage.gaussian_filter(v, sigma, mode="nearest")
+    ws = ndimage.gaussian_filter(w, sigma, mode="nearest")
+    with np.errstate(invalid="ignore", divide="ignore"):
+        out = vs / ws
+    out[np.isnan(values)] = np.nan
+    return out
+
+
+def gradient_per_nm(g: Grid, sigma_cells: float = 1.0, log10: bool = False) -> tuple[np.ndarray, np.ndarray]:
+    """Returns (smoothed field, gradient magnitude per NM)."""
+    vals = g.values.astype(np.float64)
+    if log10:
+        with np.errstate(invalid="ignore", divide="ignore"):
+            vals = np.where(vals > 0, np.log10(vals), np.nan)
+    sm = nan_gaussian(vals, sigma_cells) if sigma_cells > 0 else vals
+    dy_nm = g.dlat * 60.0
+    coslat = np.cos(np.radians(g.lats))[:, None]
+    dx_nm = g.dlon * 60.0 * coslat
+    gy = np.gradient(sm, axis=0) / dy_nm
+    gx = np.gradient(sm, axis=1) / dx_nm
+    return sm, np.hypot(gx, gy)
+
+
+def classify(mag: float | None, moderate: float, strong: float) -> str:
+    if mag is None or not np.isfinite(mag):
+        return "none"
+    return "strong" if mag >= strong else "moderate" if mag >= moderate else "none"
+
+
+def break_lines(g: Grid, moderate: float, strong: float, interval: float, log10: bool = False, sigma_cells: float = 1.0) -> dict:
+    """GeoJSON FeatureCollection of break lines, grouped by isoline level and strength."""
+    sm, mag = gradient_per_nm(g, sigma_cells, log10)
+    finite = sm[np.isfinite(sm)]
+    if finite.size == 0:
+        return {"type": "FeatureCollection", "features": []}
+    lo = math.floor(finite.min() / interval) * interval
+    hi = math.ceil(finite.max() / interval) * interval
+    features = []
+    level = lo
+    while level <= hi + 1e-9:
+        groups: dict[str, list] = {"moderate": [], "strong": [], "_mag": []}
+        for p, q, i, j in segments(g.lats, g.lons, sm, level):
+            m = np.nanmax(mag[i:i + 2, j:j + 2])
+            cls = classify(float(m), moderate, strong)
+            if cls != "none":
+                groups[cls].append((p, q))
+                groups["_mag"].append(float(m))
+        for cls in ("moderate", "strong"):
+            if groups[cls]:
+                shown = 10 ** level if log10 else level
+                features.append({
+                    "type": "Feature",
+                    "geometry": {"type": "MultiLineString", "coordinates": to_multiline(groups[cls])},
+                    "properties": {"level": round(shown, 3), "strength": cls,
+                                   "max_per_nm": round(max(groups["_mag"]), 3)},
+                })
+        level += interval
+    return {"type": "FeatureCollection", "features": features}
+
+
+def describe_near(g: Grid, lat: float, lon: float, radius_nm: float, moderate: float, strong: float, log10: bool = False) -> dict | None:
+    """The strongest break within radius of a point, in fisherman terms:
+    where it is, the values on each side, and how wide the transition is."""
+    sm, mag = gradient_per_nm(g, 1.0, log10)
+    dlat = radius_nm / 60.0
+    dlon = radius_nm / (60.0 * max(0.2, math.cos(math.radians(lat))))
+    ii = np.where((g.lats >= lat - dlat) & (g.lats <= lat + dlat))[0]
+    jj = np.where((g.lons >= lon - dlon) & (g.lons <= lon + dlon))[0]
+    if ii.size == 0 or jj.size == 0:
+        return None
+    sub = mag[np.ix_(ii, jj)]
+    if not np.isfinite(sub).any():
+        return None
+    # among cells close to the strongest gradient, take the one nearest the point
+    peak = np.nanmax(sub)
+    cand = np.argwhere(np.nan_to_num(sub, nan=-1) >= 0.9 * peak)
+    clat = g.lats[ii[cand[:, 0]]]; clon = g.lons[jj[cand[:, 1]]]
+    dist2 = ((clat - lat) * 60) ** 2 + ((clon - lon) * 60 * math.cos(math.radians(lat))) ** 2
+    ci, cj = cand[int(np.argmin(dist2))]
+    bi, bj = ii[ci], jj[cj]
+    m = float(mag[bi, bj])
+    if classify(m, moderate, strong) == "none":
+        return None
+    # values ~1 NM either side, along the gradient direction
+    gy = np.gradient(sm, axis=0)[bi, bj] / (g.dlat * 60)
+    gx = np.gradient(sm, axis=1)[bi, bj] / (g.dlon * 60 * math.cos(math.radians(g.lats[bi])))
+    norm = math.hypot(gx, gy) or 1.0
+    uy, ux = gy / norm, gx / norm
+    blat, blon = float(g.lats[bi]), float(g.lons[bj])
+    step = 1.0
+    a_lat, a_lon = blat - uy * step / 60, blon - ux * step / (60 * math.cos(math.radians(blat)))
+    b_lat, b_lon = blat + uy * step / 60, blon + ux * step / (60 * math.cos(math.radians(blat)))
+    va = float(g.sample(a_lat, a_lon)); vb = float(g.sample(b_lat, b_lon))
+    if not (np.isfinite(va) and np.isfinite(vb)):
+        return None
+    lo_v, hi_v = sorted([va, vb])
+    from core.geo import distance_nm, bearing
+    return {
+        "lat": blat, "lon": blon, "strength": classify(m, moderate, strong), "per_nm": round(m, 3),
+        "from_value": round(lo_v, 3), "to_value": round(hi_v, 3),
+        "change": round(hi_v - lo_v, 3), "width_nm": round((hi_v - lo_v) / m, 2) if m > 0 and not log10 else None,
+        "distance_nm": round(distance_nm(lat, lon, blat, blon), 2), "bearing": round(bearing(lat, lon, blat, blon)),
+    }

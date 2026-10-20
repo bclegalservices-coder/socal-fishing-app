@@ -1,0 +1,85 @@
+"""Satellite / gridded dataset registry (master spec §10, §49, §63).
+
+Dataset IDs change over time, so every value here can be overridden with an
+environment variable, and `python -m ocean.jobs discover` lists current candidates.
+Entries marked verified=False MUST be checked against the live ERDDAP before launch.
+"""
+import os
+from dataclasses import dataclass, field
+
+# SoCal + North Baja working box (lon_min, lat_min, lon_max, lat_max). Regions are data, not code.
+REGIONS = {
+    "socal": (-121.0, 31.0, -116.6, 35.0),
+}
+
+
+@dataclass(frozen=True)
+class GridDataset:
+    key: str
+    label: str
+    erddap: str
+    dataset_id: str
+    variable: str
+    dims: tuple[str, ...]          # order of dimensions in the griddap query
+    units: str                     # units the server returns
+    kind: str                      # observed | interpolated | static
+    resolution_m: float
+    source: str
+    verified: bool = False
+    fixed: dict = field(default_factory=dict)   # constant values for extra dims, e.g. {"altitude": 0.0}
+    docs: str = ""
+
+
+def _env(name: str, default: str) -> str:
+    return os.environ.get(name, default)
+
+
+PFEG = "https://coastwatch.pfeg.noaa.gov/erddap"
+
+DATASETS: dict[str, GridDataset] = {
+    # Gap-filled (interpolated) SST. Always labeled "satellite blend, fills clouds".
+    "sst": GridDataset(
+        key="sst", label="Sea surface temperature",
+        erddap=_env("SST_ERDDAP", PFEG), dataset_id=_env("SST_DATASET", "jplMURSST41"),
+        variable=_env("SST_VARIABLE", "analysed_sst"), dims=("time", "latitude", "longitude"),
+        units="degC", kind="interpolated", resolution_m=1000, source="NASA JPL MUR via NOAA CoastWatch ERDDAP",
+        docs="https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41.html",
+    ),
+    # Chlorophyll-a, VIIRS. Observed (gaps where clouds). VERIFY the ID with `discover`.
+    "chl": GridDataset(
+        key="chl", label="Chlorophyll-a",
+        erddap=_env("CHL_ERDDAP", PFEG), dataset_id=_env("CHL_DATASET", "nesdisVHNSQchlaDaily"),
+        variable=_env("CHL_VARIABLE", "chlor_a"), dims=("time", "altitude", "latitude", "longitude"),
+        units="mg m-3", kind="observed", resolution_m=750, source="NOAA VIIRS ocean color via CoastWatch ERDDAP",
+        fixed={"altitude": 0.0},
+    ),
+    # Coarse global bathymetry baseline (~1.8 km). High-res SoCal relief model loads via `bathy --file`.
+    "bathy": GridDataset(
+        key="bathy", label="Seafloor depth",
+        erddap=_env("BATHY_ERDDAP", PFEG), dataset_id=_env("BATHY_DATASET", "etopo180"),
+        variable=_env("BATHY_VARIABLE", "altitude"), dims=("latitude", "longitude"),
+        units="m", kind="static", resolution_m=1850, source="NOAA NCEI ETOPO via CoastWatch ERDDAP",
+    ),
+}
+
+# Break thresholds (configurable, spec §12): change per NM of distance.
+BREAKS = {
+    "sst": {"moderate": float(_env("SST_BREAK_MODERATE_F_PER_NM", "0.5")), "strong": float(_env("SST_BREAK_STRONG_F_PER_NM", "1.0")), "interval": 0.5},
+    # chlorophyll works on log10(mg/m3): 0.1 per NM ≈ 26% change per mile
+    "chl": {"moderate": float(_env("CHL_EDGE_MODERATE_LOG_PER_NM", "0.06")), "strong": float(_env("CHL_EDGE_STRONG_LOG_PER_NM", "0.12")), "interval": 0.1},
+}
+
+TILE_ZOOMS = {"sst": range(5, 11), "chl": range(5, 11), "bathy": range(5, 12)}
+
+# Live layers served directly by public providers (tiles never pass through our server).
+EXTERNAL_LAYERS = [
+    {
+        "key": "radar", "label": "Radar (precipitation)", "kind": "observed",
+        "source": "NOAA NEXRAD via Iowa Environmental Mesonet",
+        "tiles": "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png",
+        "frames": [f"https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913-m{m:02d}m/{{z}}/{{x}}/{{y}}.png" for m in range(50, 0, -5)],
+        "frame_minutes_ago": list(range(50, 0, -5)),
+        "refresh_seconds": 300, "verified": False,
+        "note": "Verify terms of use for commercial apps before launch; NOAA nowCOAST is the fallback.",
+    },
+]

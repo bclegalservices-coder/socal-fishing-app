@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ad Studio</title>
+<meta name="description" content="Advertise to Southern California anglers — upload your ad, preview it in the app, see prices and results.">
+<meta name="theme-color" content="#0A141C">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ad Studio">
+<link rel="stylesheet" href="studio.css">
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body>
+<div class="top">
+  <div class="brand" onclick="location.hash='#home'">📣 <span id="appName">Ad Studio</span> <small>Ad Studio</small></div>
+  <nav id="nav"></nav>
+  <div class="who" id="who"></div>
+</div>
+<main id="main"><div class="card">Loading…</div></main>
+<script src="studio.js"></script>
+</body>
+</html>

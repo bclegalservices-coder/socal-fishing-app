@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fishing App — Admin</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+:root{--bg:#0A141C;--panel:#101C27;--line:#24394B;--text:#EAF0F4;--muted:#A3B4C1;--accent:#F5A524;--live:#62CBE2;--alert:#FF7A68;--ok:#3fb950}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:12px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:2}
+header h1{font-size:18px;margin:0}nav{display:flex;gap:6px;flex-wrap:wrap}nav button{background:none;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer}
+nav button.on{background:var(--accent);border-color:var(--accent);color:#10161B;font-weight:700}
+main{padding:20px;max-width:1200px;margin:0 auto}.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+input,select,textarea{background:#0C1822;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;width:100%}
+label{display:block;color:var(--muted);font-size:12px;margin:8px 0 4px}button.act{background:#182836;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;margin:4px 4px 0 0}
+button.primary{background:var(--accent);color:#10161B;border-color:var(--accent);font-weight:700}button.danger{border-color:var(--alert);color:var(--alert)}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:600;font-size:12px}
+.muted{color:var(--muted);font-size:13px}.warn{color:var(--accent)}.bad{color:var(--alert)}.good{color:var(--ok)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.pill{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:1px 8px;font-size:12px;color:var(--muted)}
+pre{white-space:pre-wrap;word-break:break-word;background:#0C1822;padding:8px;border-radius:8px;margin:6px 0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px}.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
+.kpi .v{font-size:26px;font-weight:800}.kpi .k{color:var(--muted);font-size:12px}.kpi .s{color:var(--muted);font-size:11.5px}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px}.chartbox{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;height:280px}
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.toolbar select,.toolbar input{width:auto}
+.ret td{text-align:center}.ret td:first-child{text-align:left}
+#kit{background:#fff;color:#111;border-radius:12px;padding:28px;max-width:860px}#kit h1{margin:0 0 4px;font-size:28px}#kit .muted{color:#555}#kit .kpi{background:#f4f6f8;border-color:#dde3e8}#kit .kpi .k,#kit .kpi .s{color:#555}
+#kit table td,#kit table th{border-color:#e3e7ea;color:#111}
+@media print{header,nav,.toolbar,.noprint{display:none!important}body{background:#fff}main{padding:0}#kit{max-width:none;border-radius:0}}
+</style>
+</head>
+<body>
+<header><h1>🎣 Admin</h1><nav id="nav"></nav><span style="margin-left:auto" class="muted" id="who"></span></header>
+<main id="main"><div class="card">Loading…</div></main>
+<script>
+// ---------- setup ----------
+const cfg = JSON.parse(localStorage.getItem('admin-cfg') || 'null');
+const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const ago = (t) => { if (!t) return 'never'; const h = (Date.now() - new Date(t)) / 36e5; return h < 1 ? `${Math.round(h * 60)} min ago` : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} days ago`; };
+let sb, me;
+
+function setupForm() {
+  $('#main').innerHTML = `<div class="card"><h2>Connect</h2><p class="muted">Saved in this browser only. Use the public anon key — never the service_role key.</p>
+  <label>Supabase URL</label><input id="u" placeholder="https://xxxx.supabase.co"><label>Supabase anon public key</label><input id="k">
+  <label>API URL (Render)</label><input id="a" placeholder="https://fishing-app-api.onrender.com"><br><br><button class="act primary" id="save">Save</button></div>`;
+  $('#save').onclick = () => { localStorage.setItem('admin-cfg', JSON.stringify({ url: $('#u').value.trim(), key: $('#k').value.trim(), api: $('#a').value.trim().replace(/\/$/, '') })); location.reload(); };
+}
+
+async function signIn() {
+  $('#main').innerHTML = `<div class="card"><h2>Sign in</h2><label>Email</label><input id="em"><button class="act primary" id="send">Email me a code</button>
+  <div id="codebox" hidden><label>6-digit code</label><input id="code"><button class="act primary" id="ver">Sign in</button></div><p id="msg" class="muted"></p></div>`;
+  $('#send').onclick = async () => { const { error } = await sb.auth.signInWithOtp({ email: $('#em').value.trim(), options: { shouldCreateUser: false } }); $('#msg').textContent = error ? error.message : 'Code sent.'; if (!error) $('#codebox').hidden = false; };
+  $('#ver').onclick = async () => { const { error } = await sb.auth.verifyOtp({ email: $('#em').value.trim(), token: $('#code').value.trim(), type: 'email' }); if (error) $('#msg').textContent = error.message; else location.reload(); };
+}
+
+const TABS = { Overview: overview, Audience: audience, Engagement: engagement, 'Ads & reports': adsReports, 'Media kit': mediaKit, Sponsors: sponsors, Users: users, Moderation: moderation, Spots: spots, Categories: categories, Broadcast: broadcast, Announcements: announcements, Settings: settings, 'Data health': health, 'Audit log': audit };
+function nav(active) {
+  $('#nav').innerHTML = Object.keys(TABS).map((t) => `<button class="${t === active ? 'on' : ''}" data-t="${esc(t)}">${esc(t)}</button>`).join('');
+  document.querySelectorAll('#nav button').forEach((b) => (b.onclick = () => show(b.dataset.t)));
+}
+async function show(t) { clearCharts(); nav(t); $('#main').innerHTML = '<div class="card">Loading…</div>'; try { await TABS[t](); } catch (e) { $('#main').innerHTML = `<div class="card bad">${esc(e.message || e)}</div>`; } }
+const must = ({ data, error }) => { if (error) throw error; return data; };
+
+
+// ---------- shared: numbers & charts ----------
+const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString());
+const pct = (a, b) => (b ? `${Math.round((1000 * a) / b) / 10}%` : '—');
+const charts = [];
+function chart(id, type, labels, datasets, opts = {}) {
+  const el = document.getElementById(id); if (!el) return;
+  const palette = ['#62CBE2', '#F5A524', '#3fb950', '#c58cff', '#FF7A68', '#9aa9b8'];
+  charts.push(new Chart(el, { type, data: { labels, datasets: datasets.map((d, i) => ({ borderColor: palette[i % 6], backgroundColor: type === 'line' ? palette[i % 6] + '22' : palette[i % 6], fill: type === 'line', tension: 0.25, pointRadius: 0, borderWidth: 2, ...d })) },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#A3B4C1' } } }, scales: type === 'doughnut' ? {} : { x: { ticks: { color: '#A3B4C1', maxTicksLimit: 10 }, grid: { color: '#1b2c3a' } }, y: { beginAtZero: true, ticks: { color: '#A3B4C1' }, grid: { color: '#1b2c3a' } } }, ...opts } }));
+}
+const clearCharts = () => { while (charts.length) charts.pop().destroy(); };
+const kpi = (k, v, sub = '') => `<div class="kpi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(sub)}</div></div>`;
+async function metricsRange(days) {
+  const from = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+  return must(await sb.from('metrics_daily').select('day,data').gte('day', from).order('day'));
+}
+const avg = (rows, k) => (rows.length ? Math.round(rows.reduce((a, r) => a + (Number(r.data[k]) || 0), 0) / rows.length) : 0);
+const sum = (rows, k) => rows.reduce((a, r) => a + (Number(r.data[k]) || 0), 0);
+
+// ---------- Overview ----------
+async function overview(days = 90) {
+  clearCharts();
+  const [live, rows] = await Promise.all([sb.rpc('admin_live').then(must), metricsRange(days)]);
+  const last30 = rows.slice(-30);
+  $('#main').innerHTML = `<div class="toolbar"><b>Overview</b><select id="rng">${[30, 90, 180, 365].map((d) => `<option ${d === days ? 'selected' : ''} value="${d}">Last ${d} days</option>`).join('')}</select>
+    <button class="act" id="recompute">Recompute numbers</button><span class="muted">Daily numbers refresh hourly. Live counters are real-time.</span></div>
+  <div class="kpis">${kpi('Active right now (1 h)', fmt(live.active_last_hour))}${kpi('Daily active users today', fmt(live.dau_today), `avg ${fmt(avg(last30, 'dau'))}/day over 30 days`)}
+  ${kpi('Weekly active users', fmt(live.wau))}${kpi('Monthly active users', fmt(live.mau), `stickiness ${pct(avg(last30, 'dau'), live.mau)} (DAU/MAU)`)}
+  ${kpi('Installs (first opens)', fmt(live.total_installs), `+${fmt(live.new_installs_today)} today`)}${kpi('Store downloads (entered)', fmt(live.store_downloads_total), 'from App Store / Play Console')}
+  ${kpi('Accounts', fmt(live.total_accounts))}${kpi('Sessions today', fmt(live.sessions_today), `avg ${last30.length ? (last30.reduce((a, r) => a + (Number(r.data.avg_session_min) || 0), 0) / last30.length).toFixed(1) : '—'} min/session`)}
+  ${kpi('Catches logged', fmt(live.catches_total), `+${fmt(live.catches_today)} today`)}${kpi('Public catch reports', fmt(live.public_reports_total))}
+  ${kpi('Fishing groups', fmt(live.groups), `${fmt(live.sharing_now)} boats sharing now`)}${kpi('Alert subscribers', fmt(live.alert_subscribers), `${fmt(live.push_devices)} push devices`)}
+  ${kpi('Forum posts', fmt(live.forum_posts_total))}${kpi('Verified reporters', fmt(live.verified_reporters))}
+  ${kpi('Sponsor impressions (30 d)', fmt(live.ad_impressions_30d), `CTR ${pct(live.ad_clicks_30d, live.ad_impressions_30d)}`)}${kpi('Moderation waiting', fmt(live.moderation_open))}</div>
+  ${rows.length ? '' : '<div class="card warn">No daily numbers yet — click "Recompute numbers" (or wait for the hourly job).</div>'}
+  <div class="charts"><div class="chartbox"><canvas id="c1"></canvas></div><div class="chartbox"><canvas id="c2"></canvas></div>
+  <div class="chartbox"><canvas id="c3"></canvas></div><div class="chartbox"><canvas id="c4"></canvas></div><div class="chartbox"><canvas id="c5"></canvas></div><div class="chartbox"><canvas id="c6"></canvas></div></div>`;
+  const L = rows.map((r) => r.day.slice(5));
+  const col = (k) => rows.map((r) => Number(r.data[k]) || 0);
+  chart('c1', 'line', L, [{ label: 'Daily active', data: col('dau') }, { label: 'Weekly active', data: col('wau') }, { label: 'Monthly active', data: col('mau') }]);
+  chart('c2', 'bar', L, [{ label: 'New installs', data: col('new_installs') }, { label: 'New accounts', data: col('signups') }]);
+  chart('c3', 'line', L, [{ label: 'Sessions', data: col('sessions') }, { label: 'Screen views', data: col('screen_views') }]);
+  chart('c4', 'bar', L, [{ label: 'Catches logged', data: col('catches') }, { label: 'Public reports', data: col('public_reports') }]);
+  chart('c5', 'line', L, [{ label: 'Sponsor impressions', data: col('ad_impressions') }, { label: 'Clicks', data: col('ad_clicks') }]);
+  chart('c6', 'bar', L, [{ label: 'Forum posts', data: col('posts') }, { label: 'Comments', data: col('comments') }, { label: 'Groups created', data: col('groups_created') }]);
+  $('#rng').onchange = () => overview(+$('#rng').value);
+  $('#recompute').onclick = async () => { const from = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10), to = new Date().toISOString().slice(0, 10);
+    $('#recompute').textContent = 'Working…'; must(await sb.rpc('refresh_metrics_range', { from_day: from, to_day: to })); overview(days); };
+}
+
+// ---------- Audience ----------
+async function audience(days = 30) {
+  clearCharts();
+  const [b, ret] = await Promise.all([sb.rpc('admin_breakdowns', { days }).then(must), sb.rpc('admin_retention', { weeks: 12 }).then(must)]);
+  const tbl = (rows, h1 = 'Value', h2 = 'People') => `<table><tr><th>${h1}</th><th>${h2}</th></tr>${rows.map((r) => `<tr><td>${esc(r.k)}</td><td>${fmt(r.n)}</td></tr>`).join('')}</table>`;
+  const cls = (v) => (v == null ? '' : v >= 40 ? 'good' : v >= 15 ? 'warn' : 'bad');
+  $('#main').innerHTML = `<div class="toolbar"><b>Audience</b><select id="rng">${[7, 30, 90].map((d) => `<option ${d === days ? 'selected' : ''} value="${d}">Last ${d} days</option>`).join('')}</select>
+    <span class="muted">Unique installs active in the period. Areas are coarse (no exact locations are collected).</span></div>
+  <div class="kpis">${kpi('Signed-in share of daily users', b.signed_in_share != null ? b.signed_in_share + '%' : '—')}</div>
+  <div class="charts"><div class="chartbox"><canvas id="a1"></canvas></div><div class="chartbox"><canvas id="a2"></canvas></div>
+  <div class="chartbox"><canvas id="a3"></canvas></div><div class="chartbox"><canvas id="a4"></canvas></div></div>
+  <div class="grid" style="margin-top:12px"><div class="card"><h3>Areas</h3>${tbl(b.areas, 'Area')}</div><div class="card"><h3>Platforms</h3>${tbl(b.platforms, 'Platform')}</div>
+  <div class="card"><h3>App versions</h3>${tbl(b.versions, 'Version')}</div><div class="card"><h3>Devices</h3>${tbl(b.devices, 'Device')}</div></div>
+  <div class="card"><h3>Retention (do people come back?)</h3><p class="muted">Of the people who first opened the app in a week, % who came back on day 1, in week 2, and around day 30.</p>
+  <table class="ret"><tr><th>First-open week</th><th>Installs</th><th>Day 1</th><th>Day 7–13</th><th>Day 30–36</th></tr>
+  ${ret.map((r) => `<tr><td>${esc(r.cohort_week)}</td><td>${fmt(r.installs)}</td><td class="${cls(r.d1)}">${r.d1 ?? '—'}%</td><td class="${cls(r.d7)}">${r.d7 ?? '—'}%</td><td class="${cls(r.d30)}">${r.d30 ?? '—'}%</td></tr>`).join('')}</table></div>`;
+  chart('a1', 'bar', b.areas.map((x) => x.k), [{ label: 'People by area', data: b.areas.map((x) => x.n) }], { indexAxis: 'y' });
+  chart('a2', 'doughnut', b.platforms.map((x) => x.k), [{ label: 'Platform', data: b.platforms.map((x) => x.n), backgroundColor: ['#62CBE2', '#F5A524', '#3fb950', '#9aa9b8'] }]);
+  chart('a3', 'bar', b.hours.map((x) => `${x.k}:00`), [{ label: 'App opens by hour (Pacific)', data: b.hours.map((x) => x.n) }]);
+  chart('a4', 'bar', b.weekdays.map((x) => ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][x.k]), [{ label: 'Active people by weekday', data: b.weekdays.map((x) => x.n) }]);
+  $('#rng').onchange = () => audience(+$('#rng').value);
+}
+
+// ---------- Engagement ----------
+const FEATURE_NAMES = { layer_on: 'Turned on a layer', conditions_view: 'Viewed spot conditions', catch_logged: 'Logged a catch', go_to_start: 'Started Go To', go_to_arrived: 'Arrived at waypoint',
+  route_saved: 'Saved a route', track_started: 'Started a track', track_saved: 'Saved a track', spot_saved: 'Saved a spot', pin_dropped: 'Dropped a pin', search: 'Searched', search_pick: 'Picked a search result',
+  cluster_open: 'Opened a catch cluster', probe_used: 'Used the probe', preset_used: 'Used a layer preset', time_slider_play: 'Played the 7-day slider', compare_hold: 'Held compare',
+  forum_post: 'Forum post', forum_comment: 'Forum comment', forum_like: 'Liked a post', group_created: 'Created a group', group_joined: 'Joined a group', group_share_start: 'Shared boat with group',
+  alert_created: 'Created an alert', offline_update: 'Updated offline maps', offline_area_saved: 'Saved an extra offline area', import_done: 'Imported GPX/KML', export_done: 'Exported GPX',
+  sponsor_click: 'Clicked a sponsor', sign_in: 'Signed in', mpa_alert_shown: 'MPA alert shown', catch_filter: 'Filtered catch log' };
+async function engagement(days = 30) {
+  clearCharts();
+  const b = must(await sb.rpc('admin_breakdowns', { days }));
+  $('#main').innerHTML = `<div class="toolbar"><b>Engagement</b><select id="rng">${[7, 30, 90].map((d) => `<option ${d === days ? 'selected' : ''} value="${d}">Last ${d} days</option>`).join('')}</select></div>
+  <div class="charts"><div class="chartbox"><canvas id="e1"></canvas></div><div class="chartbox"><canvas id="e2"></canvas></div>
+  <div class="chartbox"><canvas id="e3"></canvas></div><div class="chartbox"><canvas id="e4"></canvas></div></div>
+  <div class="card"><h3>Features</h3><table><tr><th>Action</th><th>Times</th><th>People</th></tr>${b.features.map((f) => `<tr><td>${esc(FEATURE_NAMES[f.k] || f.k)}</td><td>${fmt(f.n)}</td><td>${fmt(f.u)}</td></tr>`).join('')}</table></div>
+  <div class="card"><h3>Screens</h3><table><tr><th>Screen</th><th>Views</th><th>People</th></tr>${b.screens.map((f) => `<tr><td>${esc(f.k)}</td><td>${fmt(f.n)}</td><td>${fmt(f.u)}</td></tr>`).join('')}</table></div>`;
+  chart('e1', 'bar', b.layers.map((x) => x.k), [{ label: 'People who used each map layer', data: b.layers.map((x) => x.u) }], { indexAxis: 'y' });
+  chart('e2', 'bar', b.screens.map((x) => x.k), [{ label: 'Screen views', data: b.screens.map((x) => x.n) }]);
+  chart('e3', 'bar', b.species_caught.map((x) => x.k), [{ label: 'Fish logged by species', data: b.species_caught.map((x) => x.fish) }]);
+  chart('e4', 'bar', b.species_interest.map((x) => x.k), [{ label: 'Species interest (logs, filters, alerts)', data: b.species_interest.map((x) => x.n) }]);
+  $('#rng').onchange = () => engagement(+$('#rng').value);
+}
+
+// ---------- Ads & sponsor reports ----------
+async function adsReports() {
+  clearCharts();
+  const [inv, camps] = await Promise.all([sb.rpc('admin_inventory', { days: 30 }).then(must), sb.from('ad_campaigns').select('id,name,advertiser_id,starts_at,ends_at,active').order('starts_at', { ascending: false }).then(must)]);
+  const m = (n) => fmt(Math.round(n));
+  $('#main').innerHTML = `<div class="toolbar"><b>Ads & sponsor reports</b><span class="muted">Inventory = how often each sponsor slot could be shown (last 30 days).</span></div>
+  <div class="kpis">${kpi('App opens (intro slot)', m(inv.app_opens), `${m(inv.intro_eligible_opens)} at the dock (intro-eligible)`)}${kpi('Today views', m(inv.today_views), '"Presented by" + banner')}
+  ${kpi('Catch Map views', m(inv.catch_map_views), '"Presented by Catch Map"')}${kpi('SST map views', m(inv.sst_views), '"Presented by SST Map"')}
+  ${kpi('Weather page views', m(inv.weather_views || 0), '"Marine forecast presented by"')}${kpi('Catch report list views', m(inv.reports_views), 'report banner')}${kpi('Forum views', m(inv.forum_views), 'community banner')}</div>
+  <div class="card"><h3>Served by placement (30 days)</h3><table><tr><th>Placement</th><th>Impressions</th><th>Clicks</th><th>CTR</th></tr>
+  ${inv.served.map((r) => `<tr><td>${esc(r.k)}</td><td>${fmt(r.imp)}</td><td>${fmt(r.clk)}</td><td>${pct(r.clk, r.imp)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No sponsor impressions yet.</td></tr>'}</table></div>
+  <div class="card"><h3>Campaign report</h3><div class="toolbar"><select id="camp">${camps.map((c) => `<option value="${c.id}">${esc(c.name)} (${esc(c.starts_at.slice(0, 10))})</option>`).join('')}</select>
+  <button class="act primary" id="load">Show report</button><button class="act" id="printRep">Printable report for the sponsor</button></div><div id="rep"></div></div>`;
+  const load = async () => {
+    clearCharts();
+    const r = must(await sb.rpc('admin_campaign_report', { campaign: +$('#camp').value, days: 365 }));
+    const t = r.totals || {};
+    $('#rep').innerHTML = `<div class="kpis">${kpi('Impressions', fmt(t.impressions))}${kpi('Clicks', fmt(t.clicks))}${kpi('Click-through rate', pct(t.clicks, t.impressions))}${kpi('Daily reach (sum)', fmt(t.daily_reach_sum), 'unique phones per day, added up')}</div>
+    <div class="charts"><div class="chartbox"><canvas id="r1"></canvas></div><div class="chartbox"><canvas id="r2"></canvas></div></div>
+    <div class="grid"><div class="card"><h3>Where it was seen</h3><table>${(r.areas || []).map((x) => `<tr><td>${esc(x.k)}</td><td>${fmt(x.n)}</td></tr>`).join('')}</table></div>
+    <div class="card"><h3>Which screens</h3><table>${(r.contexts || []).map((x) => `<tr><td>${esc(x.k)}</td><td>${fmt(x.n)}</td></tr>`).join('')}</table></div></div>`;
+    const d = r.daily || [];
+    chart('r1', 'line', d.map((x) => x.d.slice(5)), [{ label: 'Impressions', data: d.map((x) => x.imp) }, { label: 'Daily reach', data: d.map((x) => x.reach) }]);
+    chart('r2', 'bar', d.map((x) => x.d.slice(5)), [{ label: 'Clicks', data: d.map((x) => x.clk) }]);
+    return r;
+  };
+  $('#load').onclick = load;
+  $('#printRep').onclick = async () => { const r = await load(); campaignPrint(r); };
+  if (camps.length) load();
+}
+function campaignPrint(r) {
+  const c = r.campaign || {}, t = r.totals || {}, d = r.daily || [];
+  const w = window.open('', '_blank');
+  w.document.write(`<html><head><title>${esc(c.advertiser)} — campaign report</title><style>body{font:14px system-ui;margin:40px;color:#111}h1{margin:0}table{border-collapse:collapse;width:100%;margin-top:12px}td,th{border-bottom:1px solid #ddd;padding:6px;text-align:left}.k{display:inline-block;margin:10px 24px 10px 0}.k b{display:block;font-size:24px}</style></head><body>
+  <h1>${esc(c.advertiser)} · ${esc(c.name)}</h1><p>${esc((c.starts_at || '').slice(0, 10))} to ${esc((c.ends_at || '').slice(0, 10))} · placement: ${esc(c.placement)}${c.presented_by_section ? ' · ' + esc(c.presented_by_section) : ''}</p>
+  <div><span class="k">Impressions<b>${fmt(t.impressions)}</b></span><span class="k">Clicks<b>${fmt(t.clicks)}</b></span><span class="k">Click-through<b>${pct(t.clicks, t.impressions)}</b></span><span class="k">Daily reach (sum)<b>${fmt(t.daily_reach_sum)}</b></span></div>
+  <h3>Where it was seen</h3><table>${(r.areas || []).map((x) => `<tr><td>${esc(x.k)}</td><td>${fmt(x.n)}</td></tr>`).join('')}</table>
+  <h3>By day</h3><table><tr><th>Day</th><th>Impressions</th><th>Clicks</th><th>Reach</th></tr>${d.map((x) => `<tr><td>${esc(x.d)}</td><td>${fmt(x.imp)}</td><td>${fmt(x.clk)}</td><td>${fmt(x.reach)}</td></tr>`).join('')}</table>
+  <p style="color:#666;font-size:12px">Counts from the app's own sponsor server. Impressions are counted when the sponsor is shown on screen; reach counts unique phones per day using an anonymous daily ID. No personal data or exact locations are collected.</p>
+  <script>window.print()<\/script></body></html>`);
+  w.document.close();
+}
+
+// ---------- Media kit (one page to send to businesses) ----------
+async function mediaKit() {
+  clearCharts();
+  const [live, rows, b, inv, boats] = await Promise.all([sb.rpc('admin_live').then(must), metricsRange(30), sb.rpc('admin_breakdowns', { days: 30 }).then(must), sb.rpc('admin_inventory', { days: 30 }).then(must),
+    sb.rpc('admin_boat_mix').then((r) => r.data || { total: 0, types: [], lengths: [] })]);
+  const BOATS = { kayak: 'Kayak / SUP', skiff: 'Skiff', bay: 'Bay / bass boat', center_console: 'Center console', walkaround: 'Walkaround / cuddy', sportfisher: 'Sportfisher', trawler: 'Trawler / cruiser', sailboat: 'Sailboat' };
+  const LENS = { under_18: 'Under 18 ft', '18_25': '18–25 ft', '26_35': '26–35 ft', '36_plus': '36 ft +', unknown: 'Not given' };
+  const saved = JSON.parse(localStorage.getItem('media-kit') || '{}');
+  const totalArea = b.areas.reduce((a, x) => a + x.n, 0) || 1, totalPlat = b.platforms.reduce((a, x) => a + x.n, 0) || 1;
+  const peak = [...b.hours].sort((x, y) => y.n - x.n).slice(0, 3).map((x) => `${((x.k + 11) % 12) + 1}${x.k < 12 ? 'am' : 'pm'}`).join(', ');
+  const ctr = inv.served.reduce((a, x) => a + x.clk, 0) / Math.max(1, inv.served.reduce((a, x) => a + x.imp, 0));
+  const field = (k, ph) => `<input class="noprint" data-k="${k}" value="${esc(saved[k] || '')}" placeholder="${esc(ph)}" style="margin:2px 0">`;
+  $('#main').innerHTML = `<div class="toolbar noprint"><b>Media kit</b><button class="act primary" onclick="window.print()">Print / Save as PDF</button>
+    <span class="muted">Numbers are live from the last 30 days. Fill in the white boxes (they're saved in this browser), then print.</span></div>
+  <div class="card noprint"><div class="grid">${field('app', 'App name')}${field('tagline', 'One-line description')}${field('contact', 'Your name · email · phone')}
+  ${field('rate_presented', 'Price: "Presented by" section, per month')}${field('rate_weather', 'Price: Weather page sponsor, per month')}${field('rate_intro', 'Price: 5-second intro, per month')}${field('rate_banner', 'Price: banner, per month')}</div><button class="act" id="mkSave">Update</button></div>
+  <div id="kit">
+    <h1>${esc(saved.app || 'Your App Name')}</h1><div class="muted">${esc(saved.tagline || 'The Southern California fishing map: live ocean data, catch reports and navigation — free for anglers.')}</div>
+    <h3>Audience (last 30 days)</h3>
+    <div class="kpis">${kpi('Monthly active anglers', fmt(live.mau))}${kpi('Average daily active', fmt(avg(rows, 'dau')))}${kpi('Sessions per month', fmt(sum(rows, 'sessions')))}
+    ${kpi('Avg. time per session', `${rows.length ? (rows.reduce((a, r) => a + (Number(r.data.avg_session_min) || 0), 0) / rows.length).toFixed(1) : '—'} min`)}
+    ${kpi('Total installs', fmt(Math.max(live.total_installs, live.store_downloads_total)))}${kpi('Catches logged', fmt(live.catches_total))}</div>
+    <div class="grid"><div><h3>Where they fish</h3><table>${b.areas.slice(0, 8).map((x) => `<tr><td>${esc(x.k)}</td><td>${Math.round((100 * x.n) / totalArea)}%</td></tr>`).join('')}</table></div>
+    <div><h3>Devices</h3><table>${b.platforms.map((x) => `<tr><td>${esc(x.k === 'ios' ? 'iPhone' : x.k === 'android' ? 'Android' : x.k)}</td><td>${Math.round((100 * x.n) / totalPlat)}%</td></tr>`).join('')}</table>
+    <h3>What they run</h3>${boats.total ? `<table>${boats.types.slice(0, 6).map((x) => `<tr><td>${esc(BOATS[x.k] || x.k)}</td><td>${Math.round((100 * x.n) / boats.total)}%</td></tr>`).join('')}</table>
+    <p class="muted" style="margin:4px 0">${boats.lengths.filter((x) => x.k !== 'unknown').map((x) => `${esc(LENS[x.k] || x.k)}: ${Math.round((100 * x.n) / boats.total)}%`).join(' · ')} — ${fmt(boats.total)} anglers set their boat</p>` : '<p class="muted">No boat profiles yet.</p>'}
+    <h3>What they target</h3><table>${b.species_caught.slice(0, 6).map((x) => `<tr><td>${esc(x.k)}</td><td>${fmt(x.fish)} fish logged</td></tr>`).join('')}</table></div></div>
+    <p><b>Peak hours:</b> ${esc(peak || '—')} (Pacific) · <b>Signed-in anglers:</b> ${b.signed_in_share ?? '—'}% of daily users · <b>Verified reporters:</b> ${fmt(live.verified_reporters)}</p>
+    <h3>Sponsor placements</h3><table><tr><th>Placement</th><th>Views per month</th><th>Price</th></tr>
+    <tr><td>"Marine forecast presented by" — Weather page</td><td>${fmt(inv.weather_views || 0)}</td><td>${esc(saved.rate_weather || saved.rate_presented || '—')}</td></tr>
+    <tr><td>"Presented by" — Today, Catch Map or SST Map</td><td>${fmt(inv.today_views + inv.catch_map_views + inv.sst_views)}</td><td>${esc(saved.rate_presented || '—')}</td></tr>
+    <tr><td>5-second intro at app open (only when the boat is stopped)</td><td>${fmt(inv.intro_eligible_opens)}</td><td>${esc(saved.rate_intro || '—')}</td></tr>
+    <tr><td>Banner — Today, catch reports, community</td><td>${fmt(inv.today_views + inv.reports_views + inv.forum_views)}</td><td>${esc(saved.rate_banner || '—')}</td></tr></table>
+    <p class="muted">Average sponsor click-through: ${(ctr * 100).toFixed(1)}%. Ads are matched to what anglers are viewing (species, area) — never to personal data. Sponsors get a monthly report of impressions, clicks and areas.</p>
+    <p><b>Contact:</b> ${esc(saved.contact || '—')}</p>
+    <p class="muted" style="font-size:11px">Figures from the app's own anonymous analytics (unique installs active in the period). Generated ${new Date().toLocaleDateString()}.</p>
+  </div>`;
+  $('#mkSave').onclick = () => { const o = {}; document.querySelectorAll('[data-k]').forEach((el) => (o[el.dataset.k] = el.value)); localStorage.setItem('media-kit', JSON.stringify(o)); mediaKit(); };
+}
+
+// ---------- Users ----------
+async function users(q = '') {
+  const rows = must(await sb.rpc('admin_users', { q: q || null, lim: 200 }));
+  $('#main').innerHTML = `<div class="toolbar"><b>Users</b><input id="uq" placeholder="Search email or display name" value="${esc(q)}"><button class="act" id="ugo">Search</button>
+  <span class="muted">To delete an account entirely: Supabase → Authentication → Users.</span></div>
+  <div class="card"><table><tr><th>Email / name</th><th>Joined</th><th>Last sign-in</th><th>Catches</th><th>Posts</th><th>Reports</th><th>Status</th><th></th></tr>
+  ${rows.map((u) => `<tr><td>${esc(u.email)}<div class="muted">${esc(u.display_name || '')}</div></td><td class="muted">${esc(u.created_at.slice(0, 10))}</td><td class="muted">${esc(ago(u.last_sign_in_at))}</td>
+  <td>${fmt(u.catches)}</td><td>${fmt(u.posts)}</td><td class="${u.reports_flagged ? 'warn' : ''}">${fmt(u.reports_flagged)}</td>
+  <td>${u.is_admin ? '<span class="pill">admin</span> ' : ''}${u.verified_reporter ? '<span class="pill">verified</span> ' : ''}${u.suspended_until && new Date(u.suspended_until) > new Date() ? `<span class="bad">suspended to ${esc(u.suspended_until.slice(0, 10))}</span>` : ''}</td>
+  <td><button class="act" data-u="${u.id}" data-op="verified" data-v="${!u.verified_reporter}">${u.verified_reporter ? 'Remove badge' : 'Give badge'}</button>
+  ${u.suspended_until && new Date(u.suspended_until) > new Date() ? `<button class="act" data-u="${u.id}" data-op="unsuspend">Unsuspend</button>` : `<button class="act danger" data-u="${u.id}" data-op="suspend">Suspend 7 d</button>`}
+  <button class="act" data-u="${u.id}" data-op="admin" data-v="${!u.is_admin}">${u.is_admin ? 'Remove admin' : 'Make admin'}</button></td></tr>`).join('')}</table></div>`;
+  $('#ugo').onclick = () => users($('#uq').value.trim());
+  document.querySelectorAll('[data-op]').forEach((b) => (b.onclick = async () => {
+    const op = b.dataset.op, args = { target: b.dataset.u };
+    if (op === 'verified') args.verified = b.dataset.v === 'true';
+    if (op === 'admin') { if (!confirm('Change admin access for this account?')) return; args.make_admin = b.dataset.v === 'true'; }
+    if (op === 'suspend') args.suspend_until = new Date(Date.now() + 7 * 864e5).toISOString();
+    if (op === 'unsuspend') args.unsuspend = true;
+    must(await sb.rpc('admin_set_user', args)); users($('#uq').value.trim());
+  }));
+}
+
+// ---------- Broadcast ----------
+async function broadcast() {
+  const rows = must(await sb.from('broadcasts').select('*').order('created_at', { ascending: false }).limit(50));
+  $('#main').innerHTML = `<h2>Push broadcast</h2><div class="card"><p class="muted">Sends a notification to everyone who allowed notifications. Max one per 24 hours — use it for things anglers care about (big weather, app news, a fishing tournament). Goes out within the hour.</p>
+  <label>Title (60 max)</label><input id="b_t" maxlength="60"><label>Message (180 max)</label><textarea id="b_b" maxlength="180" rows="3"></textarea><button class="act primary" id="b_send">Queue broadcast</button></div>
+  ${rows.map((r) => `<div class="card"><b>${esc(r.title)}</b> <span class="pill">${esc(r.status)}</span><div>${esc(r.body)}</div><div class="muted">${esc(new Date(r.created_at).toLocaleString())}${r.sent_count != null ? ` · sent to ${fmt(r.sent_count)} devices` : ''}</div>
+  ${r.status === 'pending' ? `<button class="act danger" data-cancel="${r.id}">Cancel</button>` : ''}</div>`).join('')}`;
+  $('#b_send').onclick = async () => { if (!confirm('Send this to everyone?')) return; must(await sb.from('broadcasts').insert({ title: $('#b_t').value.trim(), body: $('#b_b').value.trim() })); broadcast(); };
+  document.querySelectorAll('[data-cancel]').forEach((b) => (b.onclick = async () => { must(await sb.from('broadcasts').update({ status: 'cancelled' }).eq('id', b.dataset.cancel)); broadcast(); }));
+}
+
+// ---------- Settings: app switches, store numbers, export ----------
+async function settings() {
+  const [cfgRows, store] = await Promise.all([sb.from('app_config').select('*').order('key').then(must), sb.from('store_stats').select('*').order('day', { ascending: false }).limit(60).then(must)]);
+  const input = (r) => typeof r.value === 'boolean' ? `<input type="checkbox" data-cfg="${esc(r.key)}" ${r.value ? 'checked' : ''} style="width:auto">`
+    : `<input data-cfg="${esc(r.key)}" value="${esc(r.value == null ? '' : r.value)}" placeholder="(empty = none)">`;
+  $('#main').innerHTML = `<h2>Settings</h2><div class="card"><h3>App switches (apply to every phone)</h3><table>${cfgRows.map((r) => `<tr><td><b>${esc(r.key)}</b><div class="muted">${esc(r.description || '')}</div></td><td style="width:45%">${input(r)}</td></tr>`).join('')}</table>
+  <p class="muted">Changes take effect the next time each phone opens the app.</p></div>
+  <div class="card"><h3>Store numbers</h3><p class="muted">Downloads only exist in App Store Connect (Trends) and Google Play Console (Statistics). Type them here — one row per day, or paste a CSV: <code>2026-10-01,ios,downloads,42</code></p>
+  <div class="grid"><input type="date" id="st_d"><select id="st_p"><option>ios</option><option>android</option></select><select id="st_m">${['downloads', 'updates', 'uninstalls', 'rating_avg', 'ratings_count', 'store_page_views'].map((m) => `<option>${m}</option>`).join('')}</select><input id="st_v" placeholder="Value"></div>
+  <button class="act primary" id="st_add">Save</button><label>Paste CSV (day,platform,metric,value)</label><textarea id="st_csv" rows="4"></textarea><button class="act" id="st_imp">Import CSV</button>
+  <table><tr><th>Day</th><th>Platform</th><th>Metric</th><th>Value</th></tr>${store.map((r) => `<tr><td>${esc(r.day)}</td><td>${esc(r.platform)}</td><td>${esc(r.metric)}</td><td>${fmt(r.value)}</td></tr>`).join('')}</table></div>
+  <div class="card"><h3>Export</h3><div class="toolbar"><input type="date" id="ex_from"><input type="date" id="ex_to"><button class="act primary" id="ex_go">Download daily metrics (CSV)</button></div></div>`;
+  document.querySelectorAll('[data-cfg]').forEach((el) => (el.onchange = async () => {
+    let v = el.type === 'checkbox' ? el.checked : el.value.trim();
+    if (el.type !== 'checkbox') v = v === '' ? null : v;
+    must(await sb.from('app_config').update({ value: v, updated_at: new Date().toISOString() }).eq('key', el.dataset.cfg));
+  }));
+  $('#st_add').onclick = async () => { must(await sb.from('store_stats').upsert({ day: $('#st_d').value, platform: $('#st_p').value, metric: $('#st_m').value, value: Number($('#st_v').value) })); settings(); };
+  $('#st_imp').onclick = async () => {
+    const rows = $('#st_csv').value.split(/\n/).map((l) => l.split(',').map((x) => x.trim())).filter((r) => r.length === 4 && /^\d{4}-\d{2}-\d{2}$/.test(r[0]))
+      .map(([day, platform, metric, value]) => ({ day, platform, metric, value: Number(value) }));
+    if (!rows.length) return alert('No valid rows found.');
+    must(await sb.from('store_stats').upsert(rows)); alert(`Imported ${rows.length} rows.`); settings();
+  };
+  $('#ex_go').onclick = async () => {
+    const rows = must(await sb.from('metrics_daily').select('day,data').gte('day', $('#ex_from').value || '2000-01-01').lte('day', $('#ex_to').value || '2100-01-01').order('day'));
+    const keys = [...new Set(rows.flatMap((r) => Object.keys(r.data).filter((k) => typeof r.data[k] !== 'object')))];
+    const csv = ['day,' + keys.join(','), ...rows.map((r) => [r.day, ...keys.map((k) => r.data[k] ?? '')].join(','))].join('\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'daily-metrics.csv'; a.click();
+  };
+}
+
+// ---------- moderation ----------
+async function moderation() {
+  const q = must(await sb.from('moderation_queue').select('*').order('created_at', { ascending: false }).limit(200));
+  const seen = new Set(); const items = q.filter((r) => (seen.has(r.target_id) ? false : seen.add(r.target_id)));
+  const blocks = await Promise.all(items.map(async (r) => {
+    let body = '', author = null;
+    if (r.target_type === 'post') { const p = (await sb.from('posts').select('*').eq('id', r.target_id).maybeSingle()).data; if (p) { author = p.author_id; body = `<b>${esc(p.title)}</b><pre>${esc(p.body)}</pre><span class="pill">${esc(p.moderation_status)}</span>`; } }
+    if (r.target_type === 'comment') { const c = (await sb.from('comments').select('*').eq('id', r.target_id).maybeSingle()).data; if (c) { author = c.author_id; body = `<pre>${esc(c.body)}</pre><span class="pill">${esc(c.moderation_status)}</span>`; } }
+    if (r.target_type === 'catch') { const c = (await sb.from('catch_reports').select('id,user_id,caught_at,quantity,weight_lb,technique,bait,notes,location_mode,verification_status,species(code,name)').eq('id', r.target_id).maybeSingle()).data; if (c) { author = c.user_id; body = `${esc(c.species?.name)} × ${esc(c.quantity)} ${c.weight_lb ? esc(c.weight_lb) + ' lb' : ''} · ${esc(c.technique || '')} ${esc(c.bait || '')} · ${esc(new Date(c.caught_at).toLocaleString())}<pre>${esc(c.notes || '')}</pre><span class="pill">${esc(c.verification_status)}</span> <span class="pill">${esc(c.location_mode)}</span>`; } }
+    return `<div class="card"><div class="muted">${esc(r.target_type)} · ${esc(r.reason)} · ${esc(r.open_reports)} open report(s) · ${ago(r.created_at)}</div>${body || '<i class="muted">Already deleted</i>'}
+      <div><button class="act danger" data-a="removed" data-t="${esc(r.target_type)}" data-id="${esc(r.target_id)}">Remove</button>
+      <button class="act" data-a="hidden" data-t="${esc(r.target_type)}" data-id="${esc(r.target_id)}">Hide</button>
+      <button class="act" data-a="visible" data-t="${esc(r.target_type)}" data-id="${esc(r.target_id)}">Restore / dismiss reports</button>
+      ${author ? `<button class="act danger" data-suspend="${esc(author)}">Suspend author 7 days</button>` : ''}</div></div>`;
+  }));
+  $('#main').innerHTML = `<h2>Moderation queue (${items.length})</h2>` + (blocks.join('') || '<div class="card good">Nothing waiting. 🎉</div>');
+  document.querySelectorAll('[data-a]').forEach((b) => (b.onclick = async () => {
+    const note = prompt('Note for the audit log (optional)') ?? '';
+    must(await sb.rpc('moderate', { target_type: b.dataset.t, target_id: b.dataset.id, action: b.dataset.a === 'hidden' && b.dataset.t === 'catch' ? 'removed' : b.dataset.a, note })); moderation();
+  }));
+  document.querySelectorAll('[data-suspend]').forEach((b) => (b.onclick = async () => {
+    const note = prompt('Reason (goes in the audit log)'); if (note === null) return;
+    must(await sb.rpc('suspend_user', { target: b.dataset.suspend, until_ts: new Date(Date.now() + 7 * 864e5).toISOString(), note })); alert('Suspended for 7 days.');
+  }));
+}
+
+// ---------- spots ----------
+const SPOT_TYPES = ['bank', 'knoll', 'reef', 'canyon', 'fathom_spot', 'island_feature', 'kelp', 'wreck', 'ridge', 'offshore_structure', 'other'];
+async function spots(qText = '') {
+  const rows = must(await sb.rpc('admin_spots', { q: qText || null }));
+  $('#main').innerHTML = `<h2>Fishing spots</h2><div class="card"><div style="display:flex;gap:8px"><input id="q" placeholder="Search name or alternate name" value="${esc(qText)}"><button class="act" id="go">Search</button><button class="act primary" id="new">+ New spot</button></div>
+  <p class="muted">Only add spots from a licensed or official source, and fill in the source. Every change is audited.</p></div><div id="edit"></div>
+  <div class="card"><table><tr><th>Name</th><th>Alt names</th><th>Lat, lon</th><th>Type</th><th>Source / license</th><th>Status</th><th></th></tr>
+  ${rows.map((r, i) => `<tr><td>${esc(r.canonical_name)}</td><td class="muted">${esc((r.alternate_names || []).join(', '))}</td><td>${r.lat.toFixed(5)}, ${r.lon.toFixed(5)}</td><td>${esc(r.spot_type)}</td>
+  <td class="muted">${esc(r.source_name)}<br>${esc(r.source_license)}</td><td class="${r.status === 'active' ? 'good' : 'warn'}">${esc(r.status)}</td><td><button class="act" data-i="${i}">Edit</button></td></tr>`).join('')}</table></div>`;
+  $('#go').onclick = () => spots($('#q').value.trim());
+  $('#new').onclick = () => spotForm({});
+  document.querySelectorAll('[data-i]').forEach((b) => (b.onclick = () => spotForm(rows[+b.dataset.i])));
+}
+function spotForm(r) {
+  $('#edit').innerHTML = `<div class="card"><h3>${r.id ? 'Edit' : 'New'} spot</h3><div class="grid">
+  <div><label>Name</label><input id="s_name" value="${esc(r.canonical_name || '')}"></div><div><label>Alternate names (comma separated)</label><input id="s_alt" value="${esc((r.alternate_names || []).join(', '))}"></div>
+  <div><label>Latitude (decimal)</label><input id="s_lat" value="${esc(r.lat ?? '')}"></div><div><label>Longitude (decimal, negative = W)</label><input id="s_lon" value="${esc(r.lon ?? '')}"></div>
+  <div><label>Type</label><select id="s_type">${SPOT_TYPES.map((t) => `<option ${t === r.spot_type ? 'selected' : ''}>${t}</option>`).join('')}</select></div><div><label>Depth (ft)</label><input id="s_depth" value="${esc(r.depth_ft ?? '')}"></div>
+  <div><label>Source name</label><input id="s_src" value="${esc(r.source_name || '')}"></div><div><label>Source URL</label><input id="s_url" value="${esc(r.source_url || '')}"></div>
+  <div><label>License / permission</label><input id="s_lic" value="${esc(r.source_license || '')}"></div><div><label>Coordinate confidence</label><select id="s_conf">${['high', 'medium', 'low'].map((t) => `<option ${t === r.coordinate_confidence ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+  <div><label>Status</label><select id="s_status">${['active', 'disabled', 'dev'].map((t) => `<option ${t === r.status ? 'selected' : ''}>${t}</option>`).join('')}</select></div></div>
+  <label>Description</label><textarea id="s_desc" rows="2">${esc(r.description || '')}</textarea><button class="act primary" id="s_save">Save</button><button class="act" id="s_cancel">Cancel</button></div>`;
+  $('#s_cancel').onclick = () => ($('#edit').innerHTML = '');
+  $('#s_save').onclick = async () => {
+    const lat = parseFloat($('#s_lat').value), lon = parseFloat($('#s_lon').value);
+    if (!(Math.abs(lat) <= 90 && Math.abs(lon) <= 180)) return alert('Check latitude/longitude (decimal degrees).');
+    if (!$('#s_lic').value.trim()) return alert('Every spot needs a source license or permission.');
+    must(await sb.rpc('admin_upsert_spot', { spot_id: r.id || null, name: $('#s_name').value.trim(), alt_names: $('#s_alt').value.split(',').map((x) => x.trim()).filter(Boolean),
+      lat, lon, spot: $('#s_type').value, depth: parseInt($('#s_depth').value) || null, descr: $('#s_desc').value.trim() || null, src_name: $('#s_src').value.trim(),
+      src_url: $('#s_url').value.trim() || null, src_license: $('#s_lic').value.trim(), confidence: $('#s_conf').value, st: $('#s_status').value }));
+    spots($('#q')?.value || '');
+  };
+}
+
+// ---------- categories ----------
+async function categories() {
+  const rows = must(await sb.from('forum_categories').select('*').order('sort'));
+  $('#main').innerHTML = `<h2>Forum categories</h2><div class="card"><table><tr><th>Sort</th><th>Name</th><th>Slug</th><th>Description</th><th>Active</th><th></th></tr>
+  ${rows.map((r) => `<tr><td><input data-f="sort" data-id="${r.id}" value="${esc(r.sort)}" style="width:60px"></td><td><input data-f="name" data-id="${r.id}" value="${esc(r.name)}"></td><td class="muted">${esc(r.slug)}</td>
+  <td><input data-f="description" data-id="${r.id}" value="${esc(r.description || '')}"></td><td><input type="checkbox" data-f="active" data-id="${r.id}" ${r.active ? 'checked' : ''}></td></tr>`).join('')}</table>
+  <h3>Add category</h3><div class="grid"><input id="c_name" placeholder="Name"><input id="c_slug" placeholder="slug-like-this"><input id="c_desc" placeholder="Description"></div><button class="act primary" id="c_add">Add</button></div>`;
+  document.querySelectorAll('[data-f]').forEach((el) => (el.onchange = async () => {
+    const v = el.type === 'checkbox' ? el.checked : el.dataset.f === 'sort' ? parseInt(el.value) : el.value;
+    must(await sb.from('forum_categories').update({ [el.dataset.f]: v }).eq('id', el.dataset.id));
+  }));
+  $('#c_add').onclick = async () => { must(await sb.from('forum_categories').insert({ name: $('#c_name').value.trim(), slug: $('#c_slug').value.trim(), description: $('#c_desc').value.trim() || null, sort: 500 })); categories(); };
+}
+
+// ---------- sponsors ----------
+const PLACEMENTS = ['presented_by', 'sponsor_intro', 'banner_dashboard', 'banner_reports', 'banner_community', 'catch_map_open'];
+const SECTIONS = ['Today', 'Weather', 'Catch Map', 'SST Map', 'Offshore Conditions', 'Catalina Report'];
+async function sponsors() {
+  const [adv, camps, stats] = await Promise.all([sb.from('advertisers').select('*').order('name'), sb.from('ad_campaigns').select('*').order('starts_at', { ascending: false }), sb.from('ad_campaign_stats').select('*')]);
+  const st = Object.fromEntries((must(stats) || []).map((s) => [s.id, s]));
+  const advs = must(adv);
+  $('#main').innerHTML = `<h2>Sponsors</h2><div class="card warn">Tip: use the <b>Ad Studio</b> (its own web address — SETUP.md Part P) to review, schedule and bill ads. Campaigns approved there show up in this list automatically; this page is for quick manual edits.</div>
+  <div class="card"><h3>Campaigns</h3><table><tr><th>Campaign</th><th>Advertiser</th><th>Placement</th><th>Dates</th><th>Impressions</th><th>Clicks</th><th>CTR</th><th>Active</th></tr>
+  ${must(camps).map((c) => `<tr><td>${esc(c.name)}<div class="muted">${esc(c.headline || '')} ${c.presented_by_section ? '· ' + esc(c.presented_by_section) : ''} ${esc((c.context_tags || []).join(', '))}</div></td>
+  <td>${esc(advs.find((a) => a.id === c.advertiser_id)?.name)}</td><td>${esc(c.placement)}</td><td class="muted">${esc(c.starts_at.slice(0, 10))} → ${esc(c.ends_at.slice(0, 10))}</td>
+  <td>${st[c.id]?.impressions ?? 0}</td><td>${st[c.id]?.clicks ?? 0}</td><td>${st[c.id]?.ctr_pct ?? '—'}%</td><td><input type="checkbox" data-camp="${c.id}" ${c.active ? 'checked' : ''}></td></tr>`).join('')}</table></div>
+  <div class="card"><h3>New campaign</h3><div class="grid">
+  <div><label>Advertiser</label><select id="a_adv">${advs.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select></div>
+  <div><label>Campaign name</label><input id="a_name"></div><div><label>Placement</label><select id="a_pl">${PLACEMENTS.map((p) => `<option>${p}</option>`).join('')}</select></div>
+  <div><label>"Presented by" section</label><select id="a_sec"><option value="">—</option>${SECTIONS.map((p) => `<option>${p}</option>`).join('')}</select></div>
+  <div><label>Logo / image URL (https)</label><input id="a_img"></div><div><label>Click-through URL</label><input id="a_click"></div>
+  <div><label>Headline</label><input id="a_head"></div><div><label>Context tags (e.g. tuna, catalina)</label><input id="a_tags"></div>
+  <div><label>Start</label><input type="date" id="a_start"></div><div><label>End</label><input type="date" id="a_end"></div><div><label>Max per person per day</label><input id="a_cap" value="3"></div></div>
+  <button class="act primary" id="a_add">Create campaign</button></div>
+  <div class="card"><h3>Advertisers</h3>${advs.map((a) => `<div>${esc(a.name)} <span class="muted">${esc(a.contact_email || '')} ${esc(a.website || '')}</span></div>`).join('')}
+  <div class="grid"><input id="v_name" placeholder="Business name"><input id="v_mail" placeholder="Contact email"><input id="v_web" placeholder="Website"></div><button class="act" id="v_add">Add advertiser</button></div>`;
+  document.querySelectorAll('[data-camp]').forEach((el) => (el.onchange = async () => must(await sb.from('ad_campaigns').update({ active: el.checked }).eq('id', el.dataset.camp))));
+  $('#v_add').onclick = async () => { must(await sb.from('advertisers').insert({ name: $('#v_name').value.trim(), contact_email: $('#v_mail').value.trim() || null, website: $('#v_web').value.trim() || null })); sponsors(); };
+  $('#a_add').onclick = async () => {
+    must(await sb.from('ad_campaigns').insert({ advertiser_id: +$('#a_adv').value, name: $('#a_name').value.trim(), placement: $('#a_pl').value, presented_by_section: $('#a_sec').value || null,
+      creative_url: $('#a_img').value.trim(), click_url: $('#a_click').value.trim() || null, headline: $('#a_head').value.trim() || null,
+      context_tags: $('#a_tags').value.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean), region: 'socal',
+      starts_at: new Date($('#a_start').value).toISOString(), ends_at: new Date($('#a_end').value + 'T23:59:59').toISOString(), max_per_user_per_day: parseInt($('#a_cap').value) || 3, active: true }));
+    sponsors();
+  };
+}
+
+// ---------- announcements ----------
+async function announcements() {
+  const rows = must(await sb.from('announcements').select('*').order('created_at', { ascending: false }));
+  $('#main').innerHTML = `<h2>Announcements (shown on Today)</h2><div class="card"><div class="grid"><input id="n_t" placeholder="Title"><input id="n_l" placeholder="Link (optional)"><input type="date" id="n_e" title="Ends"></div>
+  <label>Text</label><textarea id="n_b" rows="2"></textarea><button class="act primary" id="n_add">Publish</button></div>
+  ${rows.map((r) => `<div class="card"><b>${esc(r.title)}</b> <span class="pill">${r.active ? 'active' : 'off'}</span><div class="muted">${esc(r.body || '')}</div>
+  <div class="muted">${esc(r.starts_at.slice(0, 10))} → ${esc(r.ends_at?.slice(0, 10) || 'no end')}</div><button class="act" data-toggle="${r.id}" data-v="${r.active ? 0 : 1}">${r.active ? 'Turn off' : 'Turn on'}</button></div>`).join('')}`;
+  $('#n_add').onclick = async () => { must(await sb.from('announcements').insert({ title: $('#n_t').value.trim(), body: $('#n_b').value.trim() || null, link: $('#n_l').value.trim() || null, ends_at: $('#n_e').value ? new Date($('#n_e').value + 'T23:59:59').toISOString() : null })); announcements(); };
+  document.querySelectorAll('[data-toggle]').forEach((b) => (b.onclick = async () => { must(await sb.from('announcements').update({ active: b.dataset.v === '1' }).eq('id', b.dataset.toggle)); announcements(); }));
+}
+
+// ---------- data health (spec §58-59: know when NOAA stops updating before users complain) ----------
+async function health() {
+  const limits = { sst: 36, chl: 48, wind: 12, rules: 24 * 60 };
+  let api = null, layers = [];
+  try { api = await (await fetch(cfg.api + '/health')).json(); layers = (await (await fetch(cfg.api + '/layers')).json()).layers; } catch (e) { api = { status: 'unreachable', database: String(e) }; }
+  const row = (key, label, t) => { const h = t ? (Date.now() - new Date(t)) / 36e5 : Infinity; const cls = !t ? 'bad' : h > limits[key] ? 'warn' : 'good'; return `<tr><td>${esc(label)}</td><td class="${cls}">${t ? esc(ago(t)) : 'missing'}</td><td class="muted">limit ${limits[key] >= 48 ? limits[key] / 24 + ' days' : limits[key] + ' h'}</td></tr>`; };
+  const g = (k) => layers.find((l) => l.key === k) || {};
+  const sources = must(await sb.from('data_sources').select('*').order('name'));
+  $('#main').innerHTML = `<h2>Data health</h2><div class="card"><b>API</b>: <span class="${api.status === 'ok' ? 'good' : 'bad'}">${esc(api.status)}</span> · database: <span class="${api.database === 'ok' ? 'good' : 'bad'}">${esc(api.database)}</span></div>
+  <div class="card"><table><tr><th>Layer</th><th>Latest data</th><th></th></tr>
+  ${row('sst', 'Water temperature (SST)', g('sst').dates?.[0]?.observed_at)}${row('chl', 'Chlorophyll', g('chl').dates?.[0]?.observed_at)}${row('wind', 'Wind forecast run', g('wind').run)}${row('rules', 'MPAs & hazards checked', g('rules').checked_at)}</table>
+  ${(g('rules').layers || []).map((l) => `<div class="muted">${esc(l.label)}: ${l.available ? `<span class="good">${esc(l.count)} features</span>${l.stale ? ' <span class="warn">(last good copy — latest check failed)</span>' : ''}` : `<span class="warn">${esc(l.error || l.note || 'unavailable')}</span>`}</div>`).join('')}
+  <p class="muted">If a layer goes amber/red: GitHub → Actions → Ocean data → look at the latest run's log.</p></div>
+  <div class="card"><h3>Data-source registry</h3><table><tr><th>Source</th><th>Provider</th><th>Notes</th><th>Verified</th><th>Enabled</th><th></th></tr>
+  ${sources.map((s) => `<tr><td>${esc(s.name)}</td><td class="muted">${esc(s.provider)}</td><td class="muted">${esc(s.commercial_notes || '')}</td><td class="${s.last_verified_at ? 'good' : 'warn'}">${s.last_verified_at ? esc(s.last_verified_at.slice(0, 10)) : 'not yet'}</td>
+  <td><input type="checkbox" data-src="${s.id}" ${s.enabled ? 'checked' : ''}></td><td><button class="act" data-verify="${s.id}">Mark verified today</button></td></tr>`).join('')}</table></div>`;
+  document.querySelectorAll('[data-src]').forEach((el) => (el.onchange = async () => must(await sb.from('data_sources').update({ enabled: el.checked }).eq('id', el.dataset.src))));
+  document.querySelectorAll('[data-verify]').forEach((b) => (b.onclick = async () => { must(await sb.from('data_sources').update({ last_verified_at: new Date().toISOString() }).eq('id', b.dataset.verify)); health(); }));
+}
+
+// ---------- audit ----------
+async function audit() {
+  const rows = must(await sb.from('audit_log').select('*').order('at', { ascending: false }).limit(300));
+  $('#main').innerHTML = `<h2>Audit log</h2><div class="card"><table><tr><th>When</th><th>Action</th><th>Target</th><th>Details</th></tr>
+  ${rows.map((r) => `<tr><td class="muted">${esc(new Date(r.at).toLocaleString())}</td><td>${esc(r.action)}</td><td class="muted">${esc(r.target_type)} ${esc(r.target_id || '')}</td><td class="muted">${esc(JSON.stringify(r.details))}</td></tr>`).join('')}</table></div>`;
+}
+
+// ---------- start ----------
+(async () => {
+  if (!cfg) return setupForm();
+  sb = supabase.createClient(cfg.url, cfg.key);
+  const { data } = await sb.auth.getSession();
+  if (!data.session) return signIn();
+  me = data.session.user;
+  const prof = (await sb.from('profiles').select('is_admin, display_name').eq('id', me.id).maybeSingle()).data;
+  $('#who').innerHTML = `${esc(me.email)} · <a href="#" id="out" style="color:var(--live)">Sign out</a> · <a href="#" id="reset" style="color:var(--muted)">Change connection</a>`;
+  $('#out').onclick = async (e) => { e.preventDefault(); await sb.auth.signOut(); location.reload(); };
+  $('#reset').onclick = (e) => { e.preventDefault(); localStorage.removeItem('admin-cfg'); location.reload(); };
+  if (!prof?.is_admin) { $('#main').innerHTML = '<div class="card bad">This account is not an admin. Set profiles.is_admin = true in Supabase for your account.</div>'; return; }
+  show('Overview');
+})();
+</script>
+</body>
+</html>

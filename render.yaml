@@ -1,0 +1,77 @@
+services:
+  - type: web
+    name: fishing-app-api
+    runtime: python
+    rootDir: api
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: DATABASE_URL
+        sync: false
+      - key: NWS_USER_AGENT
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: "*"
+      - key: STORAGE
+        value: r2
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: PUBLIC_DATA_URL
+        sync: false
+      # Ad Studio card payments (optional — leave blank to offer only Zelle/Venmo/check). SETUP.md → Part P.
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: STUDIO_URL
+        sync: false
+  - type: web
+    name: fishing-app-admin
+    runtime: static
+    rootDir: apps/admin
+    buildCommand: ""
+    staticPublishPath: .
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src *; img-src * data:; style-src 'self' 'unsafe-inline'"
+  - type: web
+    name: fishing-app-studio
+    runtime: static
+    rootDir: apps/studio
+    buildCommand: ""
+    staticPublishPath: .
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Content-Security-Policy
+        # 'unsafe-inline' scripts are needed only for previewing HTML5 ads, which run inside a sandboxed frame.
+        value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; worker-src 'self' blob:; connect-src *; img-src * data: blob:; media-src * blob:; frame-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; font-src * data:"
+      - path: /sw.js
+        name: Cache-Control
+        value: no-cache
+  - type: web
+    name: fishing-app-legal
+    runtime: static
+    rootDir: apps/legal
+    buildCommand: ""
+    staticPublishPath: .

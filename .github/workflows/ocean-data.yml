@@ -1,0 +1,52 @@
+# Free daily ocean-data job (GitHub Actions). Downloads NOAA satellite data for SoCal,
+# finds temperature breaks and chlorophyll edges, renders map tiles, uploads to Cloudflare R2.
+name: Ocean data
+
+on:
+  schedule:
+    - cron: "20 14 * * *"   # 7:20 AM Pacific (PDT) — after NOAA's overnight products post
+    - cron: "20 2 * * *"    # 7:20 PM Pacific — catches late-posting chlorophyll
+    - cron: "50 4,10,16,22 * * *"  # wind: ~5 h after each GFS run
+    - cron: "30 15 * * 1"          # rules & hazards (MPAs, wrecks, lanes): Mondays
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "sst, chl, bathy, wind, rules, all, verify or discover"
+        default: "all"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: api
+    env:
+      STORAGE: r2
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      PUBLIC_DATA_URL: ${{ secrets.PUBLIC_DATA_URL }}
+      SST_DATASET: ${{ vars.SST_DATASET }}
+      CHL_DATASET: ${{ vars.CHL_DATASET }}
+      MPA_URL: ${{ vars.MPA_URL }}
+      ENC_SERVICE_URL: ${{ vars.ENC_SERVICE_URL }}
+      CLOSURES_URL: ${{ vars.CLOSURES_URL }}
+      MEXICO_MPA_URL: ${{ vars.MEXICO_MPA_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: api/requirements.txt
+      - run: pip install -r requirements.txt -r requirements-pipeline.txt
+      - run: python -m tests.run
+      - name: Ocean job
+        run: |
+          if [ -n "${{ github.event.inputs.job }}" ]; then JOB="${{ github.event.inputs.job }}";
+          elif [ "${{ github.event.schedule }}" = "50 4,10,16,22 * * *" ]; then JOB=wind;
+          elif [ "${{ github.event.schedule }}" = "30 15 * * 1" ]; then JOB=rules;
+          else JOB=all; fi
+          python -m ocean.jobs $JOB
