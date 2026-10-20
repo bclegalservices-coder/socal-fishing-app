@@ -31,7 +31,8 @@ class GridDataset:
 
 
 def _env(name: str, default: str) -> str:
-    return os.environ.get(name, default)
+    # GitHub passes unset repository variables as empty strings, so treat blank the same as missing.
+    return os.environ.get(name) or default
 
 
 PFEG = "https://coastwatch.pfeg.noaa.gov/erddap"

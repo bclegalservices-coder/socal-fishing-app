@@ -158,3 +158,19 @@ def test_wind_arrows_direction_and_speed():
     assert shaft[1][0] > shaft[0][0]  # tip is east of tail
     fc = arrows(lats, lons, np.array([[0.0]]), np.array([[-5.0]]))  # blowing south = from north
     assert fc["features"][0]["properties"]["from"] == 0
+
+
+def test_blank_settings_fall_back_to_defaults():
+    """GitHub Actions passes unset repository variables as empty strings; they must not blank out dataset IDs."""
+    import importlib, os
+    os.environ["SST_DATASET"] = ""
+    os.environ["MPA_URL"] = ""
+    try:
+        import ocean.registry as reg
+        import rules.layers as rl
+        importlib.reload(reg); importlib.reload(rl)
+        assert reg._env("SST_DATASET", "jplMURSST41") == "jplMURSST41"
+        assert isinstance(rl.CDFW_MPA, str) and rl.CDFW_MPA.startswith("https://services2.arcgis.com/")
+    finally:
+        del os.environ["SST_DATASET"], os.environ["MPA_URL"]
+        importlib.reload(reg); importlib.reload(rl)

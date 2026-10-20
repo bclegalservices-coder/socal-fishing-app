@@ -8,14 +8,13 @@ VERIFY every source before launch (spec §63); the job reports exactly what it f
 import os
 import re
 
-CDFW_MPA = os.environ.get(
-    "MPA_URL",
+CDFW_MPA = os.environ.get("MPA_URL") or (
     # CDFW 'California Marine Protected Areas' (ds582) feature service. Verify on data.ca.gov / CDFW BIOS.
-    "https://services2.arcgis.com/Uq9r85Potqm3MfRV/arcgis/rest/services/biosds582_fpu/FeatureServer/0",
+    "https://services2.arcgis.com/Uq9r85Potqm3MfRV/arcgis/rest/services/biosds582_fpu/FeatureServer/0"
 )
-ENC_SERVICE = os.environ.get("ENC_SERVICE_URL", "https://encdirect.noaa.gov/arcgis/rest/services/encdirect/enc_coastal/MapServer")
-CLOSURES_URL = os.environ.get("CLOSURES_URL", "")   # NOAA Fisheries: Cowcod Conservation Areas / RCA lines (GeoJSON or ArcGIS layer)
-MEXICO_MPA_URL = os.environ.get("MEXICO_MPA_URL", "")  # CONANP, where official boundaries are published
+ENC_SERVICE = os.environ.get("ENC_SERVICE_URL") or "https://encdirect.noaa.gov/arcgis/rest/services/encdirect/enc_coastal/MapServer"
+CLOSURES_URL = os.environ.get("CLOSURES_URL") or ""   # NOAA Fisheries: Cowcod Conservation Areas / RCA lines (GeoJSON or ArcGIS layer)
+MEXICO_MPA_URL = os.environ.get("MEXICO_MPA_URL") or ""  # CONANP, where official boundaries are published
 
 REGS_LINK = "https://wildlife.ca.gov/Conservation/Marine/MPAs"
 

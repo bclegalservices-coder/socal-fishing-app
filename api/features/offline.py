@@ -11,7 +11,10 @@ def style(tile_templates: list[str]) -> dict:
     """MapLibre style listing exactly the tile URLs the app uses, so downloaded tiles match the live map."""
     sources, layers = {}, [{"id": "bg", "type": "background", "paint": {"background-color": "#0C1D2A"}}]
     for i, t in enumerate(tile_templates[:6]):
-        sources[f"s{i}"] = {"type": "raster", "tiles": [t], "tileSize": 256}
+        # On-demand ArcGIS exports (NOAA chart, relief) are drawn as 512-point squares in the app; match that here
+        # so the pack stores exactly the squares the live map asks for.
+        size = 512 if "{bbox-epsg-3857}" in t else 256
+        sources[f"s{i}"] = {"type": "raster", "tiles": [t], "tileSize": size}
         layers.append({"id": f"l{i}", "type": "raster", "source": f"s{i}"})
     return {"version": 8, "name": "offline-pack", "sources": sources, "layers": layers}
 

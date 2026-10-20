@@ -19,6 +19,9 @@ def test_ad_choice_prefers_context():
 def test_offline_style_lists_tiles():
     s = style(["https://a/{z}/{x}/{y}.png", "https://b/{z}/{x}/{y}.png"])
     assert s["version"] == 8 and s["sources"]["s1"]["tiles"] == ["https://b/{z}/{x}/{y}.png"] and len(s["layers"]) == 3
+    assert s["sources"]["s0"]["tileSize"] == 256
+    e = style(["https://noaa/export?bbox={bbox-epsg-3857}&f=image"])
+    assert e["sources"]["s0"]["tileSize"] == 512
 
 
 def _c(code, minutes_ago, lat=33.35, lon=-118.4, verified=True, q=1):
