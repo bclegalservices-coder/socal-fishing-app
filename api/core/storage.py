@@ -21,6 +21,15 @@ class LocalStore:
     def url(self, key: str) -> str:
         return f"{self.public_base.rstrip('/')}/{key}"
 
+    def delete_prefix(self, prefix: str) -> int:
+        import shutil
+        p = self.root / prefix
+        if p.is_dir():
+            n = sum(1 for _ in p.rglob("*") if _.is_file())
+            shutil.rmtree(p)
+            return n
+        return 0
+
 
 class R2Store:
     def __init__(self):
@@ -44,6 +53,23 @@ class R2Store:
             return self.s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
         except self.s3.exceptions.NoSuchKey:
             return None
+        except Exception as e:   # permissions / network: treat as missing, but say why in the server log
+            print(f"storage: could not read {key}: {type(e).__name__}: {str(e)[:200]}")
+            return None
+
+    def delete_prefix(self, prefix: str) -> int:
+        """Delete every object under a folder (old wind runs). Returns how many were removed."""
+        n, token = 0, None
+        while True:
+            kw = {"Bucket": self.bucket, "Prefix": prefix, **({"ContinuationToken": token} if token else {})}
+            page = self.s3.list_objects_v2(**kw)
+            keys = [{"Key": o["Key"]} for o in page.get("Contents", [])]
+            for i in range(0, len(keys), 1000):
+                self.s3.delete_objects(Bucket=self.bucket, Delete={"Objects": keys[i:i + 1000], "Quiet": True})
+            n += len(keys)
+            if not page.get("IsTruncated"):
+                return n
+            token = page.get("NextContinuationToken")
 
     def url(self, key: str) -> str:
         return f"{self.public_base.rstrip('/')}/{key}"

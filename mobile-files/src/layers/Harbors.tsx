@@ -24,6 +24,27 @@ export const HARBOR_KINDS: Record<string, { label: string; color: string; icon: 
   service: { label: 'Boater services', color: '#1F3A5F', icon: '🔧' },
 };
 
+/** Keeps one label per patch of screen (about 120 × 30 points) so names never pile on top of each other.
+ *  Features earlier in the list win, so sort the important ones first. */
+export function declutter<T extends { geometry: { coordinates: number[] } }>(features: T[], zoom: number, max: number): T[] {
+  const degPerPx = 360 / (256 * 2 ** zoom);
+  const cw = 120 * degPerPx, ch = 30 * degPerPx;
+  const used = new Set<string>();
+  const out: T[] = [];
+  for (const f of features) {
+    const [lon, lat] = f.geometry.coordinates;
+    const cx = Math.floor(lon / cw), cy = Math.floor(lat / ch);
+    const key = `${cx}:${cy}`;
+    if (used.has(key) || used.has(`${cx - 1}:${cy}`) || used.has(`${cx + 1}:${cy}`)) continue;
+    used.add(key);
+    out.push(f);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+const LABEL_ORDER = ['fuel', 'bait', 'pumpout', 'ramp', 'marina', 'tackle', 'service', 'harbor_office'];
+
 /** Which point kinds each switch shows. */
 export function enabledKinds(on: LayerState['on']): string[] {
   const k: string[] = [];
@@ -68,15 +89,16 @@ export function HarborLayers({ fc, s, view, onPress }: { fc: any; s: LayerState;
   // Names next to the dots once you zoom into a harbor (at most 50 at a time).
   const labels = useMemo(() => {
     if (!view || view.zoom < 13 || !kinds.length) return [];
-    const out: any[] = [];
+    const inView: any[] = [];
     for (const f of fc?.features ?? []) {
       if (f.geometry?.type !== 'Point' || !kinds.includes(f.properties?.kind)) continue;
       const [lon, lat] = f.geometry.coordinates;
       if (lon < view.minLon || lon > view.maxLon || lat < view.minLat || lat > view.maxLat) continue;
-      out.push(f);
-      if (out.length >= 50) break;
+      inView.push(f);
     }
-    return out;
+    inView.sort((a, b) => LABEL_ORDER.indexOf(a.properties.kind) - LABEL_ORDER.indexOf(b.properties.kind)
+      || Number(!a.properties.name) - Number(!b.properties.name));
+    return declutter(inView, view.zoom, 30);
   }, [fc, view, kinds]);
 
   if (!anything || !fc?.features?.length) return null;

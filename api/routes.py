@@ -148,7 +148,17 @@ async def ad_event(request: Request, body: dict = Body(...)):
 
 
 @router.get("/offline/style.json")
-async def offline_style(tiles: list[str] = Query(...)):
+async def offline_style(tiles: list[str] | None = Query(None), t: str | None = None):
+    """Tile list either as ?t=<base64url JSON list> (the app's form: no %-codes in the address, which crash the
+    phone's map engine when a request fails) or the older ?tiles=...&tiles=... form."""
+    if t:
+        import base64
+        try:
+            tiles = json.loads(base64.urlsafe_b64decode(t + "=" * (-len(t) % 4)).decode())
+        except Exception:
+            raise HTTPException(400, "bad tile list")
+    if not tiles or not all(isinstance(x, str) and x.startswith("https://") for x in tiles):
+        raise HTTPException(400, "tiles required")
     return offline_mod.style(tiles)
 
 

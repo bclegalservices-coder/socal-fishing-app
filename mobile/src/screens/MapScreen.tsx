@@ -35,7 +35,7 @@ import { CatchBar } from '../components/CatchBar';
 import { ClusterSheet } from '../components/ReportView';
 import { BuddyMarkers } from '../components/Buddies';
 import { loadCoordFormat } from '../coordPref';
-import { HarborLayers, harborCard, useHarbors } from '../layers/Harbors';
+import { HarborLayers, declutter, harborCard, useHarbors } from '../layers/Harbors';
 import { harborsOf } from '../layers/catalog';
 import { GroupPins } from '../components/GroupPins';
 import { SendToGroupSheet } from '../community/SendToGroupSheet';
@@ -457,9 +457,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     for (const f of publicSpots?.features ?? []) {
       const [lon, lat] = f.geometry?.coordinates ?? [];
       if (lon >= view.minLon && lon <= view.maxLon && lat >= view.minLat && lat <= view.maxLat) out.push(f);
-      if (out.length >= 60) break;
     }
-    return out;
+    return declutter(out, view.zoom, 40);
   }, [publicSpots, view, layers.on.spots]);
   const mySpotsFC = useMemo(() => fc(mySpots.map((s) => pointF(s, { id: s.id, name: s.name, subtitle: 'Private — only you' }))), [mySpots]);
   const pinFC = useMemo(() => fc(sel?.kind === 'pin' ? [pointF(sel.pt)] : []), [sel]);

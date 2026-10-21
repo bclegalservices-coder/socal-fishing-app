@@ -50,7 +50,7 @@ function setupForm() {
 
 async function signIn() {
   $('#main').innerHTML = `<div class="card"><h2>Sign in</h2><label>Email</label><input id="em"><button class="act primary" id="send">Email me a code</button>
-  <div id="codebox" hidden><label>6-digit code</label><input id="code"><button class="act primary" id="ver">Sign in</button></div><p id="msg" class="muted"></p></div>`;
+  <div id="codebox" hidden><label>Code from the email</label><input id="code"><button class="act primary" id="ver">Sign in</button></div><p id="msg" class="muted"></p></div>`;
   $('#send').onclick = async () => { const { error } = await sb.auth.signInWithOtp({ email: $('#em').value.trim(), options: { shouldCreateUser: false } }); $('#msg').textContent = error ? error.message : 'Code sent.'; if (!error) $('#codebox').hidden = false; };
   $('#ver').onclick = async () => { const { error } = await sb.auth.verifyOtp({ email: $('#em').value.trim(), token: $('#code').value.trim(), type: 'email' }); if (error) $('#msg').textContent = error.message; else location.reload(); };
 }

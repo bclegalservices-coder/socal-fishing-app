@@ -272,3 +272,47 @@ def test_sst_has_backup_servers():
         c = list(sst_candidates())
         assert "coastwatch.pfeg" in c[0].erddap and "upwell" in c[1].erddap and c[2].erddap == "copernicus"
         assert c[2].units == "K"
+
+
+def test_wind_speed_tiles_and_uv_grid():
+    import tempfile
+    import numpy as np
+    from core.storage import LocalStore
+    from ocean.wind import speed_tiles, uv_grid
+    lats = np.arange(32.0, 34.01, 0.25)
+    lons = np.arange(-119.0, -116.99, 0.25)
+    u = np.full((lats.size, lons.size), 5.0)
+    v = np.full((lats.size, lons.size), -5.0)
+    st = LocalStore(tempfile.mkdtemp())
+    n = speed_tiles(st, lats, lons, u, v, "tiles/wind/t/f000", (-119.0, 32.0, -117.0, 34.0))
+    assert n > 0 and st.get("manifests/none.json") is None
+    g = uv_grid(lats, lons, u, v)
+    assert len(g["u"]) == lats.size and g["u"][0][0] == 5.0 and g["v"][0][0] == -5.0
+
+
+def test_local_store_delete_prefix():
+    import tempfile
+    from core.storage import LocalStore
+    st = LocalStore(tempfile.mkdtemp())
+    st.put("tiles/wind/socal/2026010100/f000/5/1/1.png", b"x")
+    st.put("tiles/wind/socal/2026010106/f000/5/1/1.png", b"x")
+    assert st.delete_prefix("tiles/wind/socal/2026010100/") == 1
+    assert st.get("tiles/wind/socal/2026010106/f000/5/1/1.png") == b"x"
+
+
+def test_hrrr_rotation_and_regrid():
+    import numpy as np
+    from ocean.hrrr import LOV, regrid, rotate_to_earth
+    # On the grid's center longitude the grid is already north-up: nothing changes.
+    u, v = rotate_to_earth(np.array([3.0]), np.array([4.0]), np.array([LOV]))
+    assert abs(u[0] - 3.0) < 1e-9 and abs(v[0] - 4.0) < 1e-9
+    # West of it (SoCal, -118) the grid is turned; speed must stay the same.
+    u, v = rotate_to_earth(np.array([0.0]), np.array([10.0]), np.array([-118.0]))
+    assert abs(np.hypot(u[0], v[0]) - 10.0) < 1e-9 and u[0] < 0
+    # A slightly skewed curvilinear grid resamples onto a regular one.
+    jj, ii = np.meshgrid(np.arange(60), np.arange(60))
+    lat2 = 32.0 + ii * 0.04 + jj * 0.002
+    lon2 = -119.0 + jj * 0.04 - ii * 0.002
+    lats, lons, g = regrid(lat2, lon2, {"u": np.full(lat2.shape, 7.0)}, (-118.8, 32.2, -117.5, 33.8))
+    assert lats[0] == 32.2 and abs(lons[-1] - (-117.5)) < 0.031
+    assert np.nanmin(g["u"]) == 7.0 and np.isfinite(g["u"]).mean() > 0.95
