@@ -20,10 +20,31 @@ export const NOAA_CHART_MINZOOM = 3;
  *  5 special areas · 6 buoys, beacons, lights · 7 services & small-craft facilities. */
 export type ChartDetail = 'seabed' | 'lanes' | 'areas' | 'navaids' | 'services';
 export const CHART_DETAIL_LAYER: Record<ChartDetail, number> = { seabed: 3, lanes: 4, areas: 5, navaids: 6, services: 7 };
-export function noaaChartTiles(show: Record<ChartDetail, boolean>): string {
-  const ids = [0, 1, 2, ...(Object.keys(CHART_DETAIL_LAYER) as ChartDetail[]).filter((k) => show[k]).map((k) => CHART_DETAIL_LAYER[k])].sort((a, b) => a - b);
-  return `${NOAA_CHART_TILES}&layers=show:${ids.join(',')}`;
+/** NOAA chart display settings (S-52). DisplayLightSectors: 1 = off, 2 = on. The light sectors are the big yellow /
+ *  orange circles and arcs around lighthouses (which color a light shows from which direction). */
+/*  ColorScheme: 0 day, 1 dusk, 2 night (NOAA's own dark chart, easy on night vision).
+ *  PointSymbolizationType: 1 simplified (clean modern symbols), 2 paper chart. */
+function chartDisplayParams(o: { lightCircles: boolean; night: boolean; simple: boolean }): string {
+  const Parameter = [
+    { name: 'DisplayLightSectors', value: o.lightCircles ? 2 : 1 },
+    { name: 'ColorScheme', value: o.night ? 2 : 0 },
+    { name: 'PointSymbolizationType', value: o.simple ? 1 : 2 },
+  ];
+  const p = { ECDISParameters: { version: '10.9.1', DynamicParameters: { Parameter } } };
+  return `&display_params=${encodeURIComponent(JSON.stringify(p))}`;
 }
+export function noaaChartTiles(show: Record<ChartDetail, boolean> & { lightCircles?: boolean; simpleSymbols?: boolean }, night = false): string {
+  const ids = [0, 1, 2, ...(Object.keys(CHART_DETAIL_LAYER) as ChartDetail[]).filter((k) => show[k]).map((k) => CHART_DETAIL_LAYER[k])].sort((a, b) => a - b);
+  return `${NOAA_CHART_TILES}&layers=show:${ids.join(',')}${chartDisplayParams({ lightCircles: !!show.lightCircles, night, simple: !!show.simpleSymbols })}`;
+}
+
+/** Backup chlorophyll when our server has none: NASA's ready-made daily picture tiles (VIIRS satellite pass,
+ *  clouds show as gaps). Free, no account. Yesterday's date (UTC), since today's pass may not be in yet. */
+export function nasaChlTiles(): string {
+  const d = new Date(Date.now() - 24 * 3600 * 1000).toISOString().slice(0, 10);
+  return `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_L2_Chlorophyll_A/default/${d}/GoogleMapsCompatible_Level7/{z}/{y}/{x}.png`;
+}
+export const NASA_CHL_ATTRIBUTION = 'NASA GIBS · VIIRS chlorophyll';
 
 // Map Options overlays (both free, public US-government data):
 // Satellite = USGS National Map orthoimagery (USDA NAIP, ~1 m detail on US land and coast; public domain).

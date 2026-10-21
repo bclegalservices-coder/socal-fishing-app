@@ -39,7 +39,11 @@ function part(v: number, pos: string, neg: string, fmt: CoordFormat, degWidth: n
 }
 
 /** e.g. formatLatLon(33.40125, -117.99667, 'ddm') -> "33°24.075′N  117°59.800′W" */
-export function formatLatLon(lat: number, lon: number, fmt: CoordFormat = 'ddm'): string {
+let currentFormat: CoordFormat = 'ddm';
+export const setCoordFormat = (f: CoordFormat) => { currentFormat = f; };
+export const getCoordFormat = () => currentFormat;
+
+export function formatLatLon(lat: number, lon: number, fmt: CoordFormat = currentFormat): string {
   return `${part(lat, 'N', 'S', fmt, 2)}  ${part(lon, 'E', 'W', fmt, 3)}`;
 }
 

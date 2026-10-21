@@ -79,6 +79,19 @@ def fetch_grid(ds: GridDataset, bbox: tuple, when="last", stride: int = 1, http:
     )
 
 
+def describe(erddap: str, dataset_id: str, http: httpx.Client | None = None) -> tuple[list[str], list[str]]:
+    """(dimension names in order, data variable names) for a griddap dataset. Raises if it isn't there."""
+    http = http or httpx.Client(timeout=60, follow_redirects=True)
+    r = http.get(f"{erddap.rstrip('/')}/info/{dataset_id}/index.json")
+    r.raise_for_status()
+    t = r.json()["table"]
+    cols = t["columnNames"]
+    ik, iname = cols.index("Row Type"), cols.index("Variable Name")
+    dims = [row[iname] for row in t["rows"] if row[ik] == "dimension"]
+    vars_ = [row[iname] for row in t["rows"] if row[ik] == "variable"]
+    return dims, vars_
+
+
 def search(erddap: str, words: str, http: httpx.Client | None = None, limit: int = 25) -> list[dict]:
     http = http or httpx.Client(timeout=60, follow_redirects=True)
     r = http.get(f"{erddap.rstrip('/')}/search/index.json", params={"searchFor": words, "page": 1, "itemsPerPage": limit})

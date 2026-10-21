@@ -7,6 +7,7 @@ import type { Session } from '@supabase/supabase-js';
 import { ageText, getJSON } from '../api';
 import { supabase, supabaseReady } from '../supabase';
 import { cardStyle, colors, makeStyles, touch, useTheme, type ThemeSetting } from '../theme';
+import { COORD_EXAMPLES, chooseCoordFormat, useCoordFormat } from '../coordPref';
 import { Btn, Card, ListGroup, ListRow, Note, ScreenHeader, SectionLabel, Segmented } from '../components/ui';
 import { MyFishingScreen } from './MyFishingScreen';
 import { DEMO_EMAIL, PRIVACY_URL, STUDIO_URL, SUPPORT_EMAIL, TERMS_URL } from '../config';
@@ -64,7 +65,8 @@ export function ProfileScreen({ onShowOnMap }: { onShowOnMap: (lat: number, lon:
 
         <SectionLabel>On the water</SectionLabel>
         <ListGroup>
-          <ListRow icon="cloud-download-outline" title="Offline maps" subtitle="Charts, seafloor, rules and tides saved for no-signal days" onPress={() => setPage('offline')} last={!session} />
+          <ListRow icon="cloud-download-outline" title="Offline maps" subtitle="Charts, seafloor, rules and tides saved for no-signal days" onPress={() => setPage('offline')} />
+          <CoordFormatRow last={!session} />
           {session ? <ListRow icon="notifications-outline" title="Alerts" subtitle="Species, bite, water temperature and marine warnings" onPress={() => setPage('alerts')} last /> : null}
         </ListGroup>
 
@@ -256,3 +258,11 @@ const useSt = makeStyles((colors) => ({
   link: { paddingVertical: 8 },
   linkT: { color: colors.live, fontSize: 15 },
 }));
+
+/** Me → On the water → Coordinate format. Applies everywhere positions are shown. */
+function CoordFormatRow({ last }: { last?: boolean }) {
+  const f = useCoordFormat();
+  const order = ['ddm', 'dd', 'dms'] as const;
+  const next = order[(order.indexOf(f) + 1) % order.length];
+  return <ListRow icon="locate-outline" title="Coordinate format" subtitle={`${COORD_EXAMPLES[f]} · tap to change`} onPress={() => chooseCoordFormat(next)} chevron={false} last={last} />;
+}

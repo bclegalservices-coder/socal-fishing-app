@@ -4,7 +4,7 @@ import { ageText } from '../api';
 import { colors, touch, makeStyles } from '../theme';
 import type { Catalog } from '../types';
 import { external, grid, wind } from './catalog';
-import { PRESETS, type LayerKey, type LayerState, type MapOverlay } from './state';
+import { DEFAULT_LAYERS, PRESETS, type LayerKey, type LayerState, type MapOverlay } from './state';
 import { track } from '../analytics';
 
 type Props = { catalog: Catalog | null; cached: boolean; s: LayerState; set: (fn: (s: LayerState) => LayerState) => void;
@@ -117,13 +117,15 @@ export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPla
           <Text style={st.group}>Chart details</Text>
           <Text style={st.note}>Turn off what you don't need. These are drawn on the NOAA chart itself.</Text>
           {([
-            ['navaids', 'Buoys, beacons & lights', 'Includes the colored light-range circles around lighthouses'],
+            ['navaids', 'Buoys, lights & radio towers', 'Pink teardrops = lights · pink circles with a dot = radio/radar stations'],
+            ['lightCircles', 'Lighthouse circles', 'The big yellow/orange rings and arcs around lighthouses (which color each light shows from which direction)'],
             ['lanes', 'Shipping lanes & traffic routes', 'Traffic separation lanes, fairways, recommended tracks'],
             ['areas', 'Restricted & special areas', 'Anchorages, cable areas, military and restricted zones'],
-            ['seabed', 'Wrecks, rocks & obstructions', 'Hazards on the bottom, pipelines and cables'],
+            ['seabed', 'Cables, pipelines, wrecks & rocks', 'Pink zigzag lines = underwater cables. NOAA draws these together with wrecks'],
             ['services', 'Marinas & services', 'Fuel, launch ramps, harbor facilities'],
+            ['simpleSymbols', 'Simpler chart symbols', 'Clean modern buoy and light symbols instead of the paper-chart style'],
           ] as const).map(([k, title, sub]) => {
-            const on = s.chart?.[k] ?? true;
+            const on = s.chart?.[k] ?? DEFAULT_LAYERS.chart[k];
             return (
               <Pressable key={k} onPress={() => set((p) => ({ ...p, chart: { ...p.chart, [k]: !on } }))} style={st.row} accessibilityRole="switch" accessibilityState={{ checked: on }}>
                 <View style={{ flex: 1 }}>

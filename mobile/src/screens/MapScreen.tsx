@@ -3,9 +3,9 @@ import { Alert, Pressable, StyleSheet, Text, Vibration, View } from 'react-nativ
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { useKeepAwake } from 'expo-keep-awake';
-import { Camera, GeoJSONSource, Layer, LogManager, Map as MapView, RasterSource, UserLocation } from '@maplibre/maplibre-react-native';
+import { Camera, GeoJSONSource, Layer, LogManager, Map as MapView, Marker, UserLocation } from '@maplibre/maplibre-react-native';
 import type { CameraRef } from '@maplibre/maplibre-react-native';
-import { API_URL, CHART_ATTRIBUTION, DEFAULT_CENTER, DEFAULT_ZOOM, NOAA_CHART_MAXZOOM, NOAA_CHART_MINZOOM, noaaChartTiles } from '../config';
+import { API_URL, CHART_ATTRIBUTION, DEFAULT_CENTER, DEFAULT_ZOOM, CHART_TILE_SIZE, NOAA_CHART_MAXZOOM, NOAA_CHART_MINZOOM, noaaChartTiles } from '../config';
 import { cardStyle, colors, makeStyles, setThemePosition, touch, useTheme } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { bearingTrue, distanceNm, formatLatLon } from '../geo';
@@ -34,6 +34,7 @@ import { CatchMarkers, type Cluster } from '../components/CatchMap';
 import { CatchBar } from '../components/CatchBar';
 import { ClusterSheet } from '../components/ReportView';
 import { BuddyMarkers } from '../components/Buddies';
+import { loadCoordFormat } from '../coordPref';
 import { GroupPins } from '../components/GroupPins';
 import { SendToGroupSheet } from '../community/SendToGroupSheet';
 import { LogCatchSheet } from '../components/LogCatchSheet';
@@ -51,7 +52,8 @@ import { grid as gridLayer } from '../layers/catalog';
 import { setArea, track } from '../analytics';
 
 const ARRIVE_NM = 0.1;
-const REGION_BBOX = '-121,31,-116,35';
+const LAYERS_KEY = 'layers:v2'; // v2: fresh start after the Oct 20 crash
+const REGION_BBOX = '-123.5,30,-116,35'; // Point Conception to below Colonet, out past Cortes and Tanner Banks
 
 // A chart square that fails to load (no signal offshore, or a blank square from NOAA) is normal on the water:
 // the map just keeps the previous detail there. Log it quietly instead of raising a red error.
@@ -60,12 +62,21 @@ LogManager.onLog((e) => {
   return false;
 });
 
-const mapStyle = {
-  version: 8,
-  sources: {},
-  // The NOAA chart itself is a <RasterSource> inside the map (below), so its detail switches apply without a reload.
-  layers: [{ id: 'water', type: 'background', paint: { 'background-color': colors.water } }],
-};
+// The NOAA chart is the bottom layer of the map style itself, so everything else (water temp, breaks, spots, MPAs)
+// always draws on top of it. Changing chart details or night mode rebuilds the style; the map then re-adds the
+// other layers in their normal order. (Oct 20: "slot" placeholder layers + beforeId crashed MapLibre on iOS.)
+function buildMapStyle(chartUrl: string) {
+  return {
+    version: 8,
+    sources: {
+      noaa: { type: 'raster', tiles: [chartUrl], tileSize: CHART_TILE_SIZE, minzoom: NOAA_CHART_MINZOOM, maxzoom: NOAA_CHART_MAXZOOM, attribution: CHART_ATTRIBUTION },
+    },
+    layers: [
+      { id: 'water', type: 'background', paint: { 'background-color': colors.water } },
+      { id: 'noaa-chart', type: 'raster', source: 'noaa', paint: { 'raster-fade-duration': 100 } },
+    ],
+  };
+}
 
 type Nav = { points: Pt[]; leg: number; legStart: Pt; name: string };
 type Selected = { kind: 'spot' | 'pin' | 'saved'; pt: Pt & { subtitle?: string; id?: string; saveName?: string } } | null;
@@ -102,7 +113,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const [shownLine, setShownLine] = useState<(Pt | TrackPoint)[] | null>(null);
   const [arrived, setArrived] = useState<string | null>(null);
   const [layers, setLayers] = useState<LayerState>(DEFAULT_LAYERS);
-  const chartUrl = useMemo(() => noaaChartTiles({ ...DEFAULT_LAYERS.chart, ...layers.chart }), [layers.chart]);
+  const chartUrl = useMemo(() => noaaChartTiles({ ...DEFAULT_LAYERS.chart, ...layers.chart }, theme.mode === 'night'), [layers.chart, theme.mode]);
+  const mapStyle = useMemo(() => buildMapStyle(chartUrl), [chartUrl]);
   // 3D view (Map options): tip the camera back; flat again when switched off.
   useEffect(() => { camera.current?.setStop({ pitch: layers.tilt ? 55 : 0, duration: 600 }).catch(() => {}); }, [layers.tilt]);
   const [compareOffset, setCompareOffset] = useState<number | null>(null);
@@ -142,7 +154,13 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       setRoutes(await store.loadRoutes());
       setTracks(await store.loadTracks());
       setActive(await store.loadActive());
-      try { const l = await AsyncStorage.getItem('layers:v1'); if (l) { const p = JSON.parse(l); setLayers({ ...DEFAULT_LAYERS, ...p, on: { ...DEFAULT_LAYERS.on, ...p.on }, opacity: { ...DEFAULT_LAYERS.opacity, ...p.opacity }, chart: { ...DEFAULT_LAYERS.chart, ...p.chart } }); } } catch {}
+      // Crash guard: if the last start never got past the first 30 seconds, start with default layers.
+      let safeStart = false;
+      try { safeStart = (await AsyncStorage.getItem('boot:v1')) === 'starting'; await AsyncStorage.setItem('boot:v1', 'starting'); } catch {}
+      setTimeout(() => { AsyncStorage.setItem('boot:v1', 'ok').catch(() => {}); }, 30000);
+      if (safeStart) setToast('The map had a problem last time, so your map layers were reset.');
+      try { const l = safeStart ? null : await AsyncStorage.getItem(LAYERS_KEY); if (l) { const p = JSON.parse(l); setLayers({ ...DEFAULT_LAYERS, ...p, on: { ...DEFAULT_LAYERS.on, ...p.on }, opacity: { ...DEFAULT_LAYERS.opacity, ...p.opacity }, chart: { ...DEFAULT_LAYERS.chart, ...p.chart } }); } } catch {}
+      loadCoordFormat();
       const cachedSpots = await store.loadPublicSpots();
       if (cachedSpots) setPublicSpots(cachedSpots);
       if (!API_URL) return;
@@ -154,7 +172,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   }, []);
   const prevOn = useRef(layers.on);
   useEffect(() => {
-    AsyncStorage.setItem('layers:v1', JSON.stringify(layers)).catch(() => {});
+    AsyncStorage.setItem(LAYERS_KEY, JSON.stringify(layers)).catch(() => {});
     (Object.keys(layers.on) as (keyof typeof layers.on)[]).forEach((k) => { if (layers.on[k] && !prevOn.current[k]) track('layer_on', { layer: k }); });
     prevOn.current = layers.on;
   }, [layers]);
@@ -429,6 +447,17 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   };
 
   // ---- map data ----
+  // Spot names appear once you zoom in (like a chartplotter), at most 60 at a time so the map stays fast and clean.
+  const spotLabels = useMemo(() => {
+    if (!view || view.zoom < 10.3) return [];
+    const out: any[] = [];
+    for (const f of publicSpots?.features ?? []) {
+      const [lon, lat] = f.geometry?.coordinates ?? [];
+      if (lon >= view.minLon && lon <= view.maxLon && lat >= view.minLat && lat <= view.maxLat) out.push(f);
+      if (out.length >= 60) break;
+    }
+    return out;
+  }, [publicSpots, view]);
   const mySpotsFC = useMemo(() => fc(mySpots.map((s) => pointF(s, { id: s.id, name: s.name, subtitle: 'Private — only you' }))), [mySpots]);
   const pinFC = useMemo(() => fc(sel?.kind === 'pin' ? [pointF(sel.pt)] : []), [sel]);
   const draftFC = useMemo(() => fc(draft && draft.length ? [...(draft.length > 1 ? [lineF(draft)] : []), ...draft.map((p) => pointF(p))] : []), [draft]);
@@ -549,9 +578,6 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         <Camera ref={camera} initialViewState={{ center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM }}
           trackUserLocation={orient === 'heading' ? 'heading' : orient === 'course' ? 'course' : undefined}
           onTrackUserLocationChange={(e: any) => { if (e?.nativeEvent?.trackUserLocation == null && orient !== 'north') setOrient('north'); }} />
-        <RasterSource key={chartUrl} id="noaa" tiles={[chartUrl]} tileSize={256} minzoom={NOAA_CHART_MINZOOM} maxzoom={NOAA_CHART_MAXZOOM} attribution={CHART_ATTRIBUTION}>
-          <Layer type="raster" id="noaa-chart" style={{ rasterFadeDuration: 100 }} />
-        </RasterSource>
         <MapLayers catalog={catalog} s={layers} compareOffset={compareOffset} radarPlaying={radarPlaying} onBuoyPress={(p) => { featurePressAt.current = Date.now(); setSel(null); setBuoy(p); }} />
         {/* MPAs on top of every overlay so they're never hidden under relief or satellite */}
         <RulesLayers data={rules} showProtected={layers.on.rules} showHazards={layers.on.hazards}
@@ -578,8 +604,13 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           <Layer type="circle" id="nav-pts" style={{ circleRadius: 8, circleColor: colors.accent, circleStrokeColor: colors.bg, circleStrokeWidth: 2 }} />
         </GeoJSONSource>
         <GeoJSONSource id="public-spots" data={publicSpots} onPress={(e: any) => onSpotPress(e, 'spot')} hitbox={{ top: 15, right: 15, bottom: 15, left: 15 }}>
-          <Layer type="circle" id="public-spots-dots" style={{ circleRadius: 7, circleColor: colors.accent, circleStrokeColor: colors.bg, circleStrokeWidth: 2 }} />
+          <Layer type="circle" id="public-spots-dots" style={{ circleRadius: 5, circleColor: colors.accent, circleStrokeColor: colors.bg, circleStrokeWidth: 1.5 }} />
         </GeoJSONSource>
+        {spotLabels.map((f: any) => (
+          <Marker key={`lbl-${f.properties.id}`} lngLat={f.geometry.coordinates} anchor="left" offset={[9, 0]}>
+            <View pointerEvents="none" style={st.spotLbl}><Text style={st.spotLblT} numberOfLines={1}>{f.properties.name}</Text></View>
+          </Marker>
+        ))}
         <GeoJSONSource id="my-spots" data={mySpotsFC} onPress={(e: any) => onSpotPress(e, 'saved')} hitbox={{ top: 15, right: 15, bottom: 15, left: 15 }}>
           <Layer type="circle" id="my-spots-dots" style={{ circleRadius: 7, circleColor: colors.live, circleStrokeColor: colors.bg, circleStrokeWidth: 2 }} />
         </GeoJSONSource>
@@ -587,7 +618,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           <Layer type="circle" id="pin-ring" style={{ circleRadius: 11, circleColor: 'rgba(0,0,0,0)', circleStrokeColor: colors.text, circleStrokeWidth: 2 }} />
         </GeoJSONSource>
       </MapView>
-      {theme.mode === 'night' ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(28,0,0,0.55)' }]} /> : null}
+      {/* NOAA draws a real night chart now, so only a light red wash is needed to protect night vision */}
+      {theme.mode === 'night' ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(28,0,0,0.3)' }]} /> : null}
 
       {probe ? (
         <View pointerEvents="none" style={st.crossWrap}>
@@ -650,6 +682,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
 }
 
 const useSt = makeStyles((colors) => ({
+  spotLbl: { backgroundColor: colors.panel, borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1.5, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, maxWidth: 150 },
+  spotLblT: { color: colors.text, fontSize: 11, fontWeight: '700' },
   root: { flex: 1, backgroundColor: colors.bg },
   top: { position: 'absolute', top: 0, left: 10, right: 10, paddingTop: 6, gap: 8 },
   searchRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },

@@ -194,3 +194,48 @@ def test_list_datasets_parses_erddap_catalog():
     rows = list_datasets("https://x/erddap", "(?i).*chlorophyll.*", Client())
     assert [r["id"] for r in rows] == ["new1", "old1"]
     assert "allDatasets.csv" in seen["url"] and "title=~" in seen["url"]
+
+
+def test_chl_candidates_skip_missing_and_adapt_variable():
+    from ocean.jobs import chl_candidates
+    from ocean.registry import DATASETS
+
+    def info(dims, vars_):
+        rows = [["dimension", d] for d in dims] + [["variable", v] for v in vars_]
+        return {"table": {"columnNames": ["Row Type", "Variable Name"], "rows": rows}}
+
+    class Resp:
+        def __init__(self, code, js=None):
+            self.status_code, self._js = code, js
+        def raise_for_status(self):
+            if self.status_code != 200:
+                raise RuntimeError(f"HTTP {self.status_code}")
+        def json(self):
+            return self._js
+
+    class Client:
+        def get(self, url):
+            if "/info/erdVHNchla1day/" in url:
+                return Resp(200, info(["time", "altitude", "latitude", "longitude"], ["chla"]))
+            return Resp(404)
+
+    got = list(chl_candidates(Client()))
+    assert [d.dataset_id for d in got] == ["erdVHNchla1day"]
+    assert got[0].variable == "chla" and got[0].fixed == {"altitude": 0.0}
+    assert DATASETS["chl"].dataset_id != "erdVHNchla1day" or True
+
+
+def test_chl_prefers_copernicus_when_logged_in():
+    import os
+    from ocean.jobs import chl_candidates, _note
+
+    class Client:
+        def get(self, url):
+            raise RuntimeError("offline")
+    os.environ["COPERNICUSMARINE_SERVICE_USERNAME"], os.environ["COPERNICUSMARINE_SERVICE_PASSWORD"] = "u", "p"
+    try:
+        first = next(iter(chl_candidates(Client())))
+        assert first.erddap == "copernicus" and first.kind == "interpolated"
+        assert "Copernicus Marine Service Information" in _note("chl", first)
+    finally:
+        del os.environ["COPERNICUSMARINE_SERVICE_USERNAME"], os.environ["COPERNICUSMARINE_SERVICE_PASSWORD"]

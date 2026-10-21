@@ -1,1 +1,2 @@
 eccodes>=2.38
+copernicusmarine>=2.3

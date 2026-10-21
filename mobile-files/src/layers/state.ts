@@ -5,7 +5,7 @@ export type LayerState = {
   on: Record<LayerKey, boolean>;
   overlay: MapOverlay;     // drawn over the NOAA chart: colored seafloor relief or satellite photos
   tilt: boolean;           // 3D view: tip the map back so relief reads like terrain
-  chart: { navaids: boolean; lanes: boolean; seabed: boolean; areas: boolean; services: boolean };  // NOAA chart details shown
+  chart: { navaids: boolean; lanes: boolean; seabed: boolean; areas: boolean; services: boolean; lightCircles: boolean; simpleSymbols: boolean };  // NOAA chart details shown
   opacity: { bathy: number; sst: number; chl: number; radar: number; overlay: number };
   dayIndex: number;      // 0 = latest satellite day, 1 = the one before ...
   windIndex: number;     // forecast hour index
@@ -15,7 +15,7 @@ export const DEFAULT_LAYERS: LayerState = {
   on: { bathy: false, contours: false, sst: true, breaks: true, chl: false, chlEdges: false, radar: false, wind: false, buoys: false, catches: true, buddies: true, rules: true, hazards: false },
   overlay: 'none',
   tilt: false,
-  chart: { navaids: true, lanes: true, seabed: true, areas: true, services: false },
+  chart: { navaids: true, lanes: true, seabed: true, areas: true, services: false, lightCircles: false, simpleSymbols: false },
   opacity: { bathy: 0.8, sst: 0.6, chl: 0.6, radar: 0.7, overlay: 0.75 },
   dayIndex: 0,
   windIndex: 0,

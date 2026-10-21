@@ -63,6 +63,16 @@ DATASETS: dict[str, GridDataset] = {
     ),
 }
 
+# Chlorophyll sources to try in order when the main one is down or retired (NOAA retires these often).
+# Checked 2026-10-20 from a Mac: the first two had Oct 16 data but flickered on and off; erdVHNchla1day
+# (VIIRS, US West Coast) answered both times. All four are on the pfeg server, which GitHub can reach.
+CHL_FALLBACKS: list[str] = [
+    "nesdisVHNchlaDaily",        # S-NPP VIIRS, near real-time, daily
+    "nesdisVHNnoaa20chlaDaily",  # NOAA-20 VIIRS, near real-time, daily
+    "erdVHNchla1day",            # VIIRS West Coast, daily
+    "erdVHNchla8day",            # VIIRS West Coast, 8-day blend (fewer cloud gaps, older)
+]
+
 # Break thresholds (configurable, spec §12): change per NM of distance.
 BREAKS = {
     "sst": {"moderate": float(_env("SST_BREAK_MODERATE_F_PER_NM", "0.5")), "strong": float(_env("SST_BREAK_STRONG_F_PER_NM", "1.0")), "interval": 0.5},

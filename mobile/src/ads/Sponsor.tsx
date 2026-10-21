@@ -142,7 +142,7 @@ export function CouponSheet({ ad, onClose }: { ad: Ad | null; onClose: () => voi
         {code ? <View style={st.code}><Text style={st.codeT} selectable>{code}</Text></View> : null}
         {code ? <Text style={st.introS}>Show this code at the counter, or use it online.</Text> : null}
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <Pressable style={[st.btn, st.btnOn]} onPress={async () => { const ok = await saveCoupon(ad); Alert.alert(ok ? 'Saved' : 'Already saved', 'Find it under Profile → Saved coupons.'); }}>
+          <Pressable style={[st.btn, st.btnOn]} onPress={async () => { const ok = await saveCoupon(ad); Alert.alert(ok ? 'Saved' : 'Already saved', 'Find it under Me → Saved coupons.'); }}>
             <Text style={[st.btnT, { color: colors.accentInk }]}>Save coupon</Text></Pressable>
           {c.pdf_url ? <Pressable style={st.btn} onPress={() => Linking.openURL(c.pdf_url!).catch(() => {})}><Text style={st.btnT}>Open flyer</Text></Pressable> : null}
           {code ? <Pressable style={st.btn} onPress={() => Share.share({ message: `${ad.advertiser}: code ${code}` }).catch(() => {})}><Text style={st.btnT}>Share</Text></Pressable> : null}
@@ -153,7 +153,7 @@ export function CouponSheet({ ad, onClose }: { ad: Ad | null; onClose: () => voi
   );
 }
 
-/** Profile → Saved coupons. */
+/** Me → Saved coupons. */
 export function SavedCoupons() {
   const st = useSt();
   const [list, setList] = useState<SavedCoupon[]>([]);

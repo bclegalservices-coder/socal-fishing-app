@@ -35,8 +35,14 @@ async def layers():
     out = []
     for key in ("sst", "chl", "bathy", "wind"):
         raw = store.get(f"manifests/{key}.json")
-        if raw:
-            out.append({"key": key, **json.loads(raw)})
+        m = json.loads(raw) if raw else None
+        if m and "dates" in m:
+            # Only dates that have map tiles: a broken entry would make the app's map engine crash.
+            m["dates"] = [d for d in m["dates"] if isinstance(d.get("tiles"), str) and d["tiles"]]
+            if not m["dates"]:
+                m = None
+        if m:
+            out.append({"key": key, **m})
         else:
             out.append({"key": key, "available": False, "note": "Not processed yet — run the ocean job."})
     rules = store.get("manifests/rules.json")

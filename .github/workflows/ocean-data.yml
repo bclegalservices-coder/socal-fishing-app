@@ -30,6 +30,8 @@ jobs:
       PUBLIC_DATA_URL: ${{ secrets.PUBLIC_DATA_URL }}
       SST_DATASET: ${{ vars.SST_DATASET }}
       CHL_DATASET: ${{ vars.CHL_DATASET }}
+      COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
+      COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
       MPA_URL: ${{ vars.MPA_URL }}
       ENC_SERVICE_URL: ${{ vars.ENC_SERVICE_URL }}
       CLOSURES_URL: ${{ vars.CLOSURES_URL }}
@@ -43,6 +45,8 @@ jobs:
           cache-dependency-path: api/requirements.txt
       - run: pip install -r requirements.txt -r requirements-pipeline.txt
       - run: python -m tests.run
+        env:
+          STORAGE: local
       - name: Ocean job
         run: |
           if [ -n "${{ github.event.inputs.job }}" ]; then JOB="${{ github.event.inputs.job }}";

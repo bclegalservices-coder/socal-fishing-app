@@ -24,8 +24,14 @@ export function useCatalog() {
   return { catalog: cat, savedAt, cached };
 }
 
-export const grid = (c: Catalog | null, key: 'sst' | 'chl' | 'bathy') =>
-  (c?.layers.find((l) => l.key === key) as GridLayer | undefined) ?? undefined;
+/** A grid layer, keeping only dates that really have map tiles. A date with a blank tile address makes the map
+ *  engine crash (Oct 20), so a damaged catalog — even an old saved copy — can never reach the map. */
+export const grid = (c: Catalog | null, key: 'sst' | 'chl' | 'bathy'): GridLayer | undefined => {
+  const l = c?.layers.find((x) => x.key === key) as GridLayer | undefined;
+  if (!l) return undefined;
+  const dates = (l.dates ?? []).filter((d: any) => typeof d?.tiles === 'string' && d.tiles.startsWith('http'));
+  return dates.length ? { ...l, dates } : { ...l, dates: [], available: false } as GridLayer;
+};
 export const wind = (c: Catalog | null) => (c?.layers.find((l) => l.key === 'wind') as WindLayer | undefined) ?? undefined;
 export const external = (c: Catalog | null, key: string) => (c?.layers.find((l) => l.key === key) as ExternalLayer | undefined) ?? undefined;
 

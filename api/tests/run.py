@@ -1,6 +1,10 @@
 """Runs the tests without pytest:  python -m tests.run   (pytest works too)."""
 import importlib
+import os
 import sys
+
+# Tests must never write to real storage (Cloudflare R2), even when the job's R2 settings are present.
+os.environ["STORAGE"] = "local"
 import traceback
 import types
 

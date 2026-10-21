@@ -89,7 +89,7 @@ export async function downloadSmallData(): Promise<OfflineStatus> {
   if (rules) await patch({ rules: { at: Date.now(), checked_at: rules.checked_at } });
   const tides = await getJSON<{ through: string; stations: PackStation[] }>('/tides/pack?region=socal&days=30', { timeoutMs: 60000 }).catch(() => null);
   if (tides) { await writeJSON('tides.json', tides.data); await patch({ tides: { at: Date.now(), through: tides.data.through } }); }
-  const spots = await fetch(`${API_URL}/spots?bbox=-121,31,-116,35`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const spots = await fetch(`${API_URL}/spots?bbox=-123.5,30,-116,35`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
   if (spots) { await savePublicSpots(spots); await patch({ spots: { at: Date.now(), count: spots.features?.length ?? 0 } }); }
   return getStatus();
 }

@@ -58,9 +58,13 @@ def _save_manifest(store, layer: str, m: dict):
     store.put(f"manifests/{layer}.json", json.dumps(m, indent=1).encode(), "application/json")
 
 
-def process_surface(layer: str, region: str, when, http: httpx.Client, store) -> dict:
-    ds = DATASETS[layer]
-    raw = fetch_grid(ds, REGIONS[region], when, http=http)
+def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds=None) -> dict:
+    ds = ds or DATASETS[layer]
+    if ds.erddap == "copernicus":
+        from . import copernicus
+        raw = copernicus.fetch_chl(REGIONS[region], when)
+    else:
+        raw = fetch_grid(ds, REGIONS[region], when, http=http)
     g = to_display_units(raw)
     day = (g.meta.get("observed_at") or datetime.now(timezone.utc).isoformat())[:10]
     base = f"{layer}/{region}/{day}"
@@ -87,12 +91,66 @@ def process_surface(layer: str, region: str, when, http: httpx.Client, store) ->
     }
 
 
+def _note(layer: str, ds) -> str:
+    if layer == "chl" and ds.erddap == "copernicus":
+        from .copernicus import CREDIT
+        return f"Satellite blend from several satellites with cloud gaps filled in. {CREDIT}."
+    return NOTES[layer]
+
+
+def chl_candidates(http: httpx.Client):
+    """The configured chlorophyll dataset first, then the fallbacks, each shaped to what the server says it has
+    (variable name and dimensions differ between NOAA's chlorophyll products)."""
+    from dataclasses import replace
+    from .erddap import describe
+    from .registry import CHL_FALLBACKS
+    base = DATASETS["chl"]
+    from . import copernicus
+    if copernicus.enabled():   # first choice: complete map every day, clouds filled in
+        yield replace(base, erddap="copernicus", dataset_id=copernicus.CHL_DATASET, variable="CHL",
+                      kind="interpolated", resolution_m=4000, source=copernicus.SOURCE, verified=True)
+    else:
+        log("chl: Copernicus login not set (COPERNICUSMARINE_SERVICE_USERNAME / _PASSWORD), using NOAA")
+    seen = []
+    for ds_id in [base.dataset_id, *CHL_FALLBACKS]:
+        if ds_id in seen:
+            continue
+        seen.append(ds_id)
+        try:
+            dims, vars_ = describe(base.erddap, ds_id, http)
+        except Exception as e:
+            log(f"chl: {ds_id} not available ({e})")
+            continue
+        var = base.variable if base.variable in vars_ else next((v for v in vars_ if "chl" in v.lower()), None)
+        if not var:
+            log(f"chl: {ds_id} has no chlorophyll variable")
+            continue
+        fixed = {d: 0.0 for d in dims if d not in ("time", "latitude", "longitude")}
+        yield replace(base, dataset_id=ds_id, variable=var, dims=tuple(dims), fixed=fixed)
+
+
+def _latest_surface(layer: str, region: str, http: httpx.Client, store):
+    if layer != "chl":
+        return DATASETS[layer], process_surface(layer, region, "last", http, store)
+    last_err = None
+    for ds in chl_candidates(http):
+        try:
+            entry = process_surface(layer, region, "last", http, store, ds)
+            log(f"chl: using {ds.dataset_id} ({ds.variable})")
+            return ds, entry
+        except Exception as e:
+            last_err = e
+            log(f"chl: {ds.dataset_id} failed ({e})")
+    raise RuntimeError(f"No chlorophyll source worked. Last error: {last_err}")
+
+
 def run_surface(layer: str, region: str, days: list[int]):
     store = get_store()
     http = httpx.Client(timeout=180, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})
     m = _manifest(store, layer)
+    m["dates"] = [d for d in m.get("dates", []) if d.get("tiles")]   # drop broken entries (Oct 20 test-data bug)
     have = {d["date"] for d in m["dates"]}
-    latest = process_surface(layer, region, "last", http, store)
+    ds, latest = _latest_surface(layer, region, http, store)
     entries = [latest]
     latest_day = date.fromisoformat(latest["date"])
     for back in sorted(set(days) - {0}):
@@ -100,14 +158,13 @@ def run_surface(layer: str, region: str, days: list[int]):
         if d in have:
             continue
         try:
-            entries.append(process_surface(layer, region, d, http, store))
+            entries.append(process_surface(layer, region, d, http, store, ds))
         except Exception as e:  # one missing day shouldn't stop the run
             log(f"{layer} {d}: skipped ({e})")
     by_date = {d["date"]: d for d in m["dates"]}
     by_date.update({e["date"]: e for e in entries})
-    ds = DATASETS[layer]
     m.update({
-        "label": LABELS[layer], "note": NOTES[layer], "legend": LEGENDS[layer], "kind": ds.kind,
+        "label": LABELS[layer], "note": _note(layer, ds), "legend": LEGENDS[layer], "kind": ds.kind,
         "source": ds.source, "dataset": ds.dataset_id, "resolution_m": ds.resolution_m, "verified": ds.verified,
         "dates": sorted(by_date.values(), key=lambda e: e["date"], reverse=True)[:KEEP_DAYS],
         "breaks_thresholds": BREAKS[layer],

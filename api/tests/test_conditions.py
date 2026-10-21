@@ -76,6 +76,8 @@ def test_snapshot_picks_image_on_or_before_day():
     from ocean.grid import Grid
     d = tempfile.mkdtemp()
     os.environ["LOCAL_DATA_DIR"] = d
+    old_storage = os.environ.get("STORAGE")
+    os.environ["STORAGE"] = "local"   # never the real R2 bucket
     storage._store = None
     st = storage.get_store()
     g = Grid(np.array([33.0, 34.0]), np.array([-119.0, -118.0]), np.full((2, 2), 66.0, np.float32), {"observed_at": "2026-10-01T09:00:00+00:00"})
@@ -85,4 +87,8 @@ def test_snapshot_picks_image_on_or_before_day():
     assert grid_for_day("sst", "2026-10-02") is not None        # uses Oct 1 for a catch on Oct 2
     assert grid_for_day("sst", "2026-09-30") is None             # nothing on or before
     # (a day with no image within 3 days returns None)
+    if old_storage is None:
+        os.environ.pop("STORAGE", None)
+    else:
+        os.environ["STORAGE"] = old_storage
     storage._store = None
