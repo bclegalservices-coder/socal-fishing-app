@@ -196,6 +196,32 @@ def test_list_datasets_parses_erddap_catalog():
     assert "allDatasets.csv" in seen["url"] and "title=~" in seen["url"]
 
 
+class _CopernicusEnv:
+    """Set (or clear) the Copernicus login for one test, then put back whatever was there.
+    The GitHub job has the real login set, so tests must not depend on it."""
+    KEYS = ("COPERNICUSMARINE_SERVICE_USERNAME", "COPERNICUSMARINE_SERVICE_PASSWORD")
+
+    def __init__(self, on: bool):
+        self.on = on
+
+    def __enter__(self):
+        import os
+        self.saved = {k: os.environ.get(k) for k in self.KEYS}
+        for k in self.KEYS:
+            if self.on:
+                os.environ[k] = "test"
+            else:
+                os.environ.pop(k, None)
+
+    def __exit__(self, *a):
+        import os
+        for k, v in self.saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
 def test_chl_candidates_skip_missing_and_adapt_variable():
     from ocean.jobs import chl_candidates
     from ocean.registry import DATASETS
@@ -219,7 +245,8 @@ def test_chl_candidates_skip_missing_and_adapt_variable():
                 return Resp(200, info(["time", "altitude", "latitude", "longitude"], ["chla"]))
             return Resp(404)
 
-    got = list(chl_candidates(Client()))
+    with _CopernicusEnv(on=False):
+        got = list(chl_candidates(Client()))
     assert [d.dataset_id for d in got] == ["erdVHNchla1day"]
     assert got[0].variable == "chla" and got[0].fixed == {"altitude": 0.0}
     assert DATASETS["chl"].dataset_id != "erdVHNchla1day" or True
@@ -232,22 +259,16 @@ def test_chl_prefers_copernicus_when_logged_in():
     class Client:
         def get(self, url):
             raise RuntimeError("offline")
-    os.environ["COPERNICUSMARINE_SERVICE_USERNAME"], os.environ["COPERNICUSMARINE_SERVICE_PASSWORD"] = "u", "p"
-    try:
+    with _CopernicusEnv(on=True):
         first = next(iter(chl_candidates(Client())))
         assert first.erddap == "copernicus" and first.kind == "interpolated"
         assert "Copernicus Marine Service Information" in _note("chl", first)
-    finally:
-        del os.environ["COPERNICUSMARINE_SERVICE_USERNAME"], os.environ["COPERNICUSMARINE_SERVICE_PASSWORD"]
 
 
 def test_sst_has_backup_servers():
     import os
     from ocean.jobs import sst_candidates
-    os.environ["COPERNICUSMARINE_SERVICE_USERNAME"], os.environ["COPERNICUSMARINE_SERVICE_PASSWORD"] = "u", "p"
-    try:
+    with _CopernicusEnv(on=True):
         c = list(sst_candidates())
         assert "coastwatch.pfeg" in c[0].erddap and "upwell" in c[1].erddap and c[2].erddap == "copernicus"
         assert c[2].units == "K"
-    finally:
-        del os.environ["COPERNICUSMARINE_SERVICE_USERNAME"], os.environ["COPERNICUSMARINE_SERVICE_PASSWORD"]
