@@ -280,7 +280,7 @@ def verify():
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("job", choices=["sst", "chl", "bathy", "wind", "rules", "all", "discover", "verify"])
+    p.add_argument("job", choices=["sst", "chl", "bathy", "wind", "rules", "harbors", "all", "discover", "verify"])
     p.add_argument("--region", default="socal")
     p.add_argument("--days", default="0,1,2,3,7")
     p.add_argument("--file", default=None, help="local seafloor file for `bathy`")
@@ -288,10 +288,21 @@ def main(argv=None):
     days = [int(x) for x in a.days.split(",") if x.strip()]
     if a.job == "discover":
         return discover()
-    if a.job == "rules":
-        from rules.job import run as run_rules
-        m = run_rules(get_store(), REGIONS[a.region], log)
-        return log(f"rules: {sum(1 for l in m['layers'] if l.get('available'))}/{len(m['layers'])} layers available")
+    if a.job in ("rules", "harbors"):
+        failed_weekly = []
+        if a.job == "rules":
+            from rules.job import run as run_rules
+            m = run_rules(get_store(), REGIONS[a.region], log)
+            log(f"rules: {sum(1 for l in m['layers'] if l.get('available'))}/{len(m['layers'])} layers available")
+        try:   # harbors ride along with the weekly rules job
+            from harbors.job import run as run_harbors
+            run_harbors(get_store(), log)
+        except Exception as e:
+            failed_weekly.append("harbors")
+            log(f"FAILED harbors: {e}")
+        if failed_weekly:
+            sys.exit(1)
+        return
     if a.job == "wind":
         from .wind import run as run_wind
         m = run_wind(get_store(), REGIONS[a.region], a.region)

@@ -19,7 +19,7 @@ except ImportError:
 
 failed = 0
 total = 0
-for mod_name in ("tests.test_ocean", "tests.test_conditions", "tests.test_rules", "tests.test_features", "tests.test_analytics", "tests.test_seas", "tests.test_billing"):
+for mod_name in ("tests.test_ocean", "tests.test_conditions", "tests.test_rules", "tests.test_features", "tests.test_analytics", "tests.test_seas", "tests.test_billing", "tests.test_harbors"):
     mod = importlib.import_module(mod_name)
     for name in sorted(n for n in dir(mod) if n.startswith("test_")):
         total += 1

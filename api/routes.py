@@ -45,6 +45,9 @@ async def layers():
             out.append({"key": key, **m})
         else:
             out.append({"key": key, "available": False, "note": "Not processed yet — run the ocean job."})
+    harbors = store.get("manifests/harbors.json")
+    if harbors:
+        out.append({"key": "harbors", **json.loads(harbors)})
     rules = store.get("manifests/rules.json")
     if rules:
         out.append({"key": "rules", **json.loads(rules)})
