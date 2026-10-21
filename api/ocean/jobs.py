@@ -62,7 +62,7 @@ def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds
     ds = ds or DATASETS[layer]
     if ds.erddap == "copernicus":
         from . import copernicus
-        raw = copernicus.fetch_chl(REGIONS[region], when)
+        raw = (copernicus.fetch_sst if layer == "sst" else copernicus.fetch_chl)(REGIONS[region], when)
     else:
         raw = fetch_grid(ds, REGIONS[region], when, http=http)
     g = to_display_units(raw)
@@ -92,6 +92,9 @@ def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds
 
 
 def _note(layer: str, ds) -> str:
+    if layer == "sst" and ds.erddap == "copernicus":
+        from .copernicus import CREDIT
+        return f"Satellite blend with cloud gaps filled in (about 5 km detail today; NOAA's 1 km map was unavailable). {CREDIT}."
     if layer == "chl" and ds.erddap == "copernicus":
         from .copernicus import CREDIT
         return f"Satellite blend from several satellites with cloud gaps filled in. {CREDIT}."
@@ -129,19 +132,36 @@ def chl_candidates(http: httpx.Client):
         yield replace(base, dataset_id=ds_id, variable=var, dims=tuple(dims), fixed=fixed)
 
 
+UPWELL = "https://upwell.pfeg.noaa.gov/erddap"   # NOAA ERD's second ERDDAP server (same data as coastwatch.pfeg)
+
+
+def sst_candidates():
+    """NOAA MUR (1 km) on the main server, then on NOAA's second server, then Copernicus OSTIA (5 km).
+    NOAA sometimes blocks the shared GitHub machine addresses (HTTP 403 "blacklist"), so one source is not enough."""
+    from dataclasses import replace
+    from . import copernicus
+    base = DATASETS["sst"]
+    yield base
+    if base.erddap.rstrip("/") != UPWELL:
+        yield replace(base, erddap=UPWELL)
+    if copernicus.enabled():
+        yield replace(base, erddap="copernicus", dataset_id=copernicus.SST_DATASET, variable="analysed_sst",
+                      units="K", resolution_m=5500, source=copernicus.SST_SOURCE)
+
+
 def _latest_surface(layer: str, region: str, http: httpx.Client, store):
-    if layer != "chl":
+    if layer not in ("sst", "chl"):
         return DATASETS[layer], process_surface(layer, region, "last", http, store)
     last_err = None
-    for ds in chl_candidates(http):
+    for ds in (sst_candidates() if layer == "sst" else chl_candidates(http)):
         try:
             entry = process_surface(layer, region, "last", http, store, ds)
-            log(f"chl: using {ds.dataset_id} ({ds.variable})")
+            log(f"{layer}: using {ds.dataset_id} on {ds.erddap}")
             return ds, entry
         except Exception as e:
             last_err = e
-            log(f"chl: {ds.dataset_id} failed ({e})")
-    raise RuntimeError(f"No chlorophyll source worked. Last error: {last_err}")
+            log(f"{layer}: {ds.dataset_id} on {ds.erddap} failed ({str(e)[:200]})")
+    raise RuntimeError(f"No {layer} source worked. Last error: {last_err}")
 
 
 def run_surface(layer: str, region: str, days: list[int]):

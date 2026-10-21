@@ -239,3 +239,15 @@ def test_chl_prefers_copernicus_when_logged_in():
         assert "Copernicus Marine Service Information" in _note("chl", first)
     finally:
         del os.environ["COPERNICUSMARINE_SERVICE_USERNAME"], os.environ["COPERNICUSMARINE_SERVICE_PASSWORD"]
+
+
+def test_sst_has_backup_servers():
+    import os
+    from ocean.jobs import sst_candidates
+    os.environ["COPERNICUSMARINE_SERVICE_USERNAME"], os.environ["COPERNICUSMARINE_SERVICE_PASSWORD"] = "u", "p"
+    try:
+        c = list(sst_candidates())
+        assert "coastwatch.pfeg" in c[0].erddap and "upwell" in c[1].erddap and c[2].erddap == "copernicus"
+        assert c[2].units == "K"
+    finally:
+        del os.environ["COPERNICUSMARINE_SERVICE_USERNAME"], os.environ["COPERNICUSMARINE_SERVICE_PASSWORD"]
