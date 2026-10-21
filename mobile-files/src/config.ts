@@ -22,20 +22,20 @@ export type ChartDetail = 'seabed' | 'lanes' | 'areas' | 'navaids' | 'services';
 export const CHART_DETAIL_LAYER: Record<ChartDetail, number> = { seabed: 3, lanes: 4, areas: 5, navaids: 6, services: 7 };
 /** NOAA chart display settings (S-52). DisplayLightSectors: 1 = off, 2 = on. The light sectors are the big yellow /
  *  orange circles and arcs around lighthouses (which color a light shows from which direction). */
-/*  ColorScheme: 0 day, 1 dusk, 2 night (NOAA's own dark chart, easy on night vision).
- *  PointSymbolizationType: 1 simplified (clean modern symbols), 2 paper chart. */
-function chartDisplayParams(o: { lightCircles: boolean; night: boolean; simple: boolean }): string {
-  const Parameter = [
-    { name: 'DisplayLightSectors', value: o.lightCircles ? 2 : 1 },
-    { name: 'ColorScheme', value: o.night ? 2 : 0 },
-    { name: 'PointSymbolizationType', value: o.simple ? 1 : 2 },
-  ];
-  const p = { ECDISParameters: { version: '10.9.1', DynamicParameters: { Parameter } } };
-  return `&display_params=${encodeURIComponent(JSON.stringify(p))}`;
-}
+/** Chart helper (a free Cloudflare Worker, tools/chart-helper-worker.js). NOAA's display settings (lighthouse circles
+ *  off, night colors, simpler symbols) must be sent as JSON, which turns into %-codes in a web address. The map engine
+ *  crashes on %-codes when a NOAA tile fails (Oct 20 crash report), so the app never puts them in an address: the
+ *  helper adds them on the server side. Without the helper, the plain NOAA chart is used (circles always shown). */
+export const CHART_HELPER = (process.env.EXPO_PUBLIC_CHART_HELPER ?? '').replace(/\/$/, '');
+export const CHART_SETTINGS_AVAILABLE = CHART_HELPER.startsWith('https://');
+
 export function noaaChartTiles(show: Record<ChartDetail, boolean> & { lightCircles?: boolean; simpleSymbols?: boolean }, night = false): string {
   const ids = [0, 1, 2, ...(Object.keys(CHART_DETAIL_LAYER) as ChartDetail[]).filter((k) => show[k]).map((k) => CHART_DETAIL_LAYER[k])].sort((a, b) => a - b);
-  return `${NOAA_CHART_TILES}&layers=show:${ids.join(',')}${chartDisplayParams({ lightCircles: !!show.lightCircles, night, simple: !!show.simpleSymbols })}`;
+  if (CHART_SETTINGS_AVAILABLE) {
+    // ls = light sectors (1 off, 2 on) · cs = color scheme (0 day, 2 night) · ps = symbols (1 simple, 2 paper)
+    return `${CHART_HELPER}/chart?bbox={bbox-epsg-3857}&layers=${ids.join(',')}&ls=${show.lightCircles ? 2 : 1}&cs=${night ? 2 : 0}&ps=${show.simpleSymbols ? 1 : 2}`;
+  }
+  return `${NOAA_CHART_TILES}&layers=show:${ids.join(',')}`;
 }
 
 /** Backup chlorophyll when our server has none: NASA's ready-made daily picture tiles (VIIRS satellite pass,
@@ -57,9 +57,8 @@ export const SATELLITE_BASE_ATTRIBUTION = 'NASA Blue Marble (GIBS)';
 export const SATELLITE_DETAIL_MINZOOM = 11;   // below this, USGS tiles are patchy along the coast
 // Relief = NOAA NCEI elevation & bathymetry mosaic drawn as colored hillshade (seafloor detail down to a few meters
 // where multibeam surveys exist, which includes most of the SoCal Bight).
-export const RELIEF_TILES = 'https://gis.ngdc.noaa.gov/arcgis/rest/services/DEM_mosaics/DEM_global_mosaic/ImageServer/exportImage'
-  + '?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=1024,1024&format=png&f=image'
-  + '&renderingRule=%7B%22rasterFunction%22%3A%22ColorHillshade%22%7D';
+// Served through the chart helper: the relief color setting is JSON, which would put %-codes in the address.
+export const RELIEF_TILES = `${(process.env.EXPO_PUBLIC_CHART_HELPER ?? '').replace(/\/$/, '')}/relief?bbox={bbox-epsg-3857}`;
 export const RELIEF_ATTRIBUTION = 'NOAA NCEI bathymetry';
 export const NOAA_CHART_MAXZOOM = 18;
 

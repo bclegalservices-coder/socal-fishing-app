@@ -1,0 +1,9 @@
+[
+  {"kind": "bait", "name": "Long Beach Bait Co.", "harbor": "Long Beach", "phone": "(562) 455-9928", "vhf": "11", "website": "http://longbeachbait.blogspot.com/", "summary": "Bait receiver", "lat": null, "lon": null, "note": "position needed"},
+  {"kind": "bait", "name": "San Pedro Bait Co. (King Harbor)", "harbor": "Redondo Beach", "phone": "(310) 372-2111", "website": "https://www.sanpedrobait.com/", "summary": "Bait receiver · 6am to 1pm", "lat": null, "lon": null, "note": "position needed"},
+  {"kind": "bait", "name": "San Pedro Bait Co. (Newport)", "harbor": "Newport Beach", "phone": "(310) 461-5370", "website": "https://www.sanpedrobait.com/", "summary": "Bait receiver", "lat": null, "lon": null, "note": "position needed"},
+  {"kind": "bait", "name": "Everingham Bros. Bait (Dana Point)", "harbor": "Dana Point", "phone": "(619) 477-2248", "vhf": "11", "website": "https://baitbarge.com/locations", "summary": "Bait barge · 24/7", "lat": null, "lon": null, "note": "position needed"},
+  {"kind": "bait", "name": "Everingham Bros. Bait (Oceanside)", "harbor": "Oceanside", "phone": "(760) 434-1183", "vhf": "11", "website": "https://baitbarge.com/locations", "summary": "Bait barge · 24/7", "lat": null, "lon": null, "note": "position needed"},
+  {"kind": "bait", "name": "Everingham Bros. Bait (San Diego Bay)", "harbor": "San Diego", "phone": "(619) 477-2248", "vhf": "11", "website": "https://baitbarge.com/locations", "summary": "Bait barge · 24/7", "lat": null, "lon": null, "note": "position needed"},
+  {"kind": "bait", "name": "Cisco's (Channel Islands Harbor)", "harbor": "Oxnard", "phone": "(805) 985-8511", "summary": "Bait", "lat": null, "lon": null, "note": "position needed"}
+]

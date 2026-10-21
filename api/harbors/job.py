@@ -142,6 +142,26 @@ def to_features(elements: list[dict]) -> list[dict]:
     return feats
 
 
+def extras() -> list[dict]:
+    """Our own list (api/harbors/extras.json): places missing from both sources, mostly bait receivers.
+    Only entries with a confirmed position are drawn."""
+    import os
+    p = os.path.join(os.path.dirname(__file__), "extras.json")
+    try:
+        items = json.load(open(p))
+    except Exception:
+        return []
+    out = []
+    for i, x in enumerate(items):
+        if x.get("lat") is None or x.get("lon") is None:
+            continue
+        line = " · ".join(v for v in [x.get("summary"), x.get("phone"), f"VHF {x['vhf']}" if x.get("vhf") else None] if v)
+        out.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [x["lon"], x["lat"]]},
+                    "properties": {"kind": x["kind"], "id": f"extra-{i}", "name": x["name"], "phone": x.get("phone"),
+                                   "website": x.get("website"), "summary": line, "source": "Channel Nav"}})
+    return out
+
+
 def fetch(http: httpx.Client, log=print) -> list[dict]:
     q = query()
     last = None
@@ -158,7 +178,18 @@ def fetch(http: httpx.Client, log=print) -> list[dict]:
 
 def run(store, log=print) -> dict:
     http = httpx.Client(timeout=300, follow_redirects=True, headers={"User-Agent": "ChannelNav-fishing-app/1.0 (weekly harbor data job)"})
-    feats = to_features(fetch(http, log))
+    try:
+        osm = to_features(fetch(http, log))
+    except Exception as e:   # OpenStreetMap down: still publish the official list
+        log(f"harbors: OpenStreetMap failed ({str(e)[:150]})")
+        osm = []
+    from .dbw import fetch_all, merge
+    try:
+        official = fetch_all(log)
+    except Exception as e:
+        log(f"harbors: DBW failed ({str(e)[:150]})")
+        official = []
+    feats = merge(osm, official) + extras()
     counts: dict[str, int] = {}
     for f in feats:
         if not f["properties"].get("center"):
@@ -168,7 +199,8 @@ def run(store, log=print) -> dict:
     key = "vectors/harbors/socal.geojson"
     store.put(key, json.dumps({"type": "FeatureCollection", "features": feats}, separators=(",", ":")).encode(), "application/geo+json")
     manifest = {"layer": "harbors", "updated_at": datetime.now(timezone.utc).isoformat(), "url": store.url(key),
-                "counts": counts, "source": "OpenStreetMap", "attribution": ATTRIBUTION,
+                "counts": counts, "source": "OpenStreetMap + California Division of Boating and Waterways",
+                "attribution": ATTRIBUTION + " · California State Parks, Division of Boating and Waterways",
                 "note": "Harbor details from OpenStreetMap volunteers. Check with the marina before you rely on hours or fuel."}
     store.put("manifests/harbors.json", json.dumps(manifest).encode(), "application/json")
     log("harbors: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))

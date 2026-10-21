@@ -35,6 +35,8 @@ import { CatchBar } from '../components/CatchBar';
 import { ClusterSheet } from '../components/ReportView';
 import { BuddyMarkers } from '../components/Buddies';
 import { loadCoordFormat } from '../coordPref';
+import { HarborLayers, harborCard, useHarbors } from '../layers/Harbors';
+import { harborsOf } from '../layers/catalog';
 import { GroupPins } from '../components/GroupPins';
 import { SendToGroupSheet } from '../community/SendToGroupSheet';
 import { LogCatchSheet } from '../components/LogCatchSheet';
@@ -125,6 +127,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const [probeAt, setProbeAt] = useState<Pt | null>(null);
   const [probeData, setProbeData] = useState<Conditions | null>(null);
   const { catalog, cached: catalogCached } = useCatalog();
+  const harborFc = useHarbors(harborsOf(catalog));
   const [view, setView] = useState<{ minLon: number; minLat: number; maxLon: number; maxLat: number; zoom: number; heading: number } | null>(null);
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [catchHours, setCatchHours] = useState(24);
@@ -449,7 +452,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   // ---- map data ----
   // Spot names appear once you zoom in (like a chartplotter), at most 60 at a time so the map stays fast and clean.
   const spotLabels = useMemo(() => {
-    if (!view || view.zoom < 10.3) return [];
+    if (!view || view.zoom < 10.3 || !layers.on.spots) return [];
     const out: any[] = [];
     for (const f of publicSpots?.features ?? []) {
       const [lon, lat] = f.geometry?.coordinates ?? [];
@@ -457,7 +460,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       if (out.length >= 60) break;
     }
     return out;
-  }, [publicSpots, view]);
+  }, [publicSpots, view, layers.on.spots]);
   const mySpotsFC = useMemo(() => fc(mySpots.map((s) => pointF(s, { id: s.id, name: s.name, subtitle: 'Private — only you' }))), [mySpots]);
   const pinFC = useMemo(() => fc(sel?.kind === 'pin' ? [pointF(sel.pt)] : []), [sel]);
   const draftFC = useMemo(() => fc(draft && draft.length ? [...(draft.length > 1 ? [lineF(draft)] : []), ...draft.map((p) => pointF(p))] : []), [draft]);
@@ -603,9 +606,13 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           <Layer type="line" id="nav-line" style={{ lineColor: colors.accent, lineWidth: 3.5, lineDasharray: [2, 1.2] }} />
           <Layer type="circle" id="nav-pts" style={{ circleRadius: 8, circleColor: colors.accent, circleStrokeColor: colors.bg, circleStrokeWidth: 2 }} />
         </GeoJSONSource>
-        <GeoJSONSource id="public-spots" data={publicSpots} onPress={(e: any) => onSpotPress(e, 'spot')} hitbox={{ top: 15, right: 15, bottom: 15, left: 15 }}>
+        <HarborLayers fc={harborFc} s={layers} view={view} onPress={(p, [lon, lat]) => {
+          featurePressAt.current = Date.now(); setBuoy(null); setPanel('none');
+          const c = harborCard(p); setSel({ kind: 'spot', pt: { lat, lon, name: c.name, subtitle: c.subtitle } });
+        }} />
+        {layers.on.spots ? <GeoJSONSource id="public-spots" data={publicSpots} onPress={(e: any) => onSpotPress(e, 'spot')} hitbox={{ top: 15, right: 15, bottom: 15, left: 15 }}>
           <Layer type="circle" id="public-spots-dots" style={{ circleRadius: 5, circleColor: colors.accent, circleStrokeColor: colors.bg, circleStrokeWidth: 1.5 }} />
-        </GeoJSONSource>
+        </GeoJSONSource> : null}
         {spotLabels.map((f: any) => (
           <Marker key={`lbl-${f.properties.id}`} lngLat={f.geometry.coordinates} anchor="left" offset={[9, 0]}>
             <View pointerEvents="none" style={st.spotLbl}><Text style={st.spotLblT} numberOfLines={1}>{f.properties.name}</Text></View>

@@ -1,5 +1,6 @@
 // Which layers are on, how see-through they are, and one-tap presets.
-export type LayerKey = 'bathy' | 'contours' | 'sst' | 'breaks' | 'chl' | 'chlEdges' | 'radar' | 'wind' | 'buoys' | 'catches' | 'buddies' | 'rules' | 'hazards';
+export type LayerKey = 'bathy' | 'contours' | 'sst' | 'breaks' | 'chl' | 'chlEdges' | 'radar' | 'wind' | 'buoys' | 'catches' | 'buddies' | 'rules' | 'hazards'
+  | 'spots' | 'marinas' | 'docks' | 'fuel' | 'pumpout' | 'ramps' | 'bait';
 export type MapOverlay = 'none' | 'relief' | 'satellite';
 export type LayerState = {
   on: Record<LayerKey, boolean>;
@@ -12,7 +13,8 @@ export type LayerState = {
 };
 
 export const DEFAULT_LAYERS: LayerState = {
-  on: { bathy: false, contours: false, sst: true, breaks: true, chl: false, chlEdges: false, radar: false, wind: false, buoys: false, catches: true, buddies: true, rules: true, hazards: false },
+  on: { bathy: false, contours: false, sst: true, breaks: true, chl: false, chlEdges: false, radar: false, wind: false, buoys: false, catches: true, buddies: true, rules: true, hazards: false,
+    spots: true, marinas: true, docks: true, fuel: true, pumpout: false, ramps: false, bait: true },
   overlay: 'none',
   tilt: false,
   chart: { navaids: true, lanes: true, seabed: true, areas: true, services: false, lightCircles: false, simpleSymbols: false },

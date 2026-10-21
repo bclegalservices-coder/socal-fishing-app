@@ -32,6 +32,7 @@ export const grid = (c: Catalog | null, key: 'sst' | 'chl' | 'bathy'): GridLayer
   const dates = (l.dates ?? []).filter((d: any) => typeof d?.tiles === 'string' && d.tiles.startsWith('http'));
   return dates.length ? { ...l, dates } : { ...l, dates: [], available: false } as GridLayer;
 };
+export const harborsOf = (c: Catalog | null) => (c?.layers.find((l) => l.key === 'harbors') as any) ?? undefined;
 export const wind = (c: Catalog | null) => (c?.layers.find((l) => l.key === 'wind') as WindLayer | undefined) ?? undefined;
 export const external = (c: Catalog | null, key: string) => (c?.layers.find((l) => l.key === key) as ExternalLayer | undefined) ?? undefined;
 

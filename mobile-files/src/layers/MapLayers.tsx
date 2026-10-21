@@ -1,7 +1,7 @@
 // Everything drawn on top of the NOAA chart. Order here = stacking order (later is on top).
 import { useEffect, useState } from 'react';
 import { GeoJSONSource, Layer, RasterSource } from '@maplibre/maplibre-react-native';
-import { API_URL, CHART_TILE_SIZE, RELIEF_ATTRIBUTION, RELIEF_TILES, SATELLITE_ATTRIBUTION, SATELLITE_BASE_ATTRIBUTION, SATELLITE_BASE_TILES, SATELLITE_DETAIL_MINZOOM, SATELLITE_TILES } from '../config';
+import { API_URL, CHART_SETTINGS_AVAILABLE, CHART_TILE_SIZE, RELIEF_ATTRIBUTION, RELIEF_TILES, SATELLITE_ATTRIBUTION, SATELLITE_BASE_ATTRIBUTION, SATELLITE_BASE_TILES, SATELLITE_DETAIL_MINZOOM, SATELLITE_TILES } from '../config';
 import type { Catalog } from '../types';
 import { DAY_OFFSETS, external, grid, pickDate, wind } from './catalog';
 import type { LayerState } from './state';
@@ -40,7 +40,7 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
           <Layer type="raster" id="satellite-layer" style={{ rasterOpacity: overlayOpacity, rasterFadeDuration: 150 }} />
         </RasterSource>
       ) : null}
-      {s.overlay === 'relief' ? (
+      {s.overlay === 'relief' && CHART_SETTINGS_AVAILABLE ? (
         <RasterSource key="relief" id="relief" tiles={[RELIEF_TILES]} tileSize={CHART_TILE_SIZE} maxzoom={17} attribution={RELIEF_ATTRIBUTION}>
           <Layer type="raster" id="relief-layer" style={{ rasterOpacity: overlayOpacity, rasterFadeDuration: 150 }} />
         </RasterSource>

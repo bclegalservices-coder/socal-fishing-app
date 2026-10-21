@@ -2,8 +2,9 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ageText } from '../api';
 import { colors, touch, makeStyles } from '../theme';
+import { CHART_SETTINGS_AVAILABLE } from '../config';
 import type { Catalog } from '../types';
-import { external, grid, wind } from './catalog';
+import { external, grid, harborsOf, wind } from './catalog';
 import { DEFAULT_LAYERS, PRESETS, type LayerKey, type LayerState, type MapOverlay } from './state';
 import { track } from '../analytics';
 
@@ -19,6 +20,8 @@ const STYLES: { key: MapOverlay; label: string; sub: string; img: any }[] = [
   { key: 'relief', label: 'Relief', sub: 'Seafloor in color', img: require('../../assets/map-options/relief.png') },
   { key: 'satellite', label: 'Satellite', sub: 'Aerial photos', img: require('../../assets/map-options/satellite.png') },
 ];
+// Relief needs the chart helper (see config.ts); without it the card is hidden.
+const STYLE_CARDS = STYLES.filter((x) => x.key !== 'relief' || CHART_SETTINGS_AVAILABLE);
 
 export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPlaying, onClose, rulesChecked, onSaveArea }: Props) {
   const st = useSt();
@@ -27,6 +30,7 @@ export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPla
   const ovOpacity = (v: number) => set((p) => ({ ...p, opacity: { ...p.opacity, overlay: v } }));
   const toggle = (k: LayerKey) => set((p) => ({ ...p, on: { ...p.on, [k]: !p.on[k] } }));
   const opacity = (k: keyof LayerState['opacity'], v: number) => set((p) => ({ ...p, opacity: { ...p.opacity, [k]: v } }));
+  const hc: Record<string, number> | undefined = harborsOf(catalog)?.counts;
   const sst = grid(catalog, 'sst'), chl = grid(catalog, 'chl'), bathy = grid(catalog, 'bathy'), w = wind(catalog), radar = external(catalog, 'radar');
 
   const Row = ({ k, title, sub, disabled }: { k: LayerKey; title: string; sub?: string; disabled?: boolean }) => { const st = useSt(); return ((
@@ -62,7 +66,7 @@ export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPla
         <View>
           <Text style={st.group}>Map style</Text>
           <View style={st.styles}>
-            {STYLES.map((m) => {
+            {STYLE_CARDS.map((m) => {
               const on = (s.overlay ?? 'none') === m.key;
               return (
                 <Pressable key={m.key} onPress={() => setOverlay(m.key)} style={st.styleCard} accessibilityRole="radio" accessibilityState={{ selected: on }} accessibilityLabel={`${m.label}: ${m.sub}`}>
@@ -118,12 +122,12 @@ export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPla
           <Text style={st.note}>Turn off what you don't need. These are drawn on the NOAA chart itself.</Text>
           {([
             ['navaids', 'Buoys, lights & radio towers', 'Pink teardrops = lights · pink circles with a dot = radio/radar stations'],
-            ['lightCircles', 'Lighthouse circles', 'The big yellow/orange rings and arcs around lighthouses (which color each light shows from which direction)'],
+            ...(CHART_SETTINGS_AVAILABLE ? [['lightCircles', 'Lighthouse circles', 'The big yellow/orange rings and arcs around lighthouses (which color each light shows from which direction)']] as const : []),
             ['lanes', 'Shipping lanes & traffic routes', 'Traffic separation lanes, fairways, recommended tracks'],
             ['areas', 'Restricted & special areas', 'Anchorages, cable areas, military and restricted zones'],
             ['seabed', 'Cables, pipelines, wrecks & rocks', 'Pink zigzag lines = underwater cables. NOAA draws these together with wrecks'],
             ['services', 'Marinas & services', 'Fuel, launch ramps, harbor facilities'],
-            ['simpleSymbols', 'Simpler chart symbols', 'Clean modern buoy and light symbols instead of the paper-chart style'],
+            ...(CHART_SETTINGS_AVAILABLE ? [['simpleSymbols', 'Simpler chart symbols', 'Clean modern buoy and light symbols instead of the paper-chart style']] as const : []),
           ] as const).map(([k, title, sub]) => {
             const on = s.chart?.[k] ?? DEFAULT_LAYERS.chart[k];
             return (
@@ -141,8 +145,20 @@ export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPla
 
         <View>
           <Text style={st.group}>Fishing</Text>
+          <Row k="spots" title="Known fishing spots" sub="430 banks, high spots, reefs and kelp (SWYC Anglers) · names show when you zoom in" />
           <Row k="catches" title="Catch reports (Catch Map)" sub="Community catches · time filter on the map" />
           <Row k="buddies" title="My groups" sub="Buddy boats (live + last known), pings, shared catches and spots" />
+        </View>
+
+        <View>
+          <Text style={st.group}>Harbors & marinas</Text>
+          <Row k="marinas" title="Marinas & harbor offices" sub={hc ? `${hc.marina ?? 0} marinas · tap for slips, VHF, phone and hours` : 'Loading harbor data…'} />
+          <Row k="docks" title="Docks & piers" sub="Every dock and pier outline · zoom into a harbor" />
+          <Row k="fuel" title="Fuel docks" sub={hc ? `${hc.fuel ?? 0} fuel docks · diesel and gas when listed` : undefined} />
+          <Row k="pumpout" title="Pump-out stations" sub={hc ? `${hc.pumpout ?? 0} pump-outs` : undefined} />
+          <Row k="ramps" title="Launch ramps" sub={hc ? `${hc.ramp ?? 0} ramps and hoists` : undefined} />
+          <Row k="bait" title="Bait" sub={hc ? `${(hc.bait ?? 0) + (hc.tackle ?? 0)} bait receivers and bait & tackle shops` : undefined} />
+          <Text style={st.note}>Harbor details © OpenStreetMap contributors. Confirm hours and fuel with the marina.</Text>
         </View>
 
         <View>
