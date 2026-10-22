@@ -413,3 +413,33 @@ def test_fill_gaps_only_near_data():
     v = np.full((1, 12), np.nan, np.float32); v[0, :3] = 60.0
     f = landmask.fill_gaps(v, max_cells=3)
     assert np.isfinite(f[0, :6]).all() and np.isnan(f[0, 7:]).all()
+
+
+def test_land_mask_from_chart_polygons():
+    """NOAA chart land = a strip along the coast + an island. The inland interior (beyond the chart) becomes land,
+    the island is land, the channel and open ocean stay water — even with a small gap between two chart sheets."""
+    import numpy as np
+    from ocean import landmask
+    bbox = (-121.0, 31.0, -116.6, 35.0)
+    # coastal strip in two pieces with a 0.0015° (~1.5 px) gap between "chart sheets"
+    strip1 = {"type": "Polygon", "coordinates": [[(-121.0, 34.2), (-119.0, 33.6), (-119.0, 33.75), (-121.0, 34.35), (-121.0, 34.2)]]}
+    strip2 = {"type": "Polygon", "coordinates": [[(-118.9985, 33.6), (-116.6, 32.6), (-116.6, 32.75), (-118.9985, 33.75), (-118.9985, 33.6)]]}
+    island = {"type": "MultiPolygon", "coordinates": [[[(-119.6, 33.15), (-119.3, 33.15), (-119.3, 33.25), (-119.6, 33.25), (-119.6, 33.15)]]]}
+    raw = landmask.rasterize([strip1, strip2, island], bbox)
+    land = landmask.close_inland(raw, bbox)
+    m = landmask.LandMask(bbox[0], bbox[1], landmask.RES, land)
+    lat = np.array([33.2, 33.4, 32.0, 34.8, 33.67]); lon = np.array([-119.45, -119.45, -120.0, -117.5, -118.99925])
+    assert m.is_land(lat, lon).tolist() == [True, False, False, True, True]   # island, channel, ocean, interior, gap closed
+    assert landmask.sane(m)
+
+
+def test_land_mask_coast_stays_exact():
+    """Thickening is only for the flood: water right next to the chart's coast stays water."""
+    import numpy as np
+    from ocean import landmask
+    bbox = (-121.0, 31.0, -116.6, 35.0)
+    strip = {"type": "Polygon", "coordinates": [[(-121.0, 34.0), (-116.6, 34.0), (-116.6, 34.2), (-121.0, 34.2), (-121.0, 34.0)]]}
+    land = landmask.close_inland(landmask.rasterize([strip], bbox), bbox)
+    m = landmask.LandMask(bbox[0], bbox[1], landmask.RES, land)
+    assert not m.is_land(np.array([33.997]), np.array([-119.0]))[0]   # 300 m offshore is still water
+    assert m.is_land(np.array([34.1]), np.array([-119.0]))[0]
