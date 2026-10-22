@@ -494,8 +494,13 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   };
   const recenter = () => { if (nav) { setFollow(true); return; } if (fix) camera.current?.setStop({ center: [fix.lon, fix.lat], zoom: 11, duration: 600, easing: 'ease' }); };
   const onSearchPick = (h: SearchHit) => {
-    setPanel('none'); track('search_pick', { kind: h.kind });
-    setSel({ kind: h.kind, pt: { lat: h.lat, lon: h.lon, name: h.name, subtitle: h.sub, id: h.id } });
+    setPanel('none');
+    if (h.kind === 'place') {
+      // A fuel dock / bait / marina…: open its card and switch its map layer on so the pin shows.
+      if (h.layer && !layers.on[h.layer]) setLayersSafe((p) => ({ ...p, on: { ...p.on, [h.layer!]: true } }));
+      const c = h.props ? harborCard(h.props) : { name: h.name, subtitle: h.sub };
+      setSel({ kind: 'spot', pt: { lat: h.lat, lon: h.lon, name: c.name, subtitle: c.subtitle, sponsor: 'Harbors', sponsorTags: [String(h.placeKind ?? '')] } });
+    } else setSel({ kind: h.kind, pt: { lat: h.lat, lon: h.lon, name: h.name, subtitle: h.sub, id: h.id } });
     camera.current?.setStop({ center: [h.lon, h.lat], zoom: 11, duration: 700 });
   };
 
@@ -717,9 +722,9 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
 
       <SafeAreaView style={st.top} edges={['top']} pointerEvents="box-none">
         <View style={st.searchRow}>
-          <Pressable style={st.search} onPress={() => setPanel('search')} accessibilityRole="search" accessibilityLabel="Search spots">
+          <Pressable style={st.search} onPress={() => setPanel('search')} accessibilityRole="search" accessibilityLabel="Search fuel, bait, marinas and spots">
             <Ionicons name="search" size={19} color={colors.muted} />
-            <Text style={st.searchT} numberOfLines={1}>Search spots, numbers, my spots</Text>
+            <Text style={st.searchT} numberOfLines={1}>Search fuel, bait, marinas, spots…</Text>
           </Pressable>
           <IconButton icon={theme.mode === 'night' ? 'sunny' : 'moon'} size={48} label={theme.mode === 'night' ? 'Switch to day mode' : 'Switch to night mode'} onPress={() => { theme.toggle(); track('theme_changed', { setting: theme.mode === 'night' ? 'day' : 'night' }); }} />
         </View>
@@ -790,7 +795,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       ) : null}
       {today ? <TodaySheet onClose={() => setToday(false)} onOpenCatchMap={() => { setToday(false); setLayers((p) => ({ ...p, on: { ...p.on, catches: true } })); setCatchHours(24); }} /> : null}
       {toast ? <View style={st.toast} pointerEvents="none"><Text style={st.toastT}>{toast}</Text></View> : null}
-      {panel === 'search' ? <SearchSheet boat={here()} mySpots={mySpots} publicSpots={publicSpots} onPick={onSearchPick} onClose={() => setPanel('none')} /> : null}
+      {panel === 'search' ? <SearchSheet boat={here()} center={view ? { lat: (view.minLat + view.maxLat) / 2, lon: (view.minLon + view.maxLon) / 2 } : null} mySpots={mySpots} publicSpots={publicSpots} harbors={harborFc} onPick={onSearchPick} onClose={() => setPanel('none')} /> : null}
     </View>
   );
 }
