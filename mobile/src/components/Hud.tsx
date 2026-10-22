@@ -1,5 +1,5 @@
 // The instrument banner at the top of the map.
-//  • Normal: position, then SPEED (knots + mph), HEADING (°T + compass point) and GPS accuracy.
+//  • Normal: position + GPS accuracy, then SPEED (knots + mph), HEADING (°T + compass point) and WATER temp (°F).
 //  • Navigating (Go To / route): the same banner turns into the nav display — where you're going, distance in
 //    nautical miles, bearing, which way to turn, speed in knots + mph, your heading, ETA and how far off the line
 //    you are. No big panel at the bottom, so the map stays visible.
@@ -17,11 +17,12 @@ export type HudNav = {
   onEnd: () => void; onSkip?: () => void;
 };
 
-type Props = { fix: Fix | null; status: string; sogKt: number | null; cogT: number | null; compass?: number | null; recording: boolean; nav?: HudNav | null };
+type Props = { fix: Fix | null; status: string; sogKt: number | null; cogT: number | null; compass?: number | null; recording: boolean; nav?: HudNav | null;
+  waterF?: number | null; waterCached?: boolean };
 
 const deg3 = (d: number) => `${String(Math.round(d) % 360).padStart(3, '0')}°`;
 
-export function Hud({ fix, status, sogKt, cogT, compass, recording, nav }: Props) {
+export function Hud({ fix, status, sogKt, cogT, compass, recording, nav, waterF, waterCached }: Props) {
   const s = useS();
   // Heading: course over ground when moving (what the boat is actually doing), the phone compass when stopped.
   const moving = sogKt != null && sogKt >= 1;
@@ -42,6 +43,15 @@ export function Hud({ fix, status, sogKt, cogT, compass, recording, nav }: Props
       <Text style={s.k}>HEADING</Text>
       <Text style={s.big}>{hdg != null ? deg3(hdg) : '—'}<Text style={s.unit}>{hdg != null ? 'T' : ''}</Text></Text>
       <Text style={s.sub}>{hdg != null ? `${cardinal(hdg)} · ${hdgSrc}` : 'start moving'}</Text>
+    </View>
+  );
+
+  const waterTxt = waterF != null ? `${waterF.toFixed(1)}°` : '—';
+  const Water = (
+    <View style={s.cell}>
+      <Text style={s.k}>WATER</Text>
+      <Text style={[s.big, { color: colors.live }]}>{waterTxt}<Text style={s.unit}>{waterF != null ? 'F' : ''}</Text></Text>
+      <Text style={s.sub}>{waterF == null ? 'no reading yet' : waterCached ? 'saved reading' : 'satellite'}</Text>
     </View>
   );
 
@@ -83,7 +93,7 @@ export function Hud({ fix, status, sogKt, cogT, compass, recording, nav }: Props
             <Text style={[s.steerT, onCourse && { color: colors.ok }]}>{steerTxt}</Text>
           </View>
           <Text style={s.footT} numberOfLines={1}>
-            HDG {hdg != null ? `${deg3(hdg)} ${cardinal(hdg)}` : '—'}  ·  Off line {nav.xteNm != null ? `${Math.abs(nav.xteNm).toFixed(2)} NM ${nav.xteNm >= 0 ? 'R' : 'L'}` : '—'}
+            HDG {hdg != null ? `${deg3(hdg)} ${cardinal(hdg)}` : '—'}  ·  Water {waterF != null ? `${waterF.toFixed(1)}°F` : '—'}  ·  Off line {nav.xteNm != null ? `${Math.abs(nav.xteNm).toFixed(2)} NM ${nav.xteNm >= 0 ? 'R' : 'L'}` : '—'}
           </Text>
         </View>
       </View>
@@ -99,6 +109,7 @@ export function Hud({ fix, status, sogKt, cogT, compass, recording, nav }: Props
       <View style={s.row}>
         {Speed}
         {Heading}
+        {Water}
       </View>
     </View>
   );
@@ -114,7 +125,7 @@ const useS = makeStyles((colors) => ({
   row: { flexDirection: 'row', gap: 10 },
   cell: { flex: 1 },
   k: { color: colors.muted, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.8 },
-  big: { color: colors.text, fontSize: 26, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5 },
+  big: { color: colors.text, fontSize: 24, fontWeight: '800', fontVariant: ['tabular-nums'], letterSpacing: -0.5 },
   unit: { color: colors.muted, fontSize: 13, fontWeight: '700' },
   sub: { color: colors.muted, fontSize: 12, fontWeight: '600', fontVariant: ['tabular-nums'] },
   navHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },

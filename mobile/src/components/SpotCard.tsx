@@ -5,6 +5,7 @@ import type { Pt } from '../nav';
 import { Btn, Note, Row, Sheet, Stat, Title } from './ui';
 import { ConditionsView } from './ConditionsView';
 import { PresentedBy } from '../ads/Sponsor';
+import { useWaterTemp } from '../waterTemp';
 
 type Props = {
   spot: Pt & { subtitle?: string; sponsor?: string; sponsorTags?: string[] }; boat: Pt | null; kind: 'spot' | 'pin' | 'saved';
@@ -14,6 +15,7 @@ type Props = {
 export function SpotCard({ spot, boat, kind, onGo, onAddToRoute, onSave, onDelete, onClose, onLog, onWeather, onShareToGroup, protectedHere }: Props) {
   const d = boat ? distanceNm(boat.lat, boat.lon, spot.lat, spot.lon) : null;
   const b = boat ? bearingTrue(boat.lat, boat.lon, spot.lat, spot.lon) : null;
+  const water = useWaterTemp(spot.lat, spot.lon);
   return (
     <Sheet maxHeight={620}>
       {kind === 'pin' ? <Text style={{ color: colors.live, fontWeight: '600' }}>Dropped pin</Text> : <Title>{spot.name}</Title>}
@@ -27,6 +29,7 @@ export function SpotCard({ spot, boat, kind, onGo, onAddToRoute, onSave, onDelet
       <Row>
         <Stat k="Distance" v={d != null ? `${formatNm(d)} NM` : 'No GPS'} />
         <Stat k="Bearing" v={b != null ? `${Math.round(b)}°T` : '—'} />
+        <Stat k="Water temp" v={water ? (water.f != null ? `${water.f.toFixed(1)}°F` : 'No data') : '…'} color={colors.live} />
       </Row>
       <Row>
         <Btn label="Go to" icon="navigate" kind="primary" onPress={onGo} />

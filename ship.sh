@@ -38,6 +38,15 @@ if [ "$NATIVE" != "0" ]; then
   echo "     ⚠ app.json or package.json changed. Phones need a NEW BUILD for that part (TestFlight / cable)."
 fi
 cd "$APPDIR"
+# Expo now builds updates ONLY from the settings stored on expo.dev ("production" environment), not from the .env file.
+# If they're missing, the update would reach phones without the server address (no water temp, no relief map...).
+if ! npx eas-cli@latest env:list --environment production 2>/dev/null | grep -q "EXPO_PUBLIC_API_URL"; then
+  echo "     ✗ Stopped: the app settings aren't on expo.dev yet, so nothing was sent to phones."
+  echo "       Fix (one time), in this window:"
+  echo "         cd $(pwd) && npx eas-cli@latest env:push --environment production --path .env"
+  echo "       Then run ship.sh again."
+  exit 1
+fi
 npx eas-cli@latest update --channel production --environment production --message "$MSG" --non-interactive
 
 echo "4/4  Done."

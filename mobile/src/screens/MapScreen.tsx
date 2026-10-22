@@ -56,6 +56,7 @@ import { setArea, track } from '../analytics';
 import { friendly } from '../friendly';
 import { SHORT_WARNING } from '../legal';
 import { SafeLayer } from '../components/ErrorBoundary';
+import { useWaterTemp } from '../waterTemp';
 import { reportError } from '../errors';
 import { config, onConfig } from '../appConfig';
 
@@ -160,6 +161,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const protectedIdx = useMemo(() => protectedIndex(rules), [rules]);
   const insideAt = (p: Pt) => findContaining(protectedIdx, p.lat, p.lon);
   const activeRef = useRef(active); activeRef.current = active;
+  const water = useWaterTemp(fix?.lat, fix?.lon, { boat: true });   // banner water temp at the boat
 
   // ---- saved data and layer settings (on the phone, offline-safe) ----
   useEffect(() => {
@@ -671,7 +673,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           <IconButton icon={theme.mode === 'night' ? 'sunny' : 'moon'} size={48} label={theme.mode === 'night' ? 'Switch to day mode' : 'Switch to night mode'} onPress={() => { theme.toggle(); track('theme_changed', { setting: theme.mode === 'night' ? 'day' : 'night' }); }} />
         </View>
         {/* Go To lives in this top banner now (distance NM, bearing, turn, speed kt + mph, heading, ETA), so the map stays clear */}
-        <Hud fix={fix} status={status} sogKt={motion.sogKt} cogT={motion.cogT} compass={heading} recording={!!active}
+        <Hud fix={fix} status={status} sogKt={motion.sogKt} cogT={motion.cogT} compass={heading} recording={!!active} waterF={water?.f} waterCached={water?.cached}
           nav={nav && navInfo ? {
             target: navInfo.tgt.name ?? (nav.points.length > 1 ? `Waypoint ${nav.leg + 1}` : 'Waypoint'),
             legLabel: nav.points.length > 1 ? `Leg ${nav.leg + 1} of ${nav.points.length}` : null,
