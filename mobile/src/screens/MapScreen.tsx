@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Alert, Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
@@ -16,7 +16,6 @@ import { appendLocations, startTrack, stopTrack } from '../tracking';
 import type { Conditions } from '../types';
 import { Hud, type Fix } from '../components/Hud';
 import { Compass, type Orientation } from '../components/Compass';
-import { NavPanel } from '../components/NavPanel';
 import { SpotCard } from '../components/SpotCard';
 import { RouteDraft, RoutesList } from '../components/RoutePanel';
 import { TracksPanel } from '../components/TracksPanel';
@@ -380,6 +379,13 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       .catch((e) => setToast(`Area not saved: ${friendly(e)}`));
   };
 
+  // Stable callbacks so the Map layers sheet doesn't redraw on every GPS update (see LayersSheet.tsx).
+  const killedRef = useRef(killed); killedRef.current = killed;
+  const setLayersSafe = useCallback((fn: (s: LayerState) => LayerState) => setLayers((p) => applyKillSwitch(fn(p), killedRef.current)), []);
+  const closePanel = useCallback(() => setPanel('none'), []);
+  const saveAreaRef = useRef(saveArea); saveAreaRef.current = saveArea;
+  const saveAreaStable = useCallback(() => saveAreaRef.current(), []);
+
   const navInfo = useMemo(() => {
     if (!nav) return null;
     const tgt = nav.points[nav.leg];
@@ -506,12 +512,6 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       { key: 'today', label: "Today's report", sub: "What's biting, water, warnings", icon: 'newspaper', tint: colors.ok, onPress: () => { setToday(true); track('screen_view', { screen: 'today' }); } },
       { key: 'wx', label: 'Weather here', sub: '5-day forecast for your boat', icon: 'partly-sunny', tint: colors.warn, hidden: !onWeather, onPress: () => { const p = here(); if (p && onWeather) onWeather(p.lat, p.lon, 'My position'); else if (onWeather) onWeather(33.585, -117.885, 'Off Newport'); } },
     ]} />;
-  } else if (nav && navInfo) {
-    bottom = <NavPanel target={navInfo.tgt.name ?? (nav.points.length > 1 ? `Waypoint ${nav.leg + 1}` : 'Waypoint')}
-      legLabel={nav.points.length > 1 ? `Leg ${nav.leg + 1} of ${nav.points.length}` : null}
-      distNm={navInfo.dist} brg={navInfo.brg} cog={motion.cogT} sog={motion.sogKt} etaMin={navInfo.eta} xteNm={navInfo.xte} steer={navInfo.steer}
-      onEnd={() => setNav(null)}
-      onSkip={nav.leg < nav.points.length - 1 ? () => setNav({ ...nav, leg: nav.leg + 1, legStart: here() ?? nav.points[nav.leg] }) : undefined} />;
   } else if (draft) {
     bottom = <RouteDraft points={draft} sogKt={motion.sogKt} onUndo={() => setDraft(draft.slice(0, -1))} onSave={saveDraft}
       onGo={() => startNav(draft, 'Route')} onCancel={() => setDraft(null)} />;
@@ -670,7 +670,15 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           </Pressable>
           <IconButton icon={theme.mode === 'night' ? 'sunny' : 'moon'} size={48} label={theme.mode === 'night' ? 'Switch to day mode' : 'Switch to night mode'} onPress={() => { theme.toggle(); track('theme_changed', { setting: theme.mode === 'night' ? 'day' : 'night' }); }} />
         </View>
-        <Hud fix={fix} status={status} sogKt={motion.sogKt} cogT={motion.cogT} recording={!!active} />
+        {/* Go To lives in this top banner now (distance NM, bearing, turn, speed kt + mph, heading, ETA), so the map stays clear */}
+        <Hud fix={fix} status={status} sogKt={motion.sogKt} cogT={motion.cogT} compass={heading} recording={!!active}
+          nav={nav && navInfo ? {
+            target: navInfo.tgt.name ?? (nav.points.length > 1 ? `Waypoint ${nav.leg + 1}` : 'Waypoint'),
+            legLabel: nav.points.length > 1 ? `Leg ${nav.leg + 1} of ${nav.points.length}` : null,
+            distNm: navInfo.dist, brg: navInfo.brg, etaMin: navInfo.eta, xteNm: navInfo.xte, steer: navInfo.steer,
+            onEnd: () => { setNav(null); track('go_to_ended'); },
+            onSkip: nav.leg < nav.points.length - 1 ? () => setNav({ ...nav, leg: nav.leg + 1, legStart: here() ?? nav.points[nav.leg] }) : undefined,
+          } : null} />
         {layers.on.rules && mpaHere.length && mpaDismissed !== mpaKey ? (
           <MpaBanner areas={mpaHere} silenced={mpaSilenced} onSilence={silenceMpa}
             onRules={() => { const a = mpaHere.find((x) => x.properties?.take === 'no_take') ?? mpaHere[0]; setRuleSel({ ...a.properties, geom: a.geometry }); }}
@@ -684,7 +692,17 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
             {probeAt && fix ? <Text style={st.probeL}>{distanceNm(fix.lat, fix.lon, probeAt.lat, probeAt.lon).toFixed(1)} NM from boat at {Math.round(bearingTrue(fix.lat, fix.lon, probeAt.lat, probeAt.lon))}°T</Text> : null}
           </View>
         ) : null}
-        <View style={st.rail} pointerEvents="box-none">
+        <View style={st.railRow} pointerEvents="box-none">
+          {/* Radar loop time + its sponsor: a small tag up here, under the banner — never floating over the middle of the map */}
+          <View style={st.railLeft} pointerEvents="box-none">
+            {radarLabel ? (
+              <View pointerEvents="none" style={[st.radarTagIn, radarLabel.startsWith('Forecast') && st.radarTagFc]}>
+                <Text style={st.radarTagT}>{radarLabel}</Text>
+              </View>
+            ) : null}
+            {radarLabel && !nav && !active ? <PresentedBy section="Radar" pill /> : null}
+          </View>
+          <View style={st.rail} pointerEvents="box-none">
           <View style={st.railGroup}>
             <Pressable style={st.railBtn} onPress={() => { setSel(null); setPanel('layers'); }} accessibilityRole="button" accessibilityLabel="Map layers">
               <Ionicons name="layers" size={22} color={colors.text} /><Text style={st.railT}>Layers</Text>
@@ -696,28 +714,21 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
               <Ionicons name="navigate" size={22} color={colors.live} /><Text style={st.railT}>Me</Text>
             </Pressable>
           </View>
+          </View>
         </View>
       </SafeAreaView>
 
       <View style={st.bottom} pointerEvents="box-none">{bottom}</View>
 
       {panel === 'layers' ? (
-        <LayersSheet catalog={catalog} cached={catalogCached} s={layers} set={(fn) => setLayers((p) => applyKillSwitch(fn(p), killed))} killed={killed} radarPlaying={radarPlaying} setRadarPlaying={setRadarPlaying}
-          onClose={() => setPanel('none')} rulesChecked={rules?.checked_at ?? null} onSaveArea={view ? saveArea : undefined} />
+        <LayersSheet catalog={catalog} cached={catalogCached} s={layers} set={setLayersSafe} killed={killed} radarPlaying={radarPlaying} setRadarPlaying={setRadarPlaying}
+          onClose={closePanel} rulesChecked={rules?.checked_at ?? null} onSaveArea={view ? saveAreaStable : undefined} />
       ) : null}
       {logAt ? (
         <LogCatchSheet lat={logAt.lat} lon={logAt.lon} nearestSpot={nearestPublicSpot(logAt)} depthFt={null}
           onCancel={() => setLogAt(null)} onDone={(m) => { setLogAt(null); setToast(m); }} />
       ) : null}
       {today ? <TodaySheet onClose={() => setToday(false)} onOpenCatchMap={() => { setToday(false); setLayers((p) => ({ ...p, on: { ...p.on, catches: true } })); setCatchHours(24); }} /> : null}
-      {radarLabel ? (
-        <View pointerEvents="box-none" style={st.radarWrap}>
-          <View pointerEvents="none" style={[st.radarTagIn, radarLabel.startsWith('Forecast') && st.radarTagFc]}>
-            <Text style={st.radarTagT}>{radarLabel}</Text>
-          </View>
-          {!nav && !active ? <PresentedBy section="Radar" pill /> : null}
-        </View>
-      ) : null}
       {toast ? <View style={st.toast} pointerEvents="none"><Text style={st.toastT}>{toast}</Text></View> : null}
       {panel === 'search' ? <SearchSheet boat={here()} mySpots={mySpots} publicSpots={publicSpots} onPick={onSearchPick} onClose={() => setPanel('none')} /> : null}
     </View>
@@ -759,10 +770,11 @@ const useSt = makeStyles((colors) => ({
   probe: { backgroundColor: colors.panel, borderColor: colors.live, borderWidth: 1.5, borderRadius: 12, padding: 10, gap: 3, marginRight: 70 },
   probeC: { color: colors.text, fontSize: 16, fontWeight: '700', fontVariant: ['tabular-nums'] },
   probeL: { color: colors.text, fontSize: 13 },
-  radarWrap: { position: 'absolute', alignSelf: 'center', top: '46%', alignItems: 'center', gap: 6 },
-  radarTagIn: { backgroundColor: 'rgba(11,27,43,0.82)', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 7 },
+  railRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
+  railLeft: { flex: 1, gap: 6, alignItems: 'flex-start' },
+  radarTagIn: { backgroundColor: 'rgba(11,27,43,0.82)', borderRadius: 14, paddingHorizontal: 11, paddingVertical: 5 },
   radarTagFc: { backgroundColor: 'rgba(122,62,170,0.88)' },
-  radarTagT: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  radarTagT: { color: '#FFFFFF', fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] },
   crossWrap: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   crossH: { position: 'absolute', width: 56, height: 2, backgroundColor: colors.live },
   crossV: { position: 'absolute', width: 2, height: 56, backgroundColor: colors.live },

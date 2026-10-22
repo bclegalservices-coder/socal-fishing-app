@@ -1,5 +1,5 @@
 // Everything drawn on top of the NOAA chart. Order here = stacking order (later is on top).
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { GeoJSONSource, Layer, RasterSource } from '@maplibre/maplibre-react-native';
 import { API_URL, okTile, RADAR_ATTRIBUTION, radarAt, CHART_SETTINGS_AVAILABLE, CHART_TILE_SIZE, RELIEF_ATTRIBUTION, RELIEF_TILES, SATELLITE_ATTRIBUTION, SATELLITE_BASE_ATTRIBUTION, SATELLITE_BASE_TILES, SATELLITE_DETAIL_MINZOOM, SATELLITE_TILES } from '../config';
 import type { Catalog } from '../types';
@@ -54,63 +54,72 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
   const cur = frames[Math.min(frame, frames.length - 1)];
   useEffect(() => { onRadarLabel?.(s.on.radar && radarPlaying && cur ? cur.label : null); }, [cur?.label, s.on.radar, radarPlaying]);
 
+  // Toggle reliability (Oct 22): a layer is added to the map the first time it's turned on, then stays loaded and is
+  // only shown or hidden. Removing a map source and adding one back with the same name a moment later sometimes
+  // failed on iPhone, so a switch turned on but nothing appeared until the app restarted.
+  const seen = useRef<Record<string, boolean>>({});
+  const keep = (k: string, on: boolean) => { if (on) seen.current[k] = true; return !!seen.current[k]; };
+  const vis = (on: boolean) => (on ? 'visible' : 'none') as 'visible' | 'none';
+  const sat = s.overlay === 'satellite', rel = s.overlay === 'relief';
   const overlayOpacity = s.opacity.overlay ?? 0.75;
   return (
     <>
       {/* Map Options overlay, directly over the NOAA chart and under every fishing layer */}
-      {s.overlay === 'satellite' ? (
+      {keep('satellite', sat) ? (
         <RasterSource key="satellite-base" id="satellite-base" tiles={[SATELLITE_BASE_TILES]} tileSize={256} maxzoom={8} attribution={SATELLITE_BASE_ATTRIBUTION}>
-          <Layer type="raster" id="satellite-base-layer" style={{ rasterOpacity: overlayOpacity, rasterFadeDuration: 150 }} />
+          <Layer type="raster" id="satellite-base-layer" style={{ visibility: vis(sat), rasterOpacity: overlayOpacity, rasterFadeDuration: 150 }} />
         </RasterSource>
       ) : null}
-      {s.overlay === 'satellite' ? (
+      {keep('satellite', sat) ? (
         <RasterSource key="satellite" id="satellite" tiles={[SATELLITE_TILES]} tileSize={256} minzoom={SATELLITE_DETAIL_MINZOOM} maxzoom={16} attribution={SATELLITE_ATTRIBUTION}>
-          <Layer type="raster" id="satellite-layer" style={{ rasterOpacity: overlayOpacity, rasterFadeDuration: 150 }} />
+          <Layer type="raster" id="satellite-layer" style={{ visibility: vis(sat), rasterOpacity: overlayOpacity, rasterFadeDuration: 150 }} />
         </RasterSource>
       ) : null}
-      {s.overlay === 'relief' && CHART_SETTINGS_AVAILABLE ? (
+      {keep('relief', rel) && CHART_SETTINGS_AVAILABLE ? (
         <RasterSource key="relief" id="relief" tiles={[RELIEF_TILES]} tileSize={CHART_TILE_SIZE} maxzoom={17} attribution={RELIEF_ATTRIBUTION}>
-          <Layer type="raster" id="relief-layer" style={{ rasterOpacity: overlayOpacity, rasterFadeDuration: 150 }} />
+          <Layer type="raster" id="relief-layer" style={{ visibility: vis(rel), rasterOpacity: overlayOpacity, rasterFadeDuration: 150 }} />
         </RasterSource>
       ) : null}
-      {s.on.bathy && bathy && okTile(bathy.tiles) ? (
+      {keep('bathy', s.on.bathy) && bathy && okTile(bathy.tiles) ? (
         <RasterSource key={`bathy-${bathy.tiles}`} id="bathy" tiles={[bathy.tiles]} tileSize={256} minzoom={5} maxzoom={11}>
-          <Layer type="raster" id="bathy-layer" style={{ rasterOpacity: s.opacity.bathy, rasterFadeDuration: 0 }} />
+          <Layer type="raster" id="bathy-layer" style={{ visibility: vis(s.on.bathy), rasterOpacity: s.opacity.bathy, rasterFadeDuration: 0 }} />
         </RasterSource>
       ) : null}
-      {s.on.contours && okTile(bathy?.contours) ? (
+      {keep('contours', s.on.contours) && okTile(bathy?.contours) ? (
         <GeoJSONSource key={`contours-${bathy.contours}`} id="contours" data={bathy.contours}>
-          <Layer type="line" id="contours-line" style={{ lineColor: '#9fc3d6', lineWidth: 0.8, lineOpacity: 0.7 }} />
+          <Layer type="line" id="contours-line" style={{ visibility: vis(s.on.contours), lineColor: '#9fc3d6', lineWidth: 0.8, lineOpacity: 0.7 }} />
         </GeoJSONSource>
       ) : null}
-      {s.on.sst && sst && okTile(sst.tiles) ? (
+      {keep('sst', s.on.sst) && sst && okTile(sst.tiles) ? (
         <RasterSource key={`sst-${sst.tiles}`} id="sst" tiles={[sst.tiles]} tileSize={256} minzoom={5} maxzoom={10}>
-          <Layer type="raster" id="sst-layer" style={{ rasterOpacity: s.opacity.sst, rasterFadeDuration: 0 }} />
+          <Layer type="raster" id="sst-layer" style={{ visibility: vis(s.on.sst), rasterOpacity: s.opacity.sst, rasterFadeDuration: 0 }} />
         </RasterSource>
       ) : null}
-      {s.on.chl && chl && okTile(chl.tiles) ? (
+      {keep('chl', s.on.chl) && chl && okTile(chl.tiles) ? (
         <RasterSource key={`chl-${chl.tiles}`} id="chl" tiles={[chl.tiles]} tileSize={256} minzoom={5} maxzoom={10}>
-          <Layer type="raster" id="chl-layer" style={{ rasterOpacity: s.opacity.chl, rasterFadeDuration: 0 }} />
+          <Layer type="raster" id="chl-layer" style={{ visibility: vis(s.on.chl), rasterOpacity: s.opacity.chl, rasterFadeDuration: 0 }} />
         </RasterSource>
       ) : null}
-      {s.on.breaks && okTile(sst?.breaks) ? (
+      {keep('breaks', s.on.breaks) && okTile(sst?.breaks) ? (
         <GeoJSONSource key={`breaks-${sst.breaks}`} id="sst-breaks" data={sst.breaks}>
           <Layer type="line" id="sst-breaks-line" style={{
+            visibility: vis(s.on.breaks),
             lineColor: '#ffffff', lineOpacity: ['match', ['get', 'strength'], 'strong', 0.95, 0.6] as any,
             lineWidth: ['match', ['get', 'strength'], 'strong', 3, 1.4] as any,
           }} />
         </GeoJSONSource>
       ) : null}
-      {s.on.chlEdges && okTile(chl?.breaks) ? (
+      {keep('chlEdges', s.on.chlEdges) && okTile(chl?.breaks) ? (
         <GeoJSONSource key={`chledges-${chl.breaks}`} id="chl-edges" data={chl.breaks}>
           <Layer type="line" id="chl-edges-line" style={{
+            visibility: vis(s.on.chlEdges),
             lineColor: '#9cf07a', lineDasharray: [2, 1.5],
             lineWidth: ['match', ['get', 'strength'], 'strong', 2.6, 1.2] as any,
           }} />
         </GeoJSONSource>
       ) : null}
       {/* While the loop plays, every frame stays loaded and frames cross-fade (no flicker). */}
-      {s.on.radar ? frames.map((f, i) => {
+      {keep('radar', s.on.radar) ? frames.map((f, i) => {
         const show = i === Math.min(frame, frames.length - 1);
         if (!okTile(f.tiles) || (!radarPlaying && !show)) return null;
         const isFc = f.label.startsWith('Forecast');
@@ -118,21 +127,22 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
         return (
           <RasterSource key={rid} id={rid} tiles={[f.tiles]} tileSize={isFc ? 256 : 512} maxzoom={isFc ? 8 : 12} attribution={isFc ? undefined : RADAR_ATTRIBUTION}>
             <Layer key={`${rid}-layer`} type="raster" id={`${rid}-layer`}
-              style={{ rasterOpacity: show ? s.opacity.radar : 0, rasterOpacityTransition: { duration: 500, delay: 0 } as any, rasterFadeDuration: 0, rasterResampling: 'linear' }} />
+              style={{ visibility: vis(s.on.radar), rasterOpacity: show ? s.opacity.radar : 0, rasterOpacityTransition: { duration: 500, delay: 0 } as any, rasterFadeDuration: 0, rasterResampling: 'linear' }} />
           </RasterSource>
         );
       }) : null}
-      {s.on.wind && windHour ? (
+      {keep('wind', s.on.wind) && windHour ? (
         <GeoJSONSource key={`wind-${windHour.url}`} id="wind" data={windHour.url}>
           <Layer type="line" id="wind-arrows" minzoom={9} style={{
+            visibility: vis(s.on.wind),
             lineWidth: 2, lineCap: 'round',
             lineColor: ['interpolate', ['linear'], ['get', 'kt'], 0, '#7fd0e8', 8, '#62cbe2', 12, '#f2d36a', 18, '#f5a524', 24, '#e7663a', 30, '#c43a3a'] as any,
           }} />
         </GeoJSONSource>
       ) : null}
-      {s.on.buoys && API_URL ? (
-        <GeoJSONSource id="buoys" data={`${API_URL}/buoys`} onPress={(e: any) => { const f = e?.nativeEvent?.features?.[0]; if (f) { e.stopPropagation?.(); onBuoyPress(f.properties); } }} hitbox={{ top: 15, right: 15, bottom: 15, left: 15 }}>
-          <Layer type="circle" id="buoys-dots" style={{ circleRadius: 7, circleColor: '#ffffff', circleStrokeColor: '#2e7fd6', circleStrokeWidth: 3 }} />
+      {keep('buoys', s.on.buoys) && API_URL ? (
+        <GeoJSONSource id="buoys" data={`${API_URL}/buoys?t=${Math.floor(Date.now() / 1800000)}`} onPress={(e: any) => { const f = e?.nativeEvent?.features?.[0]; if (f) { e.stopPropagation?.(); onBuoyPress(f.properties); } }} hitbox={{ top: 15, right: 15, bottom: 15, left: 15 }}>
+          <Layer type="circle" id="buoys-dots" style={{ visibility: vis(s.on.buoys), circleRadius: 7, circleColor: '#ffffff', circleStrokeColor: '#2e7fd6', circleStrokeWidth: 3 }} />
         </GeoJSONSource>
       ) : null}
     </>

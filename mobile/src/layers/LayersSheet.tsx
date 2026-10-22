@@ -1,6 +1,13 @@
-// Map options — laid out like iOS Settings: grouped cards, a colored icon per row, native switches,
-// one short line under each title, and the long chart-detail list folded away until you need it.
-import { Image, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+// Map options. Clean, app-style layout (think Instagram / Facebook settings): bold section titles, white cards,
+// a colored icon per row, big custom switches in the brand color, and an "On now" strip at the top so you can see
+// and turn off what's showing in one tap.
+//
+// Reliability (Oct 22): every row component lives at the top of this file. Before, rows were created inside the
+// sheet, so React rebuilt every switch each time the GPS updated (once a second) and taps sometimes landed on a
+// switch that was being replaced — the "toggle didn't work, close and reopen" bug. The whole row is now the one
+// tap target, and the switch is just a picture of the state, so a tap can never count twice.
+import { memo, useEffect, useRef } from 'react';
+import { Animated, Image, Pressable, ScrollView, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ageText } from '../api';
@@ -13,7 +20,7 @@ import { track } from '../analytics';
 import { PresentedBy } from '../ads/Sponsor';
 
 type Props = { catalog: Catalog | null; cached: boolean; s: LayerState; set: (fn: (s: LayerState) => LayerState) => void;
-  radarPlaying: boolean; setRadarPlaying: (b: boolean) => void; onClose: () => void; rulesChecked?: string | null; onSaveArea?: () => void };
+  radarPlaying: boolean; setRadarPlaying: (b: boolean) => void; onClose: () => void; rulesChecked?: string | null; onSaveArea?: () => void; killed?: string[] };
 type Icon = keyof typeof MaterialCommunityIcons.glyphMap;
 
 const OPACITIES = [0.15, 0.3, 0.5, 0.75, 1];
@@ -27,7 +34,7 @@ const STYLE_CARDS = STYLES.filter((x) => x.key !== 'relief' || CHART_SETTINGS_AV
 const LOOKS: { key: ChartLook; label: string; icon: Icon; tint: string; sub: string }[] = [
   { key: 'clean', label: 'Clean', icon: 'map-outline', tint: '#8E8E93', sub: 'Coastline and depth shading. Calm and easy to read.' },
   { key: 'standard', label: 'Standard', icon: 'map-marker-radius-outline', tint: '#007AFF', sub: '+ buoys, lights, lanes, wrecks and restricted areas.' },
-  { key: 'full', label: 'Full detail', icon: 'map-search-outline', tint: '#FF9500', sub: 'Every depth number and contour, even zoomed out. Like a paper chart.' },
+  { key: 'full', label: 'Full detail', icon: 'map-search-outline', tint: '#FF9500', sub: 'Every depth number and contour, even zoomed out.' },
 ];
 
 const PRESET_LOOK: Record<string, { icon: Icon; tint: string; sub: string }> = {
@@ -37,13 +44,110 @@ const PRESET_LOOK: Record<string, { icon: Icon; tint: string; sub: string }> = {
   weather: { icon: 'weather-windy', tint: '#0A84FF', sub: 'Radar, wind and buoys' },
   chart: { icon: 'compass-outline', tint: '#8E8E93', sub: 'Just the NOAA chart' },
 };
-// iOS system colors for the little icon tiles
 const C = { blue: '#0A84FF', teal: '#30B0C7', green: '#34C759', mint: '#00C7BE', orange: '#FF9500', red: '#FF3B30',
   purple: '#AF52DE', indigo: '#5856D6', gray: '#8E8E93', brown: '#A2845E', pink: '#FF2D55', yellow: '#FFCC00' };
 
-export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPlaying, onClose, rulesChecked, onSaveArea, killed = [] }: Props & { killed?: string[] }) {
+/** Short names for the "On now" chips. */
+const LABELS: Record<LayerKey, string> = {
+  sst: 'Water temp', breaks: 'Temp breaks', chl: 'Chlorophyll', chlEdges: 'Color edges', radar: 'Radar', wind: 'Wind', buoys: 'Buoys',
+  spots: 'Fishing spots', catches: 'Catch reports', buddies: 'My groups', marinas: 'Marinas', docks: 'Docks', fuel: 'Fuel', bait: 'Bait',
+  pumpout: 'Pump-outs', ramps: 'Ramps', bathy: 'Relief', contours: 'Contours', rules: 'MPAs', hazards: 'Hazards',
+};
+const CHIP_ORDER: LayerKey[] = ['sst', 'breaks', 'chl', 'chlEdges', 'bathy', 'contours', 'radar', 'wind', 'buoys', 'spots', 'catches', 'buddies',
+  'marinas', 'docks', 'fuel', 'bait', 'pumpout', 'ramps', 'rules', 'hazards'];
+
+// ---------------------------------------------------------------- building blocks (top level = stable)
+
+function Tile({ icon, tint }: { icon: Icon; tint: string }) {
+  const st = useSt();
+  return <View style={[st.tile, { backgroundColor: tint }]}><MaterialCommunityIcons name={icon} size={18} color="#FFFFFF" /></View>;
+}
+
+/** Big, crisp switch in the brand color. Only a picture: the row around it takes the tap. */
+function Toggle({ on }: { on: boolean }) {
   const st = useSt();
   const { mode } = useTheme();
+  const a = useRef(new Animated.Value(on ? 1 : 0)).current;
+  useEffect(() => { Animated.spring(a, { toValue: on ? 1 : 0, useNativeDriver: true, speed: 30, bounciness: 5 }).start(); }, [on]);
+  const x = a.interpolate({ inputRange: [0, 1], outputRange: [0, 20] });
+  return (
+    <View style={st.tgl} pointerEvents="none">
+      <Animated.View style={[st.tglOn, { opacity: a }]} />
+      <Animated.View style={[st.knob, mode === 'night' && { backgroundColor: colors.text }, { transform: [{ translateX: x }] }]} />
+    </View>
+  );
+}
+
+function LayerRow({ icon, tint, title, sub, on, disabled, last, onPress }:
+  { icon: Icon; tint: string; title: string; sub?: string; on: boolean; disabled?: boolean; last?: boolean; onPress: () => void }) {
+  const st = useSt();
+  return (
+    <Pressable onPress={disabled ? undefined : onPress} disabled={disabled} hitSlop={2}
+      style={({ pressed }) => [st.row, on && st.rowOn, pressed && !disabled && st.rowPressed, disabled && { opacity: 0.4 }]}
+      accessibilityRole="switch" accessibilityState={{ checked: on, disabled: !!disabled }} accessibilityLabel={title}>
+      <Tile icon={icon} tint={tint} />
+      <View style={[st.rowBody, !last && st.sep]}>
+        <View style={{ flex: 1 }}>
+          <Text style={[st.rowT, on && st.rowTOn]}>{title}</Text>
+          {sub ? <Text style={st.rowS} numberOfLines={2}>{sub}</Text> : null}
+        </View>
+        <Toggle on={on} />
+      </View>
+    </Pressable>
+  );
+}
+
+/** Segmented strength control (how see-through a layer is). */
+function Strength({ value, onPick, label = 'Strength' }: { value: number; onPick: (v: number) => void; label?: string }) {
+  const st = useSt();
+  return (
+    <View style={st.strength}>
+      <Text style={st.strengthL}>{label}</Text>
+      <View style={st.seg}>
+        {OPACITIES.map((v) => {
+          const on = Math.abs(value - v) < 0.01;
+          return (
+            <Pressable key={v} onPress={() => onPick(v)} style={[st.segI, on && st.segOn]} hitSlop={4} accessibilityRole="button" accessibilityState={{ selected: on }}>
+              <Text style={[st.segT, on && st.segTOn]}>{Math.round(v * 100)}%</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function Section({ title, foot, children }: { title?: string; foot?: string; children: any }) {
+  const st = useSt();
+  return (
+    <View style={st.section}>
+      {title ? <Text style={st.caption}>{title}</Text> : null}
+      <View style={st.card}>{children}</View>
+      {foot ? <Text style={st.foot}>{foot}</Text> : null}
+    </View>
+  );
+}
+
+function PickCard({ icon, tint, title, sub, active, onPress, narrow, role = 'button' }:
+  { icon: Icon; tint: string; title: string; sub: string; active: boolean; onPress: () => void; narrow?: boolean; role?: 'button' | 'radio' }) {
+  const st = useSt();
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [st.preset, narrow && st.look, active && st.presetOn, pressed && { transform: [{ scale: 0.97 }] }]}
+      accessibilityRole={role} accessibilityState={{ selected: active }} accessibilityLabel={title}>
+      <View style={st.presetTop}>
+        <Tile icon={icon} tint={tint} />
+        {active ? <MaterialCommunityIcons name="check-circle" size={22} color={colors.accent} /> : null}
+      </View>
+      <Text style={[st.presetT, active && { color: colors.accent }]}>{title}</Text>
+      <Text style={st.presetS} numberOfLines={3}>{sub}</Text>
+    </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------- the sheet
+
+function LayersSheetInner({ catalog, cached, s, set, radarPlaying, setRadarPlaying, onClose, rulesChecked, onSaveArea, killed = [] }: Props) {
+  const st = useSt();
   const insets = useSafeAreaInsets();
   const setOverlay = (o: MapOverlay) => { if (o !== 'none' && killed.includes(o)) return; set((p) => ({ ...p, overlay: o })); track('map_style', { style: o }); };
   const toggle = (k: LayerKey) => set((p) => ({ ...p, on: { ...p.on, [k]: !p.on[k] } }));
@@ -52,53 +156,14 @@ export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPla
   const sst = grid(catalog, 'sst'), chl = grid(catalog, 'chl'), bathy = grid(catalog, 'bathy'), w = wind(catalog), radar = external(catalog, 'radar');
   const latest = (l?: { dates?: { observed_at?: string | null }[]; available?: boolean }) =>
     !l || l.available === false || !l.dates?.length ? 'Not available yet' : `Satellite · ${ageText(l.dates[0].observed_at ?? null)}`;
-  const track_on = mode === 'night' ? '#30D158' : C.green;
 
-  const Tile = ({ icon, tint }: { icon: Icon; tint: string }) => (
-    <View style={[st.tile, { backgroundColor: tint }]}><MaterialCommunityIcons name={icon} size={18} color="#FFFFFF" /></View>
-  );
-  const Toggle = ({ on, onChange, label, disabled }: { on: boolean; onChange: () => void; label: string; disabled?: boolean }) => (
-    <Switch value={on} onValueChange={onChange} disabled={disabled} trackColor={{ true: track_on, false: undefined }} accessibilityLabel={label} />
-  );
-  const Row = ({ k, icon, tint, title, sub: sub0, disabled: dis0, last }: { k: LayerKey; icon: Icon; tint: string; title: string; sub?: string; disabled?: boolean; last?: boolean }) => {
+  /** One layer row wired to the layer switches (and the admin's emergency off-switches). */
+  // Called as a function (not <Row/>) so React keeps each LayerRow and its switch between redraws.
+  const Row = ({ k, icon, tint, title, sub, disabled, last }: { k: LayerKey; icon: Icon; tint: string; title: string; sub?: string; disabled?: boolean; last?: boolean }) => {
     const off = killed.includes(k);
-    const disabled = dis0 || off, sub = off ? 'Temporarily off while we fix it — back soon' : sub0;
-    return (
-    <Pressable onPress={() => !disabled && toggle(k)} style={[st.row, disabled && { opacity: 0.4 }]}>
-      <Tile icon={icon} tint={tint} />
-      <View style={[st.rowBody, !last && st.sep]}>
-        <View style={{ flex: 1 }}>
-          <Text style={st.rowT}>{title}</Text>
-          {sub ? <Text style={st.rowS} numberOfLines={2}>{sub}</Text> : null}
-        </View>
-        <Toggle on={!!s.on[k]} onChange={() => toggle(k)} label={title} disabled={disabled} />
-      </View>
-    </Pressable>
-    );
+    return <LayerRow key={k} icon={icon} tint={tint} title={title} sub={off ? 'Temporarily off while we fix it — back soon' : sub}
+      on={!!s.on[k]} disabled={disabled || off} last={last} onPress={() => toggle(k)} />;
   };
-  /** iOS-style segmented control for strength. */
-  const Strength = ({ value, onPick, label = 'Strength' }: { value: number; onPick: (v: number) => void; label?: string }) => (
-    <View style={st.strength}>
-      <Text style={st.strengthL}>{label}</Text>
-      <View style={st.seg}>
-        {OPACITIES.map((v) => {
-          const on = Math.abs(value - v) < 0.01;
-          return (
-            <Pressable key={v} onPress={() => onPick(v)} style={[st.segI, on && st.segOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
-              <Text style={[st.segT, on && st.segTOn]}>{Math.round(v * 100)}%</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-    </View>
-  );
-  const Section = ({ title, foot, children }: { title?: string; foot?: string; children: any }) => (
-    <View style={st.section}>
-      {title ? <Text style={st.caption}>{title}</Text> : null}
-      <View style={st.card}>{children}</View>
-      {foot ? <Text style={st.foot}>{foot}</Text> : null}
-    </View>
-  );
 
   const chartRows = ([
     ['navaids', 'lighthouse', C.pink, 'Buoys, lights & radio towers'],
@@ -110,19 +175,56 @@ export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPla
     ...(CHART_SETTINGS_AVAILABLE ? [['simpleSymbols', 'shape-outline', C.gray, 'Simpler symbols']] as const : []),
   ] as const);
 
+  const onNow = CHIP_ORDER.filter((k) => s.on[k]);
+  const overlayOn = s.overlay && s.overlay !== 'none';
+
   return (
     <View style={[st.sheet, { top: insets.top + 56 }]}>
+      <View style={st.grab} />
       <View style={st.head}>
-        <Text style={st.h1}>Map</Text>
-        <Pressable onPress={onClose} style={st.close} hitSlop={8} accessibilityLabel="Close map options">
-          <MaterialCommunityIcons name="close" size={18} color={colors.muted} />
+        <View style={{ flex: 1 }}>
+          <Text style={st.h1}>Map layers</Text>
+          <Text style={st.count}>{onNow.length + (overlayOn ? 1 : 0)} on</Text>
+        </View>
+        <Pressable onPress={onClose} style={st.done} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close map options">
+          <Text style={st.doneT}>Done</Text>
         </Pressable>
       </View>
       {cached ? <Text style={st.offline}>Offline · showing the layer list saved earlier</Text> : null}
-      <View style={{ paddingHorizontal: 16, paddingBottom: 4 }}><PresentedBy section="Map Layers" /></View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 30 }} showsVerticalScrollIndicator={false}>
+      {/* On now: what's showing, tap a chip to turn it off */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.chips} style={{ flexGrow: 0 }}>
+        {overlayOn ? (
+          <Pressable style={st.chip} onPress={() => setOverlay('none')} accessibilityRole="button" accessibilityLabel={`Turn off ${s.overlay}`}>
+            <Text style={st.chipT}>{s.overlay === 'relief' ? 'Relief map' : 'Satellite'}</Text>
+            <MaterialCommunityIcons name="close" size={14} color={colors.accentInk} />
+          </Pressable>
+        ) : null}
+        {onNow.map((k) => (
+          <Pressable key={k} style={st.chip} onPress={() => toggle(k)} accessibilityRole="button" accessibilityLabel={`Turn off ${LABELS[k]}`}>
+            <Text style={st.chipT}>{LABELS[k]}</Text>
+            <MaterialCommunityIcons name="close" size={14} color={colors.accentInk} />
+          </Pressable>
+        ))}
+        {!onNow.length && !overlayOn ? <Text style={st.chipNone}>Nothing on — just the chart. Pick a quick setup below.</Text> : null}
+      </ScrollView>
+
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 30 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <View style={{ paddingBottom: 8 }}><PresentedBy section="Map Layers" /></View>
+
+        {/* Quick setups first: the fastest way to the right map */}
+        <Text style={st.caption}>Quick setups</Text>
+        <View style={st.presets}>
+          {PRESETS.map((p) => {
+            const meta = PRESET_LOOK[p.key] ?? { icon: 'tune' as Icon, tint: C.gray, sub: '' };
+            const active = Object.entries(p.on).every(([k, v]) => !!s.on[k as LayerKey] === !!v);
+            return <PickCard key={p.key} icon={meta.icon} tint={meta.tint} title={p.label} sub={meta.sub} active={active}
+              onPress={() => { set((x) => ({ ...x, on: { ...x.on, ...p.on } as any })); track('preset_used', { preset: p.key }); }} />;
+          })}
+        </View>
+
         {/* Map style */}
+        <Text style={st.caption}>Base map</Text>
         <View style={st.styles}>
           {STYLE_CARDS.map((m) => {
             const on = (s.overlay ?? 'none') === m.key;
@@ -135,76 +237,47 @@ export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPla
           })}
         </View>
         <Section>
-          {s.overlay && s.overlay !== 'none' ? <Strength value={s.opacity.overlay ?? 0.75} onPick={(v) => opacity('overlay', v)} /> : null}
-          <Pressable onPress={() => set((p) => ({ ...p, tilt: !p.tilt }))} style={st.row}>
-            <Tile icon="rotate-3d-variant" tint={C.indigo} />
-            <View style={st.rowBody}>
-              <View style={{ flex: 1 }}><Text style={st.rowT}>3D view</Text><Text style={st.rowS}>Tilt the map so banks and canyons stand out</Text></View>
-              <Toggle on={!!s.tilt} onChange={() => set((p) => ({ ...p, tilt: !p.tilt }))} label="3D view" />
-            </View>
-          </Pressable>
+          {overlayOn ? <Strength value={s.opacity.overlay ?? 0.75} onPick={(v) => opacity('overlay', v)} /> : null}
+          <LayerRow icon="rotate-3d-variant" tint={C.indigo} title="3D view" sub="Tilt the map so banks and canyons stand out" on={!!s.tilt} last
+            onPress={() => set((p) => ({ ...p, tilt: !p.tilt }))} />
         </Section>
 
         {/* Chart style: how busy the NOAA chart itself is */}
-        <Text style={st.caption}>Chart style</Text>
+        <Text style={st.caption}>Chart detail</Text>
         <View style={st.presets}>
-          {LOOKS.map((l) => {
-            const active = (s.chart?.look ?? 'standard') === l.key;
-            return (
-              <Pressable key={l.key} style={[st.preset, st.look, active && st.presetOn]} accessibilityRole="radio" accessibilityState={{ selected: active }}
-                onPress={() => { set((x) => ({ ...x, chart: { ...x.chart, look: l.key, ...CHART_LOOKS[l.key] } })); track('chart_look', { look: l.key }); }}>
-                <View style={st.presetTop}>
-                  <Tile icon={l.icon} tint={l.tint} />
-                  {active ? <MaterialCommunityIcons name="check-circle" size={20} color={colors.accent} /> : null}
-                </View>
-                <Text style={st.presetT}>{l.label}</Text>
-                <Text style={st.presetS} numberOfLines={3}>{l.sub}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {/* Quick setups: one tap turns on the layers for a kind of trip */}
-        <Text style={st.caption}>Quick setups</Text>
-        <View style={st.presets}>
-          {PRESETS.map((p) => {
-            const meta = PRESET_LOOK[p.key] ?? { icon: 'tune' as Icon, tint: C.gray, sub: '' };
-            const active = Object.entries(p.on).every(([k, v]) => !!s.on[k as LayerKey] === !!v);
-            return (
-              <Pressable key={p.key} style={[st.preset, active && st.presetOn]} accessibilityRole="button" accessibilityState={{ selected: active }}
-                onPress={() => { set((x) => ({ ...x, on: { ...x.on, ...p.on } as any })); track('preset_used', { preset: p.key }); }}>
-                <View style={st.presetTop}>
-                  <Tile icon={meta.icon} tint={meta.tint} />
-                  {active ? <MaterialCommunityIcons name="check-circle" size={20} color={colors.accent} /> : null}
-                </View>
-                <Text style={st.presetT}>{p.label}</Text>
-                <Text style={st.presetS} numberOfLines={2}>{meta.sub}</Text>
-              </Pressable>
-            );
-          })}
+          {LOOKS.map((l) => (
+            <PickCard key={l.key} narrow role="radio" icon={l.icon} tint={l.tint} title={l.label} sub={l.sub} active={(s.chart?.look ?? 'standard') === l.key}
+              onPress={() => { set((x) => ({ ...x, chart: { ...x.chart, look: l.key, ...CHART_LOOKS[l.key] } })); track('chart_look', { look: l.key }); }} />
+          ))}
         </View>
 
         <Section title="Ocean" foot="Water temp and chlorophyll update every morning from satellites.">
-          <Row k="sst" icon="thermometer-water" tint={C.orange} title="Water temperature" sub={latest(sst)} disabled={!sst?.dates?.length} />
+          {Row({ k: "sst", icon: "thermometer-water", tint: C.orange, title: "Water temperature", sub: latest(sst), disabled: !sst?.dates?.length })}
           {s.on.sst ? <Strength value={s.opacity.sst} onPick={(v) => opacity('sst', v)} /> : null}
-          <Row k="breaks" icon="chart-line-variant" tint={C.red} title="Temperature breaks" sub="Thicker line = stronger break" disabled={!sst?.dates?.length} />
-          <Row k="chl" icon="leaf" tint={C.green} title="Chlorophyll" sub={latest(chl)} disabled={!chl?.dates?.length} />
+          {Row({ k: "breaks", icon: "chart-line-variant", tint: C.red, title: "Temperature breaks", sub: "Thicker line = stronger break", disabled: !sst?.dates?.length })}
+          {Row({ k: "chl", icon: "leaf", tint: C.green, title: "Chlorophyll", sub: latest(chl), disabled: !chl?.dates?.length })}
           {s.on.chl ? <Strength value={s.opacity.chl} onPick={(v) => opacity('chl', v)} /> : null}
-          <Row k="chlEdges" icon="vector-polyline" tint={C.mint} title="Green-to-blue edges" sub="Where bait-rich and clean water meet" disabled={!chl?.dates?.length} last />
+          {Row({ k: "chlEdges", icon: "vector-polyline", tint: C.mint, title: "Green-to-blue edges", sub: "Where bait-rich and clean water meet", disabled: !chl?.dates?.length, last: true })}
+        </Section>
+
+        <Section title="Seafloor" foot="For fishing, not navigation.">
+          {Row({ k: "bathy", icon: "image-filter-hdr", tint: C.brown, title: "Relief & structure", sub: "Drop-offs and canyon walls", disabled: !bathy?.dates?.length })}
+          {s.on.bathy ? <Strength value={s.opacity.bathy} onPick={(v) => opacity('bathy', v)} /> : null}
+          {Row({ k: "contours", icon: "chart-bell-curve", tint: C.blue, title: "Depth contours", sub: "Depth lines in feet", disabled: !bathy?.dates?.[0]?.contours, last: true })}
         </Section>
 
         <Section title="Weather" foot="Wind and forecast radar are model forecasts. Buoys are real measurements.">
-          <Row k="radar" icon="weather-pouring" tint={C.blue} title="Radar" sub={radar ? 'Live rain radar, plus the next 3 hours' : 'Not available'} disabled={!radar} />
+          {Row({ k: "radar", icon: "weather-pouring", tint: C.blue, title: "Radar", sub: radar ? 'Live rain radar, plus the next 3 hours' : 'Not available', disabled: !radar })}
           {s.on.radar ? (
             <>
-              <Pressable onPress={() => setRadarPlaying(!radarPlaying)} style={st.play}>
-                <MaterialCommunityIcons name={radarPlaying ? 'pause' : 'play'} size={18} color={colors.accent} />
-                <Text style={st.playT}>{radarPlaying ? 'Pause' : 'Play past hour + next 3 hours'}</Text>
+              <Pressable onPress={() => setRadarPlaying(!radarPlaying)} style={st.play} accessibilityRole="button">
+                <MaterialCommunityIcons name={radarPlaying ? 'pause-circle' : 'play-circle'} size={22} color={colors.accent} />
+                <Text style={st.playT}>{radarPlaying ? 'Pause radar loop' : 'Play past hour + next 3 hours'}</Text>
               </Pressable>
               <Strength value={s.opacity.radar} onPick={(v) => opacity('radar', v)} />
             </>
           ) : null}
-          <Row k="wind" icon="weather-windy" tint={C.teal} title="Wind" sub={w?.run ? `Speed colors and moving streaks · ${ageText(w.run)}` : 'Not available yet'} disabled={!w?.hours?.length} />
+          {Row({ k: "wind", icon: "weather-windy", tint: C.teal, title: "Wind", sub: w?.run ? `Speed colors and moving streaks · ${ageText(w.run)}` : 'Not available yet', disabled: !w?.hours?.length })}
           {s.on.wind ? <Strength value={s.opacity.wind ?? 0.3} onPick={(v) => opacity('wind', v)} /> : null}
           {s.on.wind && w?.hours?.length ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.hours}>
@@ -221,54 +294,40 @@ export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPla
               })}
             </ScrollView>
           ) : null}
-          <Row k="buoys" icon="lifebuoy" tint={C.orange} title="Buoys" sub="Tap one for measured wind, waves and water temp" last />
+          {Row({ k: "buoys", icon: "lifebuoy", tint: C.orange, title: "Buoys", sub: "Tap one for measured wind, waves and water temp", last: true })}
         </Section>
 
         <Section title="Fishing">
-          <Row k="spots" icon="map-marker-star" tint={C.orange} title="Known fishing spots" sub="430 banks, high spots, reefs and kelp" />
-          <Row k="catches" icon="fish" tint={C.blue} title="Catch reports" sub="What the community is catching" />
-          <Row k="buddies" icon="account-group" tint={C.purple} title="My groups" sub="Buddy boats, pings and shared spots" last />
+          {Row({ k: "spots", icon: "map-marker-star", tint: C.orange, title: "Known fishing spots", sub: "430 banks, high spots, reefs and kelp" })}
+          {Row({ k: "catches", icon: "fish", tint: C.blue, title: "Catch reports", sub: "What the community is catching" })}
+          {Row({ k: "buddies", icon: "account-group", tint: C.purple, title: "My groups", sub: "Buddy boats, pings and shared spots", last: true })}
         </Section>
 
         <Section title="Harbors & marinas" foot="© OpenStreetMap contributors and California State Parks. Confirm hours and fuel with the marina.">
-          <Row k="marinas" icon="anchor" tint={C.indigo} title="Marinas" sub={hc ? `${hc.marina ?? 0} marinas · tap for slips, VHF and hours` : undefined} />
-          <Row k="docks" icon="pier" tint={C.gray} title="Docks & piers" sub="Shown when you zoom into a harbor" />
-          <Row k="fuel" icon="gas-station" tint={C.red} title="Fuel docks" sub={hc ? `${hc.fuel ?? 0} fuel docks` : undefined} />
-          <Row k="bait" icon="hook" tint={C.teal} title="Bait" sub={hc ? `${(hc.bait ?? 0) + (hc.tackle ?? 0)} receivers and shops` : undefined} />
-          <Row k="pumpout" icon="water-pump" tint={C.purple} title="Pump-outs" sub={hc ? `${hc.pumpout ?? 0} stations` : undefined} />
-          <Row k="ramps" icon="sail-boat" tint={C.green} title="Launch ramps" sub={hc ? `${hc.ramp ?? 0} ramps and hoists` : undefined} last />
-        </Section>
-
-        <Section title="Seafloor" foot="For fishing, not navigation.">
-          <Row k="bathy" icon="image-filter-hdr" tint={C.brown} title="Relief & structure" sub="Drop-offs and canyon walls" disabled={!bathy?.dates?.length} />
-          {s.on.bathy ? <Strength value={s.opacity.bathy} onPick={(v) => opacity('bathy', v)} /> : null}
-          <Row k="contours" icon="chart-bell-curve" tint={C.blue} title="Depth contours" sub="60 to 4,800 ft" disabled={!bathy?.dates?.[0]?.contours} last />
+          {Row({ k: "marinas", icon: "anchor", tint: C.indigo, title: "Marinas", sub: hc ? `${hc.marina ?? 0} marinas · tap for slips, VHF and hours` : undefined })}
+          {Row({ k: "docks", icon: "pier", tint: C.gray, title: "Docks & piers", sub: "Shown when you zoom into a harbor" })}
+          {Row({ k: "fuel", icon: "gas-station", tint: C.red, title: "Fuel docks", sub: hc ? `${hc.fuel ?? 0} fuel docks` : undefined })}
+          {Row({ k: "bait", icon: "hook", tint: C.teal, title: "Bait", sub: hc ? `${(hc.bait ?? 0) + (hc.tackle ?? 0)} receivers and shops` : undefined })}
+          {Row({ k: "pumpout", icon: "water-pump", tint: C.purple, title: "Pump-outs", sub: hc ? `${hc.pumpout ?? 0} stations` : undefined })}
+          {Row({ k: "ramps", icon: "sail-boat", tint: C.green, title: "Launch ramps", sub: hc ? `${hc.ramp ?? 0} ramps and hoists` : undefined, last: true })}
         </Section>
 
         <Section title="Safety" foot={rulesChecked ? `CDFW boundaries checked ${new Date(rulesChecked).toLocaleDateString()}. You're alerted when entering an MPA, even offline.` : "You're alerted when entering an MPA, even offline."}>
-          <Row k="rules" icon="shield-alert-outline" tint={C.red} title="Marine protected areas" sub="Solid = no take · dashed = limited take" last={!s.on.hazards} />
-          {s.on.hazards ? <Row k="hazards" icon="alert-outline" tint={C.orange} title="Extra hazard markers" sub="Wreck and buoy dots" last /> : null}
+          {Row({ k: "rules", icon: "shield-alert-outline", tint: C.red, title: "Marine protected areas", sub: "Solid = no take · dashed = limited take", last: !s.on.hazards })}
+          {s.on.hazards ? Row({ k: "hazards", icon: "alert-outline", tint: C.orange, title: "Extra hazard markers", sub: "Wreck and buoy dots", last: true }) : null}
         </Section>
 
-        <Section title="NOAA chart details" foot="These are drawn on the official chart. Turn off what you don't need.">
+        <Section title="NOAA chart symbols" foot="These are drawn on the official chart. Turn off what you don't need.">
           {chartRows.map(([k, icon, tint, title], i) => {
             const on = s.chart?.[k] ?? DEFAULT_LAYERS.chart[k];
-            const flip = () => set((p) => ({ ...p, chart: { ...p.chart, [k]: !on } }));
-            return (
-              <Pressable key={k} onPress={flip} style={st.row}>
-                <Tile icon={icon as Icon} tint={tint} />
-                <View style={[st.rowBody, i < chartRows.length - 1 && st.sep]}>
-                  <Text style={[st.rowT, { flex: 1 }]}>{title}</Text>
-                  <Toggle on={on} onChange={flip} label={title} />
-                </View>
-              </Pressable>
-            );
+            return <LayerRow key={k} icon={icon as Icon} tint={tint} title={title} on={on} last={i === chartRows.length - 1}
+              onPress={() => set((p) => ({ ...p, chart: { ...p.chart, [k]: !(p.chart?.[k] ?? DEFAULT_LAYERS.chart[k]) } }))} />;
           })}
         </Section>
 
         {onSaveArea ? (
-          <Pressable onPress={onSaveArea} style={st.save}>
-            <MaterialCommunityIcons name="download-circle-outline" size={20} color={colors.accent} />
+          <Pressable onPress={onSaveArea} style={({ pressed }) => [st.save, pressed && { opacity: 0.8 }]} accessibilityRole="button">
+            <MaterialCommunityIcons name="download-circle-outline" size={20} color={colors.accentInk} />
             <Text style={st.saveT}>Save this area for offline use</Text>
           </Pressable>
         ) : null}
@@ -277,45 +336,64 @@ export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPla
   );
 }
 
+/** Only redraws when something it shows changes (not on every GPS update). */
+export const LayersSheet = memo(LayersSheetInner);
+
 const useSt = makeStyles((colors) => ({
-  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: colors.bg, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 16, paddingTop: 12,
-    shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 16, shadowOffset: { width: 0, height: -2 } },
-  head: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  h1: { color: colors.text, fontSize: 30, fontWeight: '800', letterSpacing: -0.4 },
-  close: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.inset, alignItems: 'center', justifyContent: 'center' },
+  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 8,
+    shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 18, shadowOffset: { width: 0, height: -3 }, elevation: 12 },
+  grab: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: colors.border, marginBottom: 8 },
+  head: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  h1: { color: colors.text, fontSize: 28, fontWeight: '800', letterSpacing: -0.5 },
+  count: { color: colors.muted, fontSize: 13.5, fontWeight: '600', marginTop: 1 },
+  done: { height: 36, paddingHorizontal: 18, borderRadius: 18, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  doneT: { color: colors.accentInk, fontSize: 15.5, fontWeight: '800' },
   offline: { color: colors.warn, fontSize: 13, marginBottom: 6 },
 
-  styles: { flexDirection: 'row', gap: 12, marginTop: 4, marginBottom: 14 },
+  chips: { gap: 8, paddingBottom: 12, alignItems: 'center' },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 32, paddingLeft: 13, paddingRight: 10, borderRadius: 16, backgroundColor: colors.accent },
+  chipT: { color: colors.accentInk, fontSize: 13.5, fontWeight: '800' },
+  chipNone: { color: colors.muted, fontSize: 13.5, fontWeight: '600', paddingVertical: 7 },
+
+  styles: { flexDirection: 'row', gap: 12, marginBottom: 12 },
   styleCard: { flex: 1, alignItems: 'center', gap: 6 },
-  thumbWrap: { width: '100%', aspectRatio: 1.15, borderRadius: 14, borderWidth: 2, borderColor: 'transparent', padding: 2 },
+  thumbWrap: { width: '100%', aspectRatio: 1.15, borderRadius: 16, borderWidth: 3, borderColor: 'transparent', padding: 2 },
   thumbOn: { borderColor: colors.accent },
-  thumb: { width: '100%', height: '100%', borderRadius: 11 },
+  thumb: { width: '100%', height: '100%', borderRadius: 12 },
   styleT: { color: colors.muted, fontSize: 14, fontWeight: '600' },
-  styleTOn: { color: colors.text, fontWeight: '700' },
+  styleTOn: { color: colors.accent, fontWeight: '800' },
 
-  section: { marginBottom: 18 },
-  caption: { color: colors.muted, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6, marginLeft: 14 },
-  card: { backgroundColor: colors.panelSolid, borderRadius: 12, overflow: 'hidden' },
-  foot: { color: colors.muted, fontSize: 12.5, marginTop: 6, marginHorizontal: 14, lineHeight: 17 },
+  section: { marginBottom: 20 },
+  caption: { color: colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.2, marginBottom: 8, marginLeft: 2 },
+  card: { backgroundColor: colors.panelSolid, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: colors.line },
+  foot: { color: colors.muted, fontSize: 12.5, marginTop: 6, marginHorizontal: 6, lineHeight: 17 },
 
-  row: { flexDirection: 'row', alignItems: 'center', paddingLeft: 14, minHeight: 52 },
-  rowBody: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, paddingRight: 14, marginLeft: 12 },
+  row: { flexDirection: 'row', alignItems: 'center', paddingLeft: 14, minHeight: 60 },
+  rowOn: { backgroundColor: `${colors.accent}12` },
+  rowPressed: { backgroundColor: colors.inset },
+  rowBody: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingRight: 14, marginLeft: 12 },
   sep: { borderBottomWidth: 0.5, borderColor: colors.line },
-  tile: { width: 30, height: 30, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
-  rowT: { color: colors.text, fontSize: 16.5 },
-  rowS: { color: colors.muted, fontSize: 12.5, marginTop: 1 },
+  tile: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  rowT: { color: colors.text, fontSize: 16.5, fontWeight: '600' },
+  rowTOn: { fontWeight: '800' },
+  rowS: { color: colors.muted, fontSize: 13, marginTop: 2 },
 
-  strength: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 56, paddingRight: 14, paddingVertical: 8, borderBottomWidth: 0.5, borderColor: colors.line },
-  strengthL: { color: colors.muted, fontSize: 12.5, width: 58 },
-  seg: { flex: 1, flexDirection: 'row', backgroundColor: colors.inset, borderRadius: 9, padding: 2 },
-  segI: { flex: 1, height: 28, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
-  segOn: { backgroundColor: colors.panelSolid, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } },
-  segT: { color: colors.muted, fontSize: 12.5, fontWeight: '600' },
-  segTOn: { color: colors.text, fontWeight: '700' },
+  tgl: { width: 52, height: 32, borderRadius: 16, backgroundColor: colors.border, padding: 2, justifyContent: 'center' },
+  tglOn: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, borderRadius: 16, backgroundColor: colors.accent },
+  knob: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#FFFFFF',
+    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 3, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
 
-  play: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 56, paddingVertical: 11, borderBottomWidth: 0.5, borderColor: colors.line },
-  playT: { color: colors.accent, fontSize: 15, fontWeight: '600' },
-  hours: { gap: 6, paddingLeft: 56, paddingRight: 14, paddingVertical: 8 },
+  strength: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 60, paddingRight: 14, paddingVertical: 9, borderBottomWidth: 0.5, borderColor: colors.line },
+  strengthL: { color: colors.muted, fontSize: 12.5, fontWeight: '600', width: 58 },
+  seg: { flex: 1, flexDirection: 'row', backgroundColor: colors.inset, borderRadius: 10, padding: 2 },
+  segI: { flex: 1, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  segOn: { backgroundColor: colors.accent },
+  segT: { color: colors.muted, fontSize: 12.5, fontWeight: '700' },
+  segTOn: { color: colors.accentInk, fontWeight: '800' },
+
+  play: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 60, paddingVertical: 11, borderBottomWidth: 0.5, borderColor: colors.line },
+  playT: { color: colors.accent, fontSize: 15, fontWeight: '700' },
+  hours: { gap: 6, paddingLeft: 60, paddingRight: 14, paddingVertical: 8 },
   hour: { minWidth: 52, paddingVertical: 6, paddingHorizontal: 8, borderRadius: 10, backgroundColor: colors.inset, alignItems: 'center' },
   hourOn: { backgroundColor: colors.accent },
   hourD: { color: colors.muted, fontSize: 11, fontWeight: '600' },
@@ -323,14 +401,14 @@ const useSt = makeStyles((colors) => ({
   hd: { color: colors.accent, fontSize: 9, fontWeight: '800', marginTop: 1 },
   hourTOn: { color: colors.accentInk },
 
-  presets: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 18 },
-  preset: { width: '48%', flexGrow: 1, padding: 12, borderRadius: 14, backgroundColor: colors.panelSolid, borderWidth: 2, borderColor: 'transparent', gap: 4 },
-  presetOn: { borderColor: colors.accent },
+  presets: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
+  preset: { width: '48%', flexGrow: 1, padding: 12, borderRadius: 16, backgroundColor: colors.panelSolid, borderWidth: 2, borderColor: colors.line, gap: 4 },
+  presetOn: { borderColor: colors.accent, backgroundColor: `${colors.accent}12` },
   look: { width: '31%', flexGrow: 0, flexShrink: 1, padding: 10 },
   presetTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  presetT: { color: colors.text, fontSize: 15.5, fontWeight: '700' },
+  presetT: { color: colors.text, fontSize: 15.5, fontWeight: '800' },
   presetS: { color: colors.muted, fontSize: 12.5, lineHeight: 16 },
 
-  save: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 48, borderRadius: 12, backgroundColor: colors.panelSolid },
-  saveT: { color: colors.accent, fontSize: 16, fontWeight: '600' },
+  save: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 52, borderRadius: 26, backgroundColor: colors.accent },
+  saveT: { color: colors.accentInk, fontSize: 16, fontWeight: '800' },
 }));

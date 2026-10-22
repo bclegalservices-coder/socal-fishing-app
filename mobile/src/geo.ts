@@ -48,6 +48,14 @@ export function formatLatLon(lat: number, lon: number, fmt: CoordFormat = curren
 }
 
 export const msToKnots = (ms: number) => ms * 1.943844;
+/** Knots → statute miles per hour. */
+export const knotsToMph = (kt: number) => kt * 1.150779;
+
+const POINTS16 = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+/** 0–360° → compass point, e.g. 214 → "SW". */
+export function cardinal(degT: number): string {
+  return POINTS16[Math.round((((degT % 360) + 360) % 360) / 22.5) % 16];
+}
 
 export function formatNm(nm: number): string {
   return nm < 10 ? nm.toFixed(1) : Math.round(nm).toString();

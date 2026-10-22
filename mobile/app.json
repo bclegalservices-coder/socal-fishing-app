@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Fishing App",
+    "name": "Channel Nav",
     "slug": "socal-fishing-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -102,12 +102,12 @@
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",
-          "imageWidth": 160,
+          "imageWidth": 180,
           "resizeMode": "contain",
-          "backgroundColor": "#EEF2F6",
+          "backgroundColor": "#0B2A40",
           "dark": {
             "image": "./assets/splash-icon.png",
-            "backgroundColor": "#000000"
+            "backgroundColor": "#06182A"
           }
         }
       ]
