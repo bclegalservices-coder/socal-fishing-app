@@ -92,3 +92,44 @@ def test_snapshot_picks_image_on_or_before_day():
     else:
         os.environ["STORAGE"] = old_storage
     storage._store = None
+
+
+def test_tide_curve_from_highs_and_lows():
+    from datetime import datetime, timezone
+    from conditions.tides import curve_from_hilo
+    hilo = [{"t": "2026-10-22T00:00:00+00:00", "v": 5.0, "type": "H"}, {"t": "2026-10-22T06:00:00+00:00", "v": 0.0, "type": "L"}]
+    c = curve_from_hilo(hilo, datetime(2026, 10, 22, tzinfo=timezone.utc), datetime(2026, 10, 22, 6, tzinfo=timezone.utc))
+    assert c[0]["v"] == 5.0 and abs(c[-1]["v"]) < 1e-6 and abs(c[len(c) // 2]["v"] - 2.5) < 0.1   # high → mid → low
+
+
+def test_tide_uses_next_station_and_works_out_curve():
+    """Nearest station fails; the next one only has highs/lows (subordinate) → curve worked out, no error."""
+    import asyncio
+    from datetime import datetime, timezone
+    from conditions import tides
+    sts = [{"id": "BAD", "name": "Broken", "lat": 33.70, "lon": -118.27}, {"id": "SUB", "name": "Subordinate", "lat": 33.72, "lon": -118.28}]
+    async def fake_stations():
+        return sts
+    async def fake_predictions(station, begin, end, interval):
+        if station == "BAD":
+            raise RuntimeError("No Predictions data was found. Please make sure the Datum input is valid.")
+        if interval != "hilo":
+            raise RuntimeError("No Predictions data was found.")
+        return [{"t": "2026-10-21T22:00:00+00:00", "v": 4.8, "type": "H"}, {"t": "2026-10-22T04:10:00+00:00", "v": 0.3, "type": "L"},
+                {"t": "2026-10-22T10:30:00+00:00", "v": 5.4, "type": "H"}, {"t": "2026-10-22T16:40:00+00:00", "v": 1.1, "type": "L"},
+                {"t": "2026-10-22T22:50:00+00:00", "v": 4.9, "type": "H"}, {"t": "2026-10-23T05:00:00+00:00", "v": 0.2, "type": "L"}]
+    old = (tides.stations, tides.predictions)
+    tides.stations, tides.predictions = fake_stations, fake_predictions
+    try:
+        r = asyncio.run(tides.tide_at(33.70, -118.27, now=datetime(2026, 10, 22, 7, 0, tzinfo=timezone.utc)))
+    finally:
+        tides.stations, tides.predictions = old
+    assert r["station"]["id"] == "SUB" and r["state"]["trend"] == "rising" and r["state"]["height_ft"] is not None
+    assert r["next_high"]["t"].startswith("2026-10-22T10:30")
+
+
+def test_satellite_map_day_label():
+    from datetime import date
+    from conditions.service import _map_day
+    assert _map_day("2026-10-21T00:00:00+00:00", today=date(2026, 10, 22)) == "map for Oct 21 · yesterday"
+    assert _map_day("2026-10-19T12:00:00+00:00", today=date(2026, 10, 22)) == "map for Oct 19 · 3 days ago"

@@ -49,6 +49,19 @@ def _age_text(iso: str | None) -> str:
     return f"{int(h * 60)} min old" if h < 1 else f"{h:.0f} h old" if h < 36 else f"{h / 24:.0f} days old"
 
 
+def _map_day(iso: str | None, today=None) -> str:
+    """Satellite maps are labeled by the day they show (UTC date). Say which day, in plain words."""
+    if not iso:
+        return "date unknown"
+    from datetime import date
+    from zoneinfo import ZoneInfo
+    d = date.fromisoformat(iso[:10])
+    today = today or datetime.now(ZoneInfo("America/Los_Angeles")).date()
+    n = (today - d).days
+    when = "today" if n <= 0 else "yesterday" if n == 1 else f"{n} days ago"
+    return f"map for {d.strftime('%b')} {d.day} · {when}"
+
+
 def _water(lat: float, lon: float) -> Section:
     sec = Section()
     for layer, unit, fmt in (("sst", "°F", "{:.1f}°F"), ("chl", "mg/m³", "{:.2f} mg/m³")):
@@ -63,7 +76,7 @@ def _water(lat: float, lon: float) -> Section:
         if math.isfinite(v):
             sec.items.append(Measurement(
                 type=layer, value=round(v, 2), unit=unit, kind=kind,
-                label=f"{name} {fmt.format(v)} · {'satellite blend' if kind == 'interpolated' else 'satellite'}, {_age_text(obs)}",
+                label=f"{name} {fmt.format(v)} · {'satellite blend' if kind == 'interpolated' else 'satellite'}, {_map_day(obs)}",
                 source=g.meta.get("source", ""), dataset=g.meta.get("dataset"),
                 observed_at=datetime.fromisoformat(obs) if obs else None, resolution_m=g.meta.get("resolution_m")))
         else:
@@ -211,8 +224,14 @@ async def conditions(lat: float, lon: float, pool=None, fields: set[str] | None 
              "alerts": lambda: _alerts(lat, lon), "nearby": lambda: _nearby(lat, lon, pool)}
     names = [n for n in tasks if n in want]
     results = await asyncio.gather(*[asyncio.wait_for(tasks[n](), timeout=15) for n in names], return_exceptions=True)
+    friendly = {"tide": "Tide isn't available for this spot right now", "weather": "Weather isn't available right now — try again in a minute",
+                "waves": "No buoy reading nearby right now", "alerts": "Couldn't check marine warnings right now", "nearby": "Nearby reports aren't available right now"}
     for n, r in zip(names, results):
-        out[n] = Section(ok=False, error=f"{type(r).__name__}: {r}"[:200]) if isinstance(r, BaseException) else r
+        if isinstance(r, BaseException):
+            print(f"conditions {n} failed: {type(r).__name__}: {str(r)[:200]}")   # full reason stays in the server log
+            out[n] = Section(ok=False, error=friendly.get(n, "Not available right now"))
+        else:
+            out[n] = r
     return {k: (v.model_dump(mode="json") if isinstance(v, Section) else v) for k, v in out.items()}
 
 
@@ -220,4 +239,5 @@ def _safe(fn, *a) -> Section:
     try:
         return fn(*a)
     except Exception as e:
-        return Section(ok=False, error=f"{type(e).__name__}: {e}"[:200])
+        print(f"conditions {getattr(fn, '__name__', '?')} failed: {type(e).__name__}: {str(e)[:200]}")
+        return Section(ok=False, error="Not available here right now")

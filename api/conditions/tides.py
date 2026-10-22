@@ -50,6 +50,50 @@ async def predictions(station: str, begin: str, end: str, interval: str) -> list
     return [{"t": _parse_t(p["t"]).isoformat(), "v": float(p["v"]), "type": p.get("type")} for p in j.get("predictions", [])]
 
 
+def curve_from_hilo(hilo: list[dict], begin: datetime, end: datetime, step_min: int = 6) -> list[dict]:
+    """Tide curve from the high/low times, using the standard cosine shape between each high and low.
+    NOAA's "subordinate" stations only publish highs and lows, so this is how their curve is drawn."""
+    pts = sorted((datetime.fromisoformat(p["t"]), p["v"]) for p in hilo)
+    out, t = [], begin
+    step = timedelta(minutes=step_min)
+    import math
+    k = 0
+    while t <= end and len(pts) >= 2:
+        while k < len(pts) - 2 and t > pts[k + 1][0]:
+            k += 1
+        (t1, h1), (t2, h2) = pts[k], pts[k + 1]
+        if t1 <= t <= t2:
+            f = (t - t1).total_seconds() / max(1.0, (t2 - t1).total_seconds())
+            out.append({"t": t.isoformat(), "v": round((h1 + h2) / 2 + (h1 - h2) / 2 * math.cos(math.pi * f), 3), "type": None})
+        t += step
+    return out
+
+
+async def _station_data(lat: float, lon: float, hilo_range: tuple[str, str], curve_range: tuple[str, str], interval: str,
+                        curve_window: tuple[datetime, datetime], tries: int = 4) -> tuple[dict, float, list, list]:
+    """Nearest station that answers. Highs/lows are required; when a station can't give a curve (subordinate
+    stations), the curve is worked out from its highs and lows."""
+    sts = await stations()
+    ranked = sorted(sts, key=lambda s: distance_nm(lat, lon, s["lat"], s["lon"]))[:tries]
+    last = None
+    for st in ranked:
+        try:
+            hilo = await predictions(st["id"], *hilo_range, "hilo")
+        except Exception as e:
+            last = e
+            continue
+        if not hilo:
+            continue
+        try:
+            curve = await predictions(st["id"], *curve_range, interval)
+        except Exception:
+            curve = []
+        if not curve:
+            curve = curve_from_hilo(hilo, *curve_window, step_min=6 if interval == "6" else 60)
+        return st, distance_nm(lat, lon, st["lat"], st["lon"]), hilo, curve
+    raise RuntimeError(f"No nearby NOAA tide station answered ({last})" if last else "No NOAA tide prediction station found")
+
+
 def tide_state(curve: list[dict], now: datetime) -> dict:
     """Height now (linear interpolation) and rising/falling, from a 6-minute curve."""
     pts = [(datetime.fromisoformat(p["t"]), p["v"]) for p in curve]
@@ -62,14 +106,12 @@ def tide_state(curve: list[dict], now: datetime) -> dict:
 
 async def tide_at(lat: float, lon: float, now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
-    st, dist = nearest(await stations(), lat, lon)
-    if not st:
-        raise RuntimeError("No NOAA tide prediction station found")
     day = now.strftime("%Y%m%d")
     nxt = (now + timedelta(days=2)).strftime("%Y%m%d")
     prv = (now - timedelta(days=1)).strftime("%Y%m%d")
-    hilo = await predictions(st["id"], prv, nxt, "hilo")
-    curve = await predictions(st["id"], day, (now + timedelta(days=1)).strftime("%Y%m%d"), "6")
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    st, dist, hilo, curve = await _station_data(lat, lon, (prv, nxt), (day, (now + timedelta(days=1)).strftime("%Y%m%d")), "6",
+                                                (start, start + timedelta(days=2) - timedelta(minutes=1)))
     state = tide_state(curve, now)
     upcoming = [p for p in hilo if datetime.fromisoformat(p["t"]) > now]
     next_high = next((p for p in upcoming if p["type"] == "H"), None)
@@ -116,12 +158,13 @@ async def tide_range(lat: float, lon: float, begin: datetime, end: datetime, now
     past dates the measured water level when the nearest station has a gauge."""
     now = now or datetime.now(timezone.utc)
     begin, end = clamp_range(begin, end)
-    st, dist = nearest(await stations(), lat, lon)
-    if not st:
-        raise RuntimeError("No NOAA tide prediction station found")
     b, e = begin.strftime("%Y%m%d"), end.strftime("%Y%m%d")
-    hilo = await predictions(st["id"], b, e, "hilo")
-    curve = await predictions(st["id"], b, e, "h")
+    b0 = begin.replace(hour=0, minute=0, second=0, microsecond=0)
+    e1 = end.replace(hour=23, minute=59, second=0, microsecond=0)
+    # one extra day each side of the highs/lows so the worked-out curve covers the whole range
+    st, dist, hilo, curve = await _station_data(lat, lon, ((begin - timedelta(days=1)).strftime("%Y%m%d"), (end + timedelta(days=1)).strftime("%Y%m%d")),
+                                                (b, e), "h", (b0, e1))
+    hilo = [p for p in hilo if b0 <= datetime.fromisoformat(p["t"]) <= e1]
     obs = []
     if begin < now:
         obs = await observed(st["id"], b, min(end, now).strftime("%Y%m%d"))
