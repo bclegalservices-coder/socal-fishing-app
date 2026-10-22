@@ -32,8 +32,17 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client-17
       - name: Dump
         run: |
+          # Clean up the secret: stray spaces, line breaks or quote marks from copy-paste break the address.
+          URL=$(printf '%s' "$DATABASE_URL" | tr -d '\r\n' | sed -e "s/^[[:space:]\"']*//" -e "s/[[:space:]\"']*\$//")
+          URL="${URL/postgresql+psycopg:\/\//postgresql://}"
+          case "$URL" in
+            postgres://*|postgresql://*) ;;
+            *) echo "::error::The DATABASE_URL secret isn't a database address (it must start with postgresql://). Copy it again from Render → fishing-app-api → Environment → DATABASE_URL, and update the GitHub secret."; exit 1 ;;
+          esac
+          HOST=$(printf '%s' "$URL" | sed -E 's#^[^@]*@([^/:?]+).*#\1#')
+          echo "Connecting to database server: $HOST"
           # The Supabase "transaction" pooler (port 6543) can't run pg_dump; the same address on 5432 is "session" mode, which can.
-          URL="${DATABASE_URL/:6543\//:5432/}"
+          URL="${URL/:6543\//:5432/}"
           D=$(date -u +%F)
           /usr/lib/postgresql/17/bin/pg_dump "$URL" --no-owner --no-privileges --schema=public -Fc -f app.dump
           # Sign-in accounts (auth schema): best effort — the app data above is what matters most.
