@@ -215,3 +215,52 @@ async def events(request: Request, body: dict = Body(...)):
         raise HTTPException(429, "Too many events")
     n = await analytics_mod.store(getattr(request.app.state, "pool", None), b)
     return {"stored": n}
+
+
+# ---------------------------------------------------------------- auto route (water route around land)
+import threading as _threading
+import time as _time
+
+_nav_state = {"nd": None, "at": 0.0}
+_nav_lock = _threading.Lock()
+
+
+def _navdata():
+    """The water map, re-read every 6 hours (the navmask job may have added tiles)."""
+    if _nav_state["nd"] is None or _time.time() - _nav_state["at"] > 6 * 3600:
+        from navroute.grid import NavData
+        try:
+            _nav_state["nd"] = NavData(get_store())
+        except Exception:
+            _nav_state["nd"] = None
+        _nav_state["at"] = _time.time()
+    return _nav_state["nd"]
+
+
+def _route_sync(points, safety_ft):
+    from navroute.router import route as find_route
+    with _nav_lock:                     # one route at a time: keeps the free server's memory in check
+        nd = _navdata()
+        if nd is None:
+            return None
+        return find_route(nd, points, safety_ft)
+
+
+@router.get("/route")
+async def auto_route(pts: str = Query(..., description="lat,lon;lat,lon[;…] — start, optional via points, end"),
+                     safety_ft: float = Query(8, ge=1, le=100, description="avoid charted water shallower than this")):
+    """Shortest water route that goes around land, breakwaters and docks, from NOAA charts (like Auto Guidance).
+    A planning aid only — the app shows it with a check-the-chart note."""
+    try:
+        points = [tuple(float(v) for v in p.split(",")) for p in pts.split(";") if p.strip()]
+        assert 2 <= len(points) <= 12 and all(len(p) == 2 and -90 <= p[0] <= 90 and -180 <= p[1] <= 180 for p in points)
+    except Exception:
+        raise HTTPException(400, "pts must be 2–12 points as lat,lon;lat,lon")
+    from navroute.router import NoRoute
+    try:
+        r = await asyncio.to_thread(_route_sync, points, safety_ft)
+    except NoRoute as e:
+        return JSONResponse(status_code=422, content={"detail": f"No water route found ({e}). Use the straight line and check the chart."})
+    if r is None:
+        return JSONResponse(status_code=503, content={"detail": "Auto route isn't ready yet — the water map is still being built."})
+    return r

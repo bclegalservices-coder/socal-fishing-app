@@ -58,6 +58,8 @@ import { SHORT_WARNING } from '../legal';
 import { SafeLayer } from '../components/ErrorBoundary';
 import { useWaterTemp } from '../waterTemp';
 import { autoZoom, guidance, offRouteLimit } from '../navMode';
+import { fetchAutoRoute, getSafetyFt, setSafetyFt, type AutoRoute } from '../autoRoute';
+import { RoutePreview } from '../components/RoutePreview';
 import { reportError } from '../errors';
 import { config, onConfig } from '../appConfig';
 
@@ -88,8 +90,10 @@ function buildMapStyle(chartUrl: string) {
   };
 }
 
-type Nav = { points: Pt[]; leg: number; legStart: Pt; name: string };
-let goToWarned = false;
+type NavPt = Pt & { target?: boolean };   // target = a stop you chose (not just a turn the auto route added)
+type Nav = { points: NavPt[]; leg: number; legStart: Pt; name: string; auto?: boolean };
+type Plan = { name: string; targets: Pt[]; status: 'loading' | 'ready' | 'failed'; route: AutoRoute | null; error: string | null };
+let goToWarned = false, autoWarned = false;
 
 type Selected = { kind: 'spot' | 'pin' | 'saved'; pt: Pt & { subtitle?: string; id?: string; saveName?: string; sponsor?: string; sponsorTags?: string[] } } | null;
 type Panel = 'none' | 'routes' | 'tracks' | 'layers' | 'search' | 'actions';
@@ -121,6 +125,9 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const [buoy, setBuoy] = useState<any | null>(null);
   const [draft, setDraft] = useState<Pt[] | null>(null);
   const [nav, setNav] = useState<Nav | null>(null);
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [safetyFt, setSafety] = useState(getSafetyFt());
+  const planSeq = useRef(0);
   // Nav view: the map follows the boat, course-up, zoomed for what's coming. Dragging the map pauses it.
   const [follow, setFollow] = useState(true);
   const { height: screenH } = useWindowDimensions();
@@ -245,7 +252,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   useEffect(() => {
     if (!pick) return;
     setPanel('none'); setCrew(null);
-    if (pick.go) startNav([pick.pt], pick.pt.name ?? 'Buddy');           // e.g. tapped a "Come to me" notification
+    if (pick.go) goTo([pick.pt], pick.pt.name ?? 'Buddy');           // e.g. tapped a "Come to me" notification
     else if (pick.route?.length) { setSel(null); setShownLine(pick.route); fitTo(pick.route); }
     else setSel(pick);
     if (!pick.route?.length) camera.current?.setStop({ center: [pick.pt.lon, pick.pt.lat], zoom: 11, duration: 700 });
@@ -298,8 +305,14 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   useEffect(() => {
     if (!fix || !nav) return;
     const tgt = nav.points[nav.leg];
-    if (distanceNm(fix.lat, fix.lon, tgt.lat, tgt.lon) > ARRIVE_NM) return;
-    Vibration.vibrate([0, 400, 200, 400]);
+    const d = distanceNm(fix.lat, fix.lon, tgt.lat, tgt.lon);
+    const last = nav.leg >= nav.points.length - 1;
+    // Turn points: also move on once you're past the point (cut the corner), like a plotter does.
+    const k = Math.cos((tgt.lat * Math.PI) / 180);
+    const ux = (tgt.lon - nav.legStart.lon) * k, uy = tgt.lat - nav.legStart.lat;
+    const along = (fix.lon - tgt.lon) * k * ux + (fix.lat - tgt.lat) * uy;   // > 0 = beyond the turn point
+    if (d > ARRIVE_NM && !(!last && d < 0.5 && along > 0)) return;
+    Vibration.vibrate(last || tgt.target ? [0, 400, 200, 400] : [0, 150]);
     if (nav.leg < nav.points.length - 1) setNav({ ...nav, leg: nav.leg + 1, legStart: tgt });
     else { setNav(null); setArrived(tgt.name ?? 'your waypoint'); track('go_to_arrived'); }
   }, [fix]);
@@ -440,18 +453,54 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
 
   // ---- actions ----
   const here = (): Pt | null => (fix ? { lat: fix.lat, lon: fix.lon } : null);
-  const startNav = (points: Pt[], name: string) => {
+  const startNav = (points: NavPt[], name: string, auto = false) => {
     if (!points.length) return;
-    setNav({ points, leg: 0, legStart: here() ?? points[0], name });
+    setPlan(null);
+    setNav({ points: auto ? points : points.map((p) => ({ ...p, target: true })), leg: 0, legStart: here() ?? points[0], name, auto });
     setFollow(true);
-    track('go_to_start', { legs: points.length });
-    if (!goToWarned) {   // once per app session
-      goToWarned = true;
-      Alert.alert('Straight-line guide only', 'Go To is not checked for land, rocks, kelp, shallow water or traffic. Keep a lookout and use your charts and boat electronics.');
+    track('go_to_start', { legs: points.length, auto });
+    if (auto ? !autoWarned : !goToWarned) {   // once per app session
+      if (auto) autoWarned = true; else goToWarned = true;
+      Alert.alert(auto ? 'Auto route — check it' : 'Straight-line guide only', auto
+        ? 'This route goes around land, breakwaters and docks on the NOAA chart, but it doesn\'t know about kelp, moorings, traffic or changing depths. Keep a lookout and check it against your chart.'
+        : 'Go To is not checked for land, rocks, kelp, shallow water or traffic. Keep a lookout and use your charts and boat electronics.');
     }
     setSel(null); setDraft(null); setPanel('none'); setArrived(null); setProbe(false);
     if (!fix) Alert.alert('Waiting for GPS', 'Distance and bearing appear as soon as your position is found.');
   };
+  // ---- auto route: ask the server for a water route, preview it, then Start ----
+  const runPlan = async (targets: Pt[], name: string, ft = safetyFt, autoStart = false) => {
+    const seq = ++planSeq.current;
+    const start = here();
+    const pts = start ? [start, ...targets] : targets;
+    if (pts.length < 2 || !API_URL) { startNav(targets, name); return; }
+    if (!autoStart) { setPlan({ name, targets, status: 'loading', route: null, error: null }); setSel(null); setDraft(null); setPanel('none'); }
+    try {
+      const r = await fetchAutoRoute(pts, ft);
+      if (seq !== planSeq.current) return;
+      track('auto_route', { nm: Math.round(r.distance_nm), turns: r.turns, reroute: autoStart });
+      if (autoStart) { beginRoute(r, name, targets); setToast('New route from here'); return; }
+      setPlan((p) => (p ? { ...p, status: 'ready', route: r } : p));
+      fitTo(r.points);
+    } catch (e: any) {
+      if (seq !== planSeq.current) return;
+      if (autoStart) { setToast(`Couldn't re-route: ${e?.message ?? 'no route'}`); if (nav) setNav({ ...nav, legStart: here() ?? nav.legStart }); return; }
+      setPlan((p) => (p ? { ...p, status: 'failed', error: e?.message ?? 'No route found.' } : p));
+    }
+  };
+  const beginRoute = (r: AutoRoute, name: string, targets: Pt[]) => {
+    let k = 0;
+    const pts: NavPt[] = r.points.slice(1).map((p) => {
+      if (!p.target) return { lat: p.lat, lon: p.lon };
+      const t0 = targets[Math.min(k++, targets.length - 1)];
+      return { lat: p.lat, lon: p.lon, target: true, name: t0?.name };
+    });
+    if (pts.length) pts[pts.length - 1] = { ...pts[pts.length - 1], name: pts[pts.length - 1].name ?? name };
+    startNav(pts, name, true);
+  };
+  const goTo = (targets: Pt[], name: string) => runPlan(targets, name);
+  const draftTargets = (d: Pt[]) => (d[0]?.name === 'Start' ? d.slice(1) : d);
+
   const saveSpots = async (next: store.SavedSpot[]) => { setMySpots(next); onSpotsChanged?.(next); await store.saveSpots(next); };
   const addToRoute = (p: Pt) => { setDraft((d) => [...(d ?? []), p]); setSel(null); setPanel('none'); };
   const saveSpot = async (p: Pt) => {
@@ -541,13 +590,21 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const pinFC = useMemo(() => fc(sel?.kind === 'pin' ? [pointF(sel.pt)] : []), [sel]);
   const draftFC = useMemo(() => fc(draft && draft.length ? [...(draft.length > 1 ? [lineF(draft)] : []), ...draft.map((p) => pointF(p))] : []), [draft]);
   const navColor = theme.mode === 'night' ? colors.accent : '#D61FD6';
+  const planFC = useMemo(() => fc(plan?.route ? [lineF(plan.route.points), ...plan.route.points.slice(1).map((p) => pointF(p))] : []), [plan?.route]);
   const navFC = useMemo(() => (!nav || !fix ? fc([]) : fc([lineF([{ lat: fix.lat, lon: fix.lon }, ...nav.points.slice(nav.leg)]), ...nav.points.slice(nav.leg).map((p, i) => pointF(p, { n: i + 1 }))])), [nav, fix]);
   const activeFC = useMemo(() => fc(active && active.points.length > 1 ? [lineF(active.points)] : []), [active]);
   const shownFC = useMemo(() => fc(shownLine && shownLine.length > 1 ? [lineF(shownLine)] : []), [shownLine]);
 
   // ---- bottom area ----
   let bottom: ReactNode = null;
-  if (crew) {
+  if (plan) {
+    bottom = <RoutePreview name={plan.name} status={plan.status} route={plan.route} error={plan.error} safetyFt={safetyFt}
+      onSafety={(ft) => { setSafety(ft); setSafetyFt(ft); runPlan(plan.targets, plan.name, ft); }}
+      onStart={() => plan.route && beginRoute(plan.route, plan.name, plan.targets)}
+      onStraight={() => { planSeq.current++; startNav(plan.targets, plan.name); }}
+      onRetry={() => runPlan(plan.targets, plan.name)}
+      onCancel={() => { planSeq.current++; setPlan(null); }} />;
+  } else if (crew) {
     bottom = <SendToGroupSheet mode={crew.mode} pt={crew.mode === 'me' ? here() : crew.pt} onClose={() => setCrew(null)}
       onDone={(m) => { setCrew(null); setToast(m); }} />;
   } else if (panel === 'actions') {
@@ -564,7 +621,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     ]} />;
   } else if (draft) {
     bottom = <RouteDraft points={draft} sogKt={motion.sogKt} onUndo={() => setDraft(draft.slice(0, -1))} onSave={saveDraft}
-      onGo={() => startNav(draft, 'Route')} onCancel={() => setDraft(null)} />;
+      onGo={() => goTo(draftTargets(draft), 'Route')} onCancel={() => setDraft(null)} />;
   } else if (ruleSel) {
     bottom = <RuleCard p={ruleSel} checkedAt={rules?.checked_at ?? null} onClose={() => setRuleSel(null)} />;
   } else if (clusterSel) {
@@ -573,7 +630,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     bottom = <BuoyCard p={buoy} onClose={() => setBuoy(null)} />;
   } else if (sel) {
     bottom = <SpotCard spot={sel.pt} boat={here()} kind={sel.kind}
-      onGo={() => startNav([sel.pt], sel.pt.name ?? 'Dropped pin')} onAddToRoute={() => addToRoute(sel.pt)}
+      onGo={() => goTo([sel.pt], sel.pt.name ?? 'Dropped pin')} onAddToRoute={() => addToRoute(sel.pt)}
       onSave={sel.kind !== 'saved' ? () => saveSpot(sel.pt) : undefined}
       onDelete={sel.kind === 'saved' ? () => deleteSpot(sel.pt.id) : undefined} onClose={() => setSel(null)}
       onLog={() => openLog(sel.kind === 'pin' ? sel.pt : here() ?? sel.pt)} protectedHere={insideAt(sel.pt)}
@@ -582,7 +639,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   } else if (panel === 'routes') {
     bottom = <RoutesList routes={routes}
       onNew={() => { setPanel('none'); setDraft(here() ? [{ ...here()!, name: 'Start' }] : []); }}
-      onGo={(r) => startNav(r.points, r.name)} onShow={(r) => { setShownLine(r.points); fitTo(r.points); }}
+      onGo={(r) => goTo(draftTargets(r.points), r.name)} onShow={(r) => { setShownLine(r.points); fitTo(r.points); }}
       onDelete={async (r) => { const next = routes.filter((x) => x.id !== r.id); setRoutes(next); await store.saveRoutes(next); }}
       onClose={() => setPanel('none')} />;
   } else if (panel === 'tracks') {
@@ -678,6 +735,12 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           <Layer type="line" id="draft-line" style={{ lineColor: colors.accent, lineWidth: 3, lineDasharray: [2, 1.5] }} />
           <Layer type="circle" id="draft-pts" style={{ circleRadius: 7, circleColor: colors.accent, circleStrokeColor: colors.bg, circleStrokeWidth: 2 }} />
         </GeoJSONSource>
+        {/* Auto-route preview (before Start): dashed magenta */}
+        <GeoJSONSource id="plan" data={planFC}>
+          <Layer type="line" id="plan-casing" style={{ lineColor: '#FFFFFF', lineWidth: 8, lineCap: 'round', lineJoin: 'round', lineOpacity: 0.85 }} />
+          <Layer type="line" id="plan-line" style={{ lineColor: navColor, lineWidth: 5, lineCap: 'round', lineJoin: 'round', lineDasharray: [1.6, 1] }} />
+          <Layer type="circle" id="plan-pts" style={{ circleRadius: 6, circleColor: navColor, circleStrokeColor: '#FFFFFF', circleStrokeWidth: 2 }} />
+        </GeoJSONSource>
         {/* Route: thick magenta line with a white edge (plotter style), turn points numbered, the next one biggest */}
         <GeoJSONSource id="nav" data={navFC}>
           <Layer type="line" id="nav-casing" style={{ lineColor: theme.mode === 'night' ? '#000000' : '#FFFFFF', lineWidth: 10, lineCap: 'round', lineJoin: 'round', lineOpacity: 0.9 }} />
@@ -735,7 +798,12 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
             legLabel: nav.points.length > 1 ? `Leg ${nav.leg + 1} of ${nav.points.length}` : null,
             distNm: navInfo.dist, brg: navInfo.brg, etaMin: navInfo.eta, xteNm: navInfo.xte, steer: navInfo.steer,
             turnText: navInfo.turnText ?? null, offCourse: !!navInfo.offCourse,
-            onReroute: () => { setNav({ ...nav, legStart: here() ?? nav.legStart }); offAlarmed.current = false; track('reroute'); },
+            onReroute: () => {
+              offAlarmed.current = false; track('reroute');
+              const ahead = nav.points.slice(nav.leg).filter((p) => p.target);
+              if (here() && API_URL && ahead.length) runPlan(ahead, nav.name, safetyFt, true);   // a new water route from here
+              else setNav({ ...nav, legStart: here() ?? nav.legStart });                       // straight line from here
+            },
             onEnd: () => { setNav(null); track('go_to_ended'); },
             onSkip: nav.leg < nav.points.length - 1 ? () => setNav({ ...nav, leg: nav.leg + 1, legStart: here() ?? nav.points[nav.leg] }) : undefined,
           } : null} />
