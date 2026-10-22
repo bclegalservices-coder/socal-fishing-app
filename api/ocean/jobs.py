@@ -86,7 +86,10 @@ def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds
     mask = landmask.get(region, REGIONS[region], store, http, log)
     draw, cut = g, None
     if mask is not None:
-        draw = Grid(g.lats, g.lons, landmask.fill_gaps(g.values), g.meta)
+        # Gap-free products (water temp, Copernicus chlorophyll): fill every no-data cell so color reaches the shore
+        # everywhere (land is cut off exactly below). Cloudy NOAA chlorophyll: only the strip next to real data.
+        reach = 3 if ds.kind == "observed" else 10_000
+        draw = Grid(g.lats, g.lons, landmask.fill_gaps(g.values, max_cells=reach), g.meta)
         cut = lambda v, lat, lon: np.where(mask.is_land(lat, lon), np.nan, v)  # noqa: E731
     n = 0
     for z in TILE_ZOOMS[layer]:
