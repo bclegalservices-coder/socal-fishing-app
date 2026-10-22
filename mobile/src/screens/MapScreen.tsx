@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Alert, Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, Vibration, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { useKeepAwake } from 'expo-keep-awake';
@@ -57,6 +57,7 @@ import { friendly } from '../friendly';
 import { SHORT_WARNING } from '../legal';
 import { SafeLayer } from '../components/ErrorBoundary';
 import { useWaterTemp } from '../waterTemp';
+import { autoZoom, guidance, offRouteLimit } from '../navMode';
 import { reportError } from '../errors';
 import { config, onConfig } from '../appConfig';
 
@@ -120,6 +121,9 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const [buoy, setBuoy] = useState<any | null>(null);
   const [draft, setDraft] = useState<Pt[] | null>(null);
   const [nav, setNav] = useState<Nav | null>(null);
+  // Nav view: the map follows the boat, course-up, zoomed for what's coming. Dragging the map pauses it.
+  const [follow, setFollow] = useState(true);
+  const { height: screenH } = useWindowDimensions();
   const [panel, setPanel] = useState<Panel>('none');
   const [shownLine, setShownLine] = useState<(Pt | TrackPoint)[] | null>(null);
   const [arrived, setArrived] = useState<string | null>(null);
@@ -391,17 +395,55 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const navInfo = useMemo(() => {
     if (!nav) return null;
     const tgt = nav.points[nav.leg];
-    if (!fix) return { tgt, dist: null, brg: null, xte: null, steer: null, eta: null };
+    if (!fix) return { tgt, dist: null, brg: null, xte: null, steer: null, eta: null, turnText: null as string | null, nextBrg: null as number | null, offCourse: false };
     const dist = distanceNm(fix.lat, fix.lon, tgt.lat, tgt.lon);
     const brg = bearingTrue(fix.lat, fix.lon, tgt.lat, tgt.lon);
-    return { tgt, dist, brg, xte: crossTrackNm(nav.legStart, tgt, fix), steer: motion.cogT != null ? steerDelta(motion.cogT, brg) : null, eta: etaMinutes(dist, motion.sogKt) };
+    const xte = crossTrackNm(nav.legStart, tgt, fix);
+    const g = guidance(nav, { lat: fix.lat, lon: fix.lon });
+    const legNm = distanceNm(nav.legStart.lat, nav.legStart.lon, tgt.lat, tgt.lon);
+    // Total time to the END of the route (all legs left), not just this waypoint.
+    let rest = dist; for (let i = nav.leg; i < nav.points.length - 1; i++) rest += distanceNm(nav.points[i].lat, nav.points[i].lon, nav.points[i + 1].lat, nav.points[i + 1].lon);
+    return { tgt, dist, brg, xte, steer: motion.cogT != null ? steerDelta(motion.cogT, brg) : null, eta: etaMinutes(rest, motion.sogKt),
+      turnText: g.text, nextBrg: g.nextBrg, offCourse: legNm > 0.05 && Math.abs(xte) > offRouteLimit(legNm) };
   }, [nav, fix, motion]);
+
+  // ---- nav view camera: follow the boat, course-up, boat low on the screen, auto-zoom ----
+  const navZoom = useRef<number | null>(null);
+  useEffect(() => {
+    if (!nav || !follow || !fix) return;
+    const z = autoZoom(navInfo?.dist ?? null, motion.sogKt);
+    if (navZoom.current == null || Math.abs(navZoom.current - z) >= 0.5) navZoom.current = z;   // no zoom jitter
+    const moving = motion.sogKt != null && motion.sogKt >= 2 && motion.cogT != null;
+    const bearing = moving ? motion.cogT! : navInfo?.brg ?? 0;      // course-up when moving, else "waypoint up"
+    camera.current?.setStop({ center: [fix.lon, fix.lat], zoom: navZoom.current, bearing, pitch: layers.tilt ? 45 : 0,
+      padding: { top: Math.round(screenH * 0.42), bottom: 0, left: 0, right: 0 }, duration: 900, easing: 'linear' }).catch(() => {});
+  }, [fix?.time, nav, follow]);
+  // Leaving nav view: give the map its normal centre back.
+  useEffect(() => {
+    if (nav && follow) return;
+    navZoom.current = null;
+    camera.current?.setStop({ padding: { top: 0, bottom: 0, left: 0, right: 0 }, ...(orient === 'north' ? { bearing: 0 } : {}), duration: 400 }).catch(() => {});
+  }, [!!nav, follow]);
+
+  // ---- turn heads-up and off-course alarm (buzz once each time) ----
+  const turnWarned = useRef('');
+  const offAlarmed = useRef(false);
+  useEffect(() => {
+    if (!nav || !navInfo || navInfo.dist == null) return;
+    const key = `${nav.leg}:${nav.points.length}`;
+    if (navInfo.nextBrg != null && navInfo.dist < 0.3 && turnWarned.current !== key) {
+      turnWarned.current = key; Vibration.vibrate([0, 180, 120, 180]);
+    }
+    if (navInfo.offCourse && !offAlarmed.current) { offAlarmed.current = true; Vibration.vibrate([0, 500, 200, 500]); track('off_course'); }
+    if (!navInfo.offCourse) offAlarmed.current = false;
+  }, [fix?.time, nav?.leg]);
 
   // ---- actions ----
   const here = (): Pt | null => (fix ? { lat: fix.lat, lon: fix.lon } : null);
   const startNav = (points: Pt[], name: string) => {
     if (!points.length) return;
     setNav({ points, leg: 0, legStart: here() ?? points[0], name });
+    setFollow(true);
     track('go_to_start', { legs: points.length });
     if (!goToWarned) {   // once per app session
       goToWarned = true;
@@ -450,7 +492,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     setOrient(next);
     if (next === 'north') camera.current?.setStop({ bearing: 0, duration: 300 });
   };
-  const recenter = () => { if (fix) camera.current?.setStop({ center: [fix.lon, fix.lat], zoom: 11, duration: 600, easing: 'ease' }); };
+  const recenter = () => { if (nav) { setFollow(true); return; } if (fix) camera.current?.setStop({ center: [fix.lon, fix.lat], zoom: 11, duration: 600, easing: 'ease' }); };
   const onSearchPick = (h: SearchHit) => {
     setPanel('none'); track('search_pick', { kind: h.kind });
     setSel({ kind: h.kind, pt: { lat: h.lat, lon: h.lon, name: h.name, subtitle: h.sub, id: h.id } });
@@ -493,7 +535,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const mySpotsFC = useMemo(() => fc(mySpots.map((s) => pointF(s, { id: s.id, name: s.name, subtitle: 'Private — only you' }))), [mySpots]);
   const pinFC = useMemo(() => fc(sel?.kind === 'pin' ? [pointF(sel.pt)] : []), [sel]);
   const draftFC = useMemo(() => fc(draft && draft.length ? [...(draft.length > 1 ? [lineF(draft)] : []), ...draft.map((p) => pointF(p))] : []), [draft]);
-  const navFC = useMemo(() => (!nav || !fix ? fc([]) : fc([lineF([{ lat: fix.lat, lon: fix.lon }, ...nav.points.slice(nav.leg)]), ...nav.points.slice(nav.leg).map((p) => pointF(p))])), [nav, fix]);
+  const navColor = theme.mode === 'night' ? colors.accent : '#D61FD6';
+  const navFC = useMemo(() => (!nav || !fix ? fc([]) : fc([lineF([{ lat: fix.lat, lon: fix.lon }, ...nav.points.slice(nav.leg)]), ...nav.points.slice(nav.leg).map((p, i) => pointF(p, { n: i + 1 }))])), [nav, fix]);
   const activeFC = useMemo(() => fc(active && active.points.length > 1 ? [lineF(active.points)] : []), [active]);
   const shownFC = useMemo(() => fc(shownLine && shownLine.length > 1 ? [lineF(shownLine)] : []), [shownLine]);
 
@@ -597,6 +640,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       {nav || active ? <StayAwake /> : null}
       <MapView style={StyleSheet.absoluteFill} mapStyle={mapStyle as any} attribution logo={false} compass={false}
         onPress={onMapPress} onLongPress={onLongPress}
+        onRegionWillChange={(e: any) => { if (nav && follow && e?.nativeEvent?.userInteraction) setFollow(false); }}
         onRegionDidChange={(e: any) => {
           const v = e?.nativeEvent; if (!v) return;
           if (probe && v.center) setProbeAt({ lon: v.center[0], lat: v.center[1] });
@@ -604,7 +648,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           if (b) setView({ maxLon: b[2], maxLat: b[3], minLon: b[0], minLat: b[1], zoom: v.zoom ?? 9, heading: v.bearing ?? 0 });
         }}>
         <Camera ref={camera} initialViewState={{ center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM }}
-          trackUserLocation={orient === 'heading' ? 'heading' : orient === 'course' ? 'course' : undefined}
+          trackUserLocation={nav && follow ? undefined : orient === 'heading' ? 'heading' : orient === 'course' ? 'course' : undefined}
           onTrackUserLocationChange={(e: any) => { if (e?.nativeEvent?.trackUserLocation == null && orient !== 'north') setOrient('north'); }} />
         <SafeLayer name="ocean" resetKey={JSON.stringify(layers.on)}>
           <MapLayers catalog={catalog} s={layers} compareOffset={compareOffset} radarPlaying={radarPlaying} onRadarLabel={setRadarLabel} onBuoyPress={(p) => { featurePressAt.current = Date.now(); setSel(null); setBuoy(p); }} />
@@ -629,10 +673,17 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           <Layer type="line" id="draft-line" style={{ lineColor: colors.accent, lineWidth: 3, lineDasharray: [2, 1.5] }} />
           <Layer type="circle" id="draft-pts" style={{ circleRadius: 7, circleColor: colors.accent, circleStrokeColor: colors.bg, circleStrokeWidth: 2 }} />
         </GeoJSONSource>
+        {/* Route: thick magenta line with a white edge (plotter style), turn points numbered, the next one biggest */}
         <GeoJSONSource id="nav" data={navFC}>
-          <Layer type="line" id="nav-line" style={{ lineColor: colors.accent, lineWidth: 3.5, lineDasharray: [2, 1.2] }} />
-          <Layer type="circle" id="nav-pts" style={{ circleRadius: 8, circleColor: colors.accent, circleStrokeColor: colors.bg, circleStrokeWidth: 2 }} />
+          <Layer type="line" id="nav-casing" style={{ lineColor: theme.mode === 'night' ? '#000000' : '#FFFFFF', lineWidth: 10, lineCap: 'round', lineJoin: 'round', lineOpacity: 0.9 }} />
+          <Layer type="line" id="nav-line" style={{ lineColor: navColor, lineWidth: 6, lineCap: 'round', lineJoin: 'round' }} />
+          <Layer type="circle" id="nav-pts" style={{ circleRadius: ['case', ['==', ['get', 'n'], 1], 11, 8] as any, circleColor: navColor, circleStrokeColor: '#FFFFFF', circleStrokeWidth: 2.5 }} />
         </GeoJSONSource>
+        {nav && nav.points.length > 1 ? nav.points.slice(nav.leg).map((p, i) => (
+          <Marker key={`wp-${nav.leg + i}`} lngLat={[p.lon, p.lat]} anchor="bottom" offset={[0, -12]}>
+            <View pointerEvents="none" style={[st.wpNum, i === 0 && st.wpNumNext]}><Text style={st.wpNumT}>{nav.leg + i + 1}</Text></View>
+          </Marker>
+        )) : null}
         <SafeLayer name="wind" resetKey={`${layers.on.wind}-${layers.windIndex}`}><WindLayer on={layers.on.wind} view={view} opacity={layers.opacity.wind ?? 0.55}
           hour={windOf(catalog)?.hours?.[Math.min(layers.windIndex, (windOf(catalog)?.hours?.length ?? 1) - 1)]} /></SafeLayer>
         <SafeLayer name="harbors" resetKey={JSON.stringify(layers.on)}><HarborLayers fc={harborFc} s={layers} view={view} onPress={(p, [lon, lat]) => {
@@ -678,6 +729,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
             target: navInfo.tgt.name ?? (nav.points.length > 1 ? `Waypoint ${nav.leg + 1}` : 'Waypoint'),
             legLabel: nav.points.length > 1 ? `Leg ${nav.leg + 1} of ${nav.points.length}` : null,
             distNm: navInfo.dist, brg: navInfo.brg, etaMin: navInfo.eta, xteNm: navInfo.xte, steer: navInfo.steer,
+            turnText: navInfo.turnText ?? null, offCourse: !!navInfo.offCourse,
+            onReroute: () => { setNav({ ...nav, legStart: here() ?? nav.legStart }); offAlarmed.current = false; track('reroute'); },
             onEnd: () => { setNav(null); track('go_to_ended'); },
             onSkip: nav.leg < nav.points.length - 1 ? () => setNav({ ...nav, leg: nav.leg + 1, legStart: here() ?? nav.points[nav.leg] }) : undefined,
           } : null} />
@@ -703,6 +756,11 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
               </View>
             ) : null}
             {radarLabel && !nav && !active ? <PresentedBy section="Radar" pill /> : null}
+            {nav && !follow ? (
+              <Pressable style={st.resume} onPress={() => setFollow(true)} accessibilityRole="button" accessibilityLabel="Back to nav view">
+                <Ionicons name="navigate-circle" size={20} color={colors.accentInk} /><Text style={st.resumeT}>Back to nav view</Text>
+              </Pressable>
+            ) : null}
           </View>
           <View style={st.rail} pointerEvents="box-none">
           <View style={st.railGroup}>
@@ -772,6 +830,12 @@ const useSt = makeStyles((colors) => ({
   probe: { backgroundColor: colors.panel, borderColor: colors.live, borderWidth: 1.5, borderRadius: 12, padding: 10, gap: 3, marginRight: 70 },
   probeC: { color: colors.text, fontSize: 16, fontWeight: '700', fontVariant: ['tabular-nums'] },
   probeL: { color: colors.text, fontSize: 13 },
+  resume: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.accent, borderRadius: 18, paddingHorizontal: 12, height: 36,
+    shadowColor: colors.shadow, shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
+  resumeT: { color: colors.accentInk, fontSize: 14, fontWeight: '800' },
+  wpNum: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 5, backgroundColor: '#FFFFFF', borderWidth: 2, borderColor: '#D61FD6', alignItems: 'center', justifyContent: 'center' },
+  wpNumNext: { borderWidth: 3 },
+  wpNumT: { color: '#7A0F7A', fontSize: 12, fontWeight: '900' },
   railRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
   railLeft: { flex: 1, gap: 6, alignItems: 'flex-start' },
   radarTagIn: { backgroundColor: 'rgba(11,27,43,0.82)', borderRadius: 14, paddingHorizontal: 11, paddingVertical: 5 },
