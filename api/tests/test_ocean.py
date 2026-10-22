@@ -380,3 +380,36 @@ def test_latest_sst_picks_newest(monkeypatch=None):
         jobs.sst_candidates, jobs.fetch_surface, jobs.process_surface = old
     assert published == {"ds": "OSTIA", "day": "2026-10-21"} and entry["date"] == "2026-10-21"
     assert jobs.UPWELL not in calls   # NOAA's backup server isn't asked when the main one answered
+
+
+def test_land_mask_from_coastline():
+    """Flood-fill from the open ocean: mainland and islands become land, the channel between stays water."""
+    import math
+    import numpy as np
+    from ocean import landmask
+    bbox = (-121.0, 31.0, -116.6, 35.0)
+    main = [(-121.2, 34.6)] + [(-120.5 + 0.05 * i, 34.4 - 0.035 * i) for i in range(80)] + [(-116.4, 31.5)]
+    isl = [(-119.45 + 0.22 * math.cos(t), 33.2 + 0.07 * math.sin(t)) for t in np.linspace(0, 2 * math.pi, 90)]
+    m = landmask.build([main, isl], bbox)
+    assert landmask.sane(m)
+    lat = np.array([33.2, 33.45, 32.0, 34.5]); lon = np.array([-119.45, -119.45, -120.0, -117.0])
+    assert m.is_land(lat, lon).tolist() == [True, False, False, True]   # island, channel, open ocean, mainland
+    m2 = landmask.LandMask.from_bytes(m.to_bytes())
+    assert (m2.land == m.land).all()
+
+
+def test_land_mask_rejects_leaky_coast():
+    """A coastline with a gap lets the flood pour onto land; such a mask is refused (map draws as before)."""
+    import numpy as np
+    from ocean import landmask
+    bbox = (-121.0, 31.0, -116.6, 35.0)
+    broken = [(-120.5 + 0.05 * i, 34.4 - 0.035 * i) for i in range(30)]   # stops in the middle of the box
+    assert not landmask.sane(landmask.build([broken], bbox))
+
+
+def test_fill_gaps_only_near_data():
+    import numpy as np
+    from ocean import landmask
+    v = np.full((1, 12), np.nan, np.float32); v[0, :3] = 60.0
+    f = landmask.fill_gaps(v, max_cells=3)
+    assert np.isfinite(f[0, :6]).all() and np.isnan(f[0, 7:]).all()

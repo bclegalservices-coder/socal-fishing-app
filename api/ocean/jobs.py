@@ -81,10 +81,17 @@ def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds
 
     cmap = SST_F if layer == "sst" else CHL
     colorize = lambda v: apply(v, cmap, 255)  # noqa: E731 (opacity is applied in the app)
+    # Clean coastline: fill the coastal strip the satellite grid leaves empty, then cut exactly at the real shore.
+    from . import landmask
+    mask = landmask.get(region, REGIONS[region], store, http, log)
+    draw, cut = g, None
+    if mask is not None:
+        draw = Grid(g.lats, g.lons, landmask.fill_gaps(g.values), g.meta)
+        cut = lambda v, lat, lon: np.where(mask.is_land(lat, lon), np.nan, v)  # noqa: E731
     n = 0
     for z in TILE_ZOOMS[layer]:
         for zz, x, y in tiles_for_bbox(REGIONS[region], z):
-            png = render(g, zz, x, y, colorize)
+            png = render(draw, zz, x, y, colorize, cut)
             if png:
                 store.put(f"tiles/{base}/{zz}/{x}/{y}.png", png, "image/png")
                 n += 1
