@@ -16,7 +16,7 @@ export function MoonGraphic({ phase, fraction, size = 160 }: { phase: number; fr
   const half = size / 2;
   const craters = [[0.28, 0.3, 0.16], [0.58, 0.22, 0.1], [0.62, 0.58, 0.2], [0.3, 0.66, 0.12], [0.45, 0.45, 0.07]];
   return (
-    <View style={{ width: size, height: size, borderRadius: half, shadowColor: LIT, shadowOpacity: 0.25 + 0.35 * fraction, shadowRadius: size / 8, shadowOffset: { width: 0, height: 0 } }}
+    <View style={{ width: size, height: size, borderRadius: half, backgroundColor: DARK, shadowColor: LIT, shadowOpacity: 0.25 + 0.35 * fraction, shadowRadius: size / 8, shadowOffset: { width: 0, height: 0 } }}
       accessibilityLabel={`Moon ${Math.round(fraction * 100)} percent lit`}>
       <View style={{ width: size, height: size, borderRadius: half, overflow: 'hidden', backgroundColor: DARK }}>
         <View style={{ position: 'absolute', top: 0, bottom: 0, width: half, [waxing ? 'right' : 'left']: 0, backgroundColor: LIT }} />

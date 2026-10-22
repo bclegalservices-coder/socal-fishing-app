@@ -129,10 +129,12 @@ export function SponsorIntro({ ad, onDone }: { ad: Ad; onDone: () => void }) {
   const st = useSt();
   const [left, setLeft] = useState(5);
   useViewed(ad, 'intro');
+  // Count down once a second; close when it reaches 0 (outside the countdown update, so React is happy).
   useEffect(() => {
-    const t = setInterval(() => setLeft((s) => { if (s <= 1) { clearInterval(t); onDone(); return 0; } return s - 1; }), 1000);
+    const t = setInterval(() => setLeft((s) => Math.max(0, s - 1)), 1000);
     return () => clearInterval(t);
   }, []);
+  useEffect(() => { if (left === 0) onDone(); }, [left]);
   const c = ad.creative;
   return (
     <View style={st.intro}>
