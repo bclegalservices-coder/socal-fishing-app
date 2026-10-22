@@ -1,10 +1,11 @@
 // Everything drawn on top of the NOAA chart. Order here = stacking order (later is on top).
 import { useEffect, useMemo, useState } from 'react';
 import { GeoJSONSource, Layer, RasterSource } from '@maplibre/maplibre-react-native';
-import { API_URL, RADAR_ATTRIBUTION, radarAt, CHART_SETTINGS_AVAILABLE, CHART_TILE_SIZE, RELIEF_ATTRIBUTION, RELIEF_TILES, SATELLITE_ATTRIBUTION, SATELLITE_BASE_ATTRIBUTION, SATELLITE_BASE_TILES, SATELLITE_DETAIL_MINZOOM, SATELLITE_TILES } from '../config';
+import { API_URL, chartLandTiles, okTile, RADAR_ATTRIBUTION, radarAt, CHART_SETTINGS_AVAILABLE, CHART_TILE_SIZE, RELIEF_ATTRIBUTION, RELIEF_TILES, SATELLITE_ATTRIBUTION, SATELLITE_BASE_ATTRIBUTION, SATELLITE_BASE_TILES, SATELLITE_DETAIL_MINZOOM, SATELLITE_TILES } from '../config';
 import type { Catalog } from '../types';
 import { DAY_OFFSETS, external, grid, pickDate, wind } from './catalog';
 import type { LayerState } from './state';
+import { useTheme } from '../theme';
 
 /** Short stable id for a tile address (djb2 hash). */
 const idOf = (s: string) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
@@ -12,6 +13,8 @@ const idOf = (s: string) => { let h = 5381; for (let i = 0; i < s.length; i++) h
 type Props = { catalog: Catalog | null; s: LayerState; compareOffset: number | null; radarPlaying: boolean; onBuoyPress: (props: any) => void; onRadarLabel?: (label: string | null) => void };
 
 export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress, onRadarLabel }: Props) {
+  const { mode } = useTheme();
+  const landUrl = useMemo(() => chartLandTiles(mode === 'night'), [mode]);
   const offset = compareOffset ?? DAY_OFFSETS[s.dayIndex] ?? 0;
   const sst = pickDate(grid(catalog, 'sst')?.dates, offset);
   const chl = pickDate(grid(catalog, 'chl')?.dates, offset);
@@ -73,27 +76,33 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
           <Layer type="raster" id="relief-layer" style={{ rasterOpacity: overlayOpacity, rasterFadeDuration: 150 }} />
         </RasterSource>
       ) : null}
-      {s.on.bathy && bathy ? (
+      {s.on.bathy && bathy && okTile(bathy.tiles) ? (
         <RasterSource key={`bathy-${bathy.tiles}`} id="bathy" tiles={[bathy.tiles]} tileSize={256} minzoom={5} maxzoom={11}>
           <Layer type="raster" id="bathy-layer" style={{ rasterOpacity: s.opacity.bathy, rasterFadeDuration: 0 }} />
         </RasterSource>
       ) : null}
-      {s.on.contours && bathy?.contours ? (
+      {s.on.contours && okTile(bathy?.contours) ? (
         <GeoJSONSource key={`contours-${bathy.contours}`} id="contours" data={bathy.contours}>
           <Layer type="line" id="contours-line" style={{ lineColor: '#9fc3d6', lineWidth: 0.8, lineOpacity: 0.7 }} />
         </GeoJSONSource>
       ) : null}
-      {s.on.sst && sst ? (
+      {s.on.sst && sst && okTile(sst.tiles) ? (
         <RasterSource key={`sst-${sst.tiles}`} id="sst" tiles={[sst.tiles]} tileSize={256} minzoom={5} maxzoom={10}>
           <Layer type="raster" id="sst-layer" style={{ rasterOpacity: s.opacity.sst, rasterFadeDuration: 0 }} />
         </RasterSource>
       ) : null}
-      {s.on.chl && chl ? (
+      {s.on.chl && chl && okTile(chl.tiles) ? (
         <RasterSource key={`chl-${chl.tiles}`} id="chl" tiles={[chl.tiles]} tileSize={256} minzoom={5} maxzoom={10}>
           <Layer type="raster" id="chl-layer" style={{ rasterOpacity: s.opacity.chl, rasterFadeDuration: 0 }} />
         </RasterSource>
       ) : null}
-      {s.on.breaks && sst?.breaks ? (
+      {/* Chart land on top of water temp / chlorophyll: islands and coast stay clean and sharp. */}
+      {(s.on.sst && sst) || (s.on.chl && chl) ? (
+        <RasterSource key={`land-${landUrl}`} id="chart-land" tiles={[landUrl]} tileSize={CHART_TILE_SIZE} minzoom={3} maxzoom={18}>
+          <Layer key="chart-land-layer" type="raster" id="chart-land-layer" style={{ rasterOpacity: 1, rasterFadeDuration: 100 }} />
+        </RasterSource>
+      ) : null}
+      {s.on.breaks && okTile(sst?.breaks) ? (
         <GeoJSONSource key={`breaks-${sst.breaks}`} id="sst-breaks" data={sst.breaks}>
           <Layer type="line" id="sst-breaks-line" style={{
             lineColor: '#ffffff', lineOpacity: ['match', ['get', 'strength'], 'strong', 0.95, 0.6] as any,
@@ -101,7 +110,7 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
           }} />
         </GeoJSONSource>
       ) : null}
-      {s.on.chlEdges && chl?.breaks ? (
+      {s.on.chlEdges && okTile(chl?.breaks) ? (
         <GeoJSONSource key={`chledges-${chl.breaks}`} id="chl-edges" data={chl.breaks}>
           <Layer type="line" id="chl-edges-line" style={{
             lineColor: '#9cf07a', lineDasharray: [2, 1.5],
@@ -112,7 +121,7 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
       {/* While the loop plays, every frame stays loaded and frames cross-fade (no flicker). */}
       {s.on.radar ? frames.map((f, i) => {
         const show = i === Math.min(frame, frames.length - 1);
-        if (!f.tiles || (!radarPlaying && !show)) return null;
+        if (!okTile(f.tiles) || (!radarPlaying && !show)) return null;
         const isFc = f.label.startsWith('Forecast');
         const rid = `radar-${idOf(f.tiles)}`;   // unique per frame time, so a moving time window never reuses an id
         return (

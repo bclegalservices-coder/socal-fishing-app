@@ -8,8 +8,9 @@ import { colors, makeStyles, useTheme } from '../theme';
 import { CHART_SETTINGS_AVAILABLE } from '../config';
 import type { Catalog } from '../types';
 import { external, grid, harborsOf, wind } from './catalog';
-import { DEFAULT_LAYERS, PRESETS, type LayerKey, type LayerState, type MapOverlay } from './state';
+import { CHART_LOOKS, DEFAULT_LAYERS, PRESETS, type ChartLook, type LayerKey, type LayerState, type MapOverlay } from './state';
 import { track } from '../analytics';
+import { PresentedBy } from '../ads/Sponsor';
 
 type Props = { catalog: Catalog | null; cached: boolean; s: LayerState; set: (fn: (s: LayerState) => LayerState) => void;
   radarPlaying: boolean; setRadarPlaying: (b: boolean) => void; onClose: () => void; rulesChecked?: string | null; onSaveArea?: () => void };
@@ -23,6 +24,12 @@ const STYLES: { key: MapOverlay; label: string; img: any }[] = [
 ];
 const STYLE_CARDS = STYLES.filter((x) => x.key !== 'relief' || CHART_SETTINGS_AVAILABLE);
 
+const LOOKS: { key: ChartLook; label: string; icon: Icon; tint: string; sub: string }[] = [
+  { key: 'clean', label: 'Clean', icon: 'map-outline', tint: '#8E8E93', sub: 'Coastline and depth shading. Calm and easy to read.' },
+  { key: 'standard', label: 'Standard', icon: 'map-marker-radius-outline', tint: '#007AFF', sub: '+ buoys, lights, lanes, wrecks and restricted areas.' },
+  { key: 'full', label: 'Full detail', icon: 'map-search-outline', tint: '#FF9500', sub: 'Every depth number and contour, even zoomed out. Like a paper chart.' },
+];
+
 const PRESET_LOOK: Record<string, { icon: Icon; tint: string; sub: string }> = {
   tuna: { icon: 'fish', tint: '#FF9500', sub: 'Water temp, breaks and color edges' },
   bottom: { icon: 'image-filter-hdr', tint: '#A2845E', sub: 'Seafloor relief and depth contours' },
@@ -34,11 +41,11 @@ const PRESET_LOOK: Record<string, { icon: Icon; tint: string; sub: string }> = {
 const C = { blue: '#0A84FF', teal: '#30B0C7', green: '#34C759', mint: '#00C7BE', orange: '#FF9500', red: '#FF3B30',
   purple: '#AF52DE', indigo: '#5856D6', gray: '#8E8E93', brown: '#A2845E', pink: '#FF2D55', yellow: '#FFCC00' };
 
-export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPlaying, onClose, rulesChecked, onSaveArea }: Props) {
+export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPlaying, onClose, rulesChecked, onSaveArea, killed = [] }: Props & { killed?: string[] }) {
   const st = useSt();
   const { mode } = useTheme();
   const insets = useSafeAreaInsets();
-  const setOverlay = (o: MapOverlay) => { set((p) => ({ ...p, overlay: o })); track('map_style', { style: o }); };
+  const setOverlay = (o: MapOverlay) => { if (o !== 'none' && killed.includes(o)) return; set((p) => ({ ...p, overlay: o })); track('map_style', { style: o }); };
   const toggle = (k: LayerKey) => set((p) => ({ ...p, on: { ...p.on, [k]: !p.on[k] } }));
   const opacity = (k: keyof LayerState['opacity'], v: number) => set((p) => ({ ...p, opacity: { ...p.opacity, [k]: v } }));
   const hc: Record<string, number> | undefined = harborsOf(catalog)?.counts;
@@ -53,7 +60,10 @@ export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPla
   const Toggle = ({ on, onChange, label, disabled }: { on: boolean; onChange: () => void; label: string; disabled?: boolean }) => (
     <Switch value={on} onValueChange={onChange} disabled={disabled} trackColor={{ true: track_on, false: undefined }} accessibilityLabel={label} />
   );
-  const Row = ({ k, icon, tint, title, sub, disabled, last }: { k: LayerKey; icon: Icon; tint: string; title: string; sub?: string; disabled?: boolean; last?: boolean }) => (
+  const Row = ({ k, icon, tint, title, sub: sub0, disabled: dis0, last }: { k: LayerKey; icon: Icon; tint: string; title: string; sub?: string; disabled?: boolean; last?: boolean }) => {
+    const off = killed.includes(k);
+    const disabled = dis0 || off, sub = off ? 'Temporarily off while we fix it — back soon' : sub0;
+    return (
     <Pressable onPress={() => !disabled && toggle(k)} style={[st.row, disabled && { opacity: 0.4 }]}>
       <Tile icon={icon} tint={tint} />
       <View style={[st.rowBody, !last && st.sep]}>
@@ -64,7 +74,8 @@ export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPla
         <Toggle on={!!s.on[k]} onChange={() => toggle(k)} label={title} disabled={disabled} />
       </View>
     </Pressable>
-  );
+    );
+  };
   /** iOS-style segmented control for strength. */
   const Strength = ({ value, onPick, label = 'Strength' }: { value: number; onPick: (v: number) => void; label?: string }) => (
     <View style={st.strength}>
@@ -108,6 +119,7 @@ export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPla
         </Pressable>
       </View>
       {cached ? <Text style={st.offline}>Offline · showing the layer list saved earlier</Text> : null}
+      <View style={{ paddingHorizontal: 16, paddingBottom: 4 }}><PresentedBy section="Map Layers" /></View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 30 }} showsVerticalScrollIndicator={false}>
         {/* Map style */}
@@ -132,6 +144,25 @@ export function LayersSheet({ catalog, cached, s, set, radarPlaying, setRadarPla
             </View>
           </Pressable>
         </Section>
+
+        {/* Chart style: how busy the NOAA chart itself is */}
+        <Text style={st.caption}>Chart style</Text>
+        <View style={st.presets}>
+          {LOOKS.map((l) => {
+            const active = (s.chart?.look ?? 'standard') === l.key;
+            return (
+              <Pressable key={l.key} style={[st.preset, st.look, active && st.presetOn]} accessibilityRole="radio" accessibilityState={{ selected: active }}
+                onPress={() => { set((x) => ({ ...x, chart: { ...x.chart, look: l.key, ...CHART_LOOKS[l.key] } })); track('chart_look', { look: l.key }); }}>
+                <View style={st.presetTop}>
+                  <Tile icon={l.icon} tint={l.tint} />
+                  {active ? <MaterialCommunityIcons name="check-circle" size={20} color={colors.accent} /> : null}
+                </View>
+                <Text style={st.presetT}>{l.label}</Text>
+                <Text style={st.presetS} numberOfLines={3}>{l.sub}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
 
         {/* Quick setups: one tap turns on the layers for a kind of trip */}
         <Text style={st.caption}>Quick setups</Text>
@@ -295,6 +326,7 @@ const useSt = makeStyles((colors) => ({
   presets: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 18 },
   preset: { width: '48%', flexGrow: 1, padding: 12, borderRadius: 14, backgroundColor: colors.panelSolid, borderWidth: 2, borderColor: 'transparent', gap: 4 },
   presetOn: { borderColor: colors.accent },
+  look: { width: '31%', flexGrow: 0, flexShrink: 1, padding: 10 },
   presetTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   presetT: { color: colors.text, fontSize: 15.5, fontWeight: '700' },
   presetS: { color: colors.muted, fontSize: 12.5, lineHeight: 16 },

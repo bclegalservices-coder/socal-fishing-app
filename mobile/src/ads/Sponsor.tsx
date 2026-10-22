@@ -6,7 +6,14 @@ import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { WebView } from 'react-native-webview';
 import { colors, makeStyles } from '../theme';
-import { ctaText, getAd, impression, removeCoupon, saveCoupon, savedCoupons, send, tapAd, type Ad, type SavedCoupon } from './ads';
+import { ctaText, getAd, impression, isDemo, onAdPreview, removeCoupon, saveCoupon, savedCoupons, send, tapAd, type Ad, type SavedCoupon } from './ads';
+
+/** Changes whenever Ad spaces preview is switched, so every slot re-asks for its ad. */
+export function useAdPreviewTick() {
+  const [n, setN] = useState(0);
+  useEffect(() => onAdPreview(() => setN((x) => x + 1)), []);
+  return n;
+}
 
 /** Counts a view only after the ad has been on screen for a second. */
 function useViewed(ad: Ad | null, context: string) {
@@ -68,16 +75,20 @@ export function AdMedia({ ad, style, fit = 'cover' }: { ad: Ad; style: any; fit?
 }
 
 /** "Presented by ___" line for a section (Today, Weather, Catch Map, SST Map). */
-export function PresentedBy({ section, tags = [] }: { section: string; tags?: string[] }) {
+export function PresentedBy({ section, tags = [], pill = false }: { section: string; tags?: string[]; pill?: boolean }) {
   const st = useSt();
+  const tick = useAdPreviewTick();
   const [ad, setAd] = useState<Ad | null>(null);
-  useEffect(() => { getAd('presented_by', section, tags).then(setAd); }, [section, tags.join(',')]);
+  useEffect(() => { let on = true; getAd('presented_by', section, tags).then((a) => on && setAd(a)); return () => { on = false; }; }, [section, tags.join(','), tick]);
   useViewed(ad, section);
   if (!ad) return null;
+  if (isDemo(ad)) return (
+    <Pressable onPress={() => tapAd(ad, section)} style={[st.demoPb, pill && st.pill]}><Text style={st.demoT}>AD SPACE · "{section}" presented by [your logo]</Text></Pressable>
+  );
   const c = ad.creative; const logo = c.kind === 'native' ? (c.logo_url || c.advertiser_logo) : (c.media_url || ad.creative_url || c.advertiser_logo);
   const lead = section === 'Weather' ? 'Marine forecast presented by' : section === 'Today' ? 'Fishing report presented by' : 'Presented by';
   return (
-    <Pressable onPress={() => tapAd(ad, section)} style={st.pb} accessibilityLabel={`Sponsored: ${lead} ${ad.advertiser}`}>
+    <Pressable onPress={() => tapAd(ad, section)} style={[st.pb, pill && st.pill]} accessibilityLabel={`Sponsored: ${lead} ${ad.advertiser}`}>
       <Text style={st.pbT}>{lead} </Text>
       {logo ? <Image source={{ uri: logo }} style={st.pbLogo} contentFit="contain" /> : null}
       <Text style={st.pbName}>{c.headline || ad.advertiser}</Text>
@@ -86,12 +97,20 @@ export function PresentedBy({ section, tags = [] }: { section: string; tags?: st
 }
 
 /** Banner (Today screen, catch reports, forum). Clearly labeled "Sponsored". */
-export function SponsorBanner({ placement, tags = [] }: { placement: 'banner_dashboard' | 'banner_reports' | 'banner_community'; tags?: string[] }) {
+export function SponsorBanner({ placement, tags = [] }: { placement: 'banner_dashboard' | 'banner_reports' | 'banner_community' | 'banner_weather'; tags?: string[] }) {
   const st = useSt();
+  const tick = useAdPreviewTick();
   const [ad, setAd] = useState<Ad | null>(null);
-  useEffect(() => { getAd(placement, undefined, tags).then(setAd); }, [placement, tags.join(',')]);
+  useEffect(() => { let on = true; getAd(placement, undefined, tags).then((a) => on && setAd(a)); return () => { on = false; }; }, [placement, tags.join(','), tick]);
   useViewed(ad, placement);
   if (!ad) return null;
+  if (isDemo(ad)) return (
+    <Pressable onPress={() => tapAd(ad, placement)} style={st.demoBanner}>
+      <Text style={st.demoT}>AD SPACE · BANNER</Text>
+      <Text style={st.demoBig}>{ad.headline?.replace('AD SPACE · ', '')}</Text>
+      <Text style={st.demoS}>Logo or photo · headline · Call / Directions / Coupon button · 16:5</Text>
+    </Pressable>
+  );
   const c = ad.creative;
   return (
     <Pressable onPress={() => tapAd(ad, placement)} style={st.banner} accessibilityRole="link" accessibilityLabel={`Sponsored by ${ad.advertiser}. ${c.headline ?? ''}`}>
@@ -179,6 +198,12 @@ export function SavedCoupons() {
 
 const useSt = makeStyles((colors) => ({
   pb: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 },
+  pill: { alignSelf: 'flex-start', backgroundColor: colors.panel, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
+  demoPb: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#E0A800', backgroundColor: '#E0A80022', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, alignSelf: 'flex-start' },
+  demoBanner: { borderWidth: 2, borderStyle: 'dashed', borderColor: '#E0A800', backgroundColor: '#E0A8001A', borderRadius: 12, padding: 14, gap: 4, minHeight: 96, justifyContent: 'center' },
+  demoT: { color: '#B88700', fontSize: 11, fontWeight: '800', letterSpacing: 0.3 },
+  demoBig: { color: colors.text, fontSize: 16, fontWeight: '800' },
+  demoS: { color: colors.muted, fontSize: 12 },
   pbT: { color: colors.muted, fontSize: 11 },
   pbLogo: { width: 20, height: 20 },
   pbName: { color: colors.text, fontSize: 11.5, fontWeight: '700' },

@@ -14,14 +14,17 @@ import { DEMO_EMAIL, PRIVACY_URL, STUDIO_URL, SUPPORT_EMAIL, TERMS_URL } from '.
 import { AlertsScreen } from './AlertsScreen';
 import { OfflineScreen } from './OfflineScreen';
 import { SavedCoupons } from '../ads/Sponsor';
+import { AD_SPACES, adPreviewOn, setAdPreview } from '../ads/ads';
 import { getOptOut, setOptOut, track } from '../analytics';
 import { friendly } from '../friendly';
+import { FeedbackForm } from '../components/Feedback';
+import { FULL_TEXT } from '../legal';
 
 export function ProfileScreen({ onShowOnMap }: { onShowOnMap: (lat: number, lon: number, name: string) => void }) {
   const st = useSt();
   const theme = useTheme();
   const [session, setSession] = useState<Session | null>(null);
-  const [page, setPage] = useState<'main' | 'sources' | 'alerts' | 'offline' | 'fishing' | 'account' | 'coupons'>('main');
+  const [page, setPage] = useState<'main' | 'sources' | 'alerts' | 'offline' | 'fishing' | 'account' | 'coupons' | 'feedback' | 'legal'>('main');
   useEffect(() => {
     if (!supabaseReady) return;
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -34,6 +37,24 @@ export function ProfileScreen({ onShowOnMap }: { onShowOnMap: (lat: number, lon:
   if (page === 'alerts') return <AlertsScreen onBack={back} />;
   if (page === 'offline') return <OfflineScreen onBack={back} />;
   if (page === 'fishing') return <MyFishingScreen onShowOnMap={onShowOnMap} onBack={back} />;
+  if (page === 'legal') return (
+    <View style={st.page}><ScreenHeader title="Safety & legal" onBack={back} backLabel="Me" />
+      <ScrollView contentContainerStyle={st.body}>
+        <Card tone="alert"><Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>Channel Nav is not for navigation and is not a chartplotter.</Text></Card>
+        {FULL_TEXT.map((x) => (
+          <View key={x.h} style={{ gap: 4 }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{x.h}</Text>
+            <Text style={{ color: colors.muted, fontSize: 14.5, lineHeight: 21 }}>{x.p}</Text>
+          </View>
+        ))}
+        {TERMS_URL ? <Btn label="Full Terms of Use" icon="document-text-outline" onPress={() => Linking.openURL(TERMS_URL)} /> : null}
+        {PRIVACY_URL ? <Btn label="Privacy policy" icon="shield-checkmark-outline" onPress={() => Linking.openURL(PRIVACY_URL)} /> : null}
+      </ScrollView></View>
+  );
+  if (page === 'feedback') return (
+    <View style={st.page}><ScreenHeader title="Feedback" onBack={back} backLabel="Me" />
+      <ScrollView contentContainerStyle={st.body} keyboardShouldPersistTaps="handled"><FeedbackForm email={session?.user.email ?? ''} onSent={back} /></ScrollView></View>
+  );
   if (page === 'coupons') return (
     <View style={st.page}><ScreenHeader title="Saved coupons" onBack={back} backLabel="Me" />
       <ScrollView contentContainerStyle={st.body}><SavedCoupons /><Note>Coupons you save from sponsors stay on this phone.</Note></ScrollView></View>
@@ -85,14 +106,17 @@ export function ProfileScreen({ onShowOnMap }: { onShowOnMap: (lat: number, lon:
 
         <SectionLabel>About</SectionLabel>
         <ListGroup>
+          <ListRow icon="warning-outline" iconColor={colors.alert} title="Safety & legal" subtitle="Not for navigation — read before you go out" onPress={() => setPage('legal')} />
           <ListRow icon="server-outline" title="Data sources" subtitle="Where every number comes from and how fresh it is" onPress={() => setPage('sources')} />
           {PRIVACY_URL ? <ListRow icon="shield-checkmark-outline" title="Privacy policy" onPress={() => Linking.openURL(PRIVACY_URL)} /> : null}
           {TERMS_URL ? <ListRow icon="document-text-outline" title="Terms of use" onPress={() => Linking.openURL(TERMS_URL)} /> : null}
           {SUPPORT_EMAIL ? <ListRow icon="mail-outline" title="Contact & support" value={SUPPORT_EMAIL} onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)} /> : null}
           {STUDIO_URL ? <ListRow icon="megaphone-outline" title="Advertise with us" subtitle="For tackle shops, landings, marinas and brands" onPress={() => Linking.openURL(STUDIO_URL)} /> : null}
+          <ListRow icon="chatbubble-ellipses-outline" iconColor={colors.accent} title="Send feedback or report a bug" subtitle="Goes straight to the developer" onPress={() => setPage('feedback')} />
           <ListRow icon="information-circle-outline" title="Version" value={String((Constants as any).expoConfig?.version ?? '')} chevron={false} last />
         </ListGroup>
-        <Note>Fishing and navigation assistance only — not a certified chartplotter. Charts, seafloor, satellite and weather data can be delayed or incomplete. Keep a proper lookout and use official charts and onboard equipment.</Note>
+        {session ? <AdminTools uid={session.user.id} /> : __DEV__ ? <AdminTools uid={null} /> : null}
+        <Note>Not for navigation — Channel Nav is a fishing and planning aid, not a certified chartplotter. Charts, seafloor, satellite and weather data can be delayed, incomplete or wrong. Keep a proper lookout and use official charts and onboard equipment. See Safety & legal.</Note>
       </ScrollView>
     </View>
   );
@@ -266,4 +290,27 @@ function CoordFormatRow({ last }: { last?: boolean }) {
   const order = ['ddm', 'dd', 'dms'] as const;
   const next = order[(order.indexOf(f) + 1) % order.length];
   return <ListRow icon="locate-outline" title="Coordinate format" subtitle={`${COORD_EXAMPLES[f]} · tap to change`} onPress={() => chooseCoordFormat(next)} chevron={false} last={last} />;
+}
+
+/** Admins only: see every ad slot in the app as a labeled gold placeholder. */
+function AdminTools({ uid }: { uid: string | null }) {
+  const [admin, setAdmin] = useState(__DEV__);
+  const [on, setOn] = useState(adPreviewOn());
+  useEffect(() => {
+    if (!uid || !supabaseReady) return;
+    supabase.from('profiles').select('is_admin').eq('id', uid).maybeSingle().then(({ data }: any) => { if (data?.is_admin) setAdmin(true); });
+  }, [uid]);
+  if (!admin) return null;
+  return (
+    <>
+      <SectionLabel>Admin</SectionLabel>
+      <ListGroup>
+        <ListRow icon="megaphone-outline" iconColor="#E0A800" title="Ad spaces preview"
+          subtitle={on ? `Showing all ${Object.keys(AD_SPACES).length} ad spaces as gold boxes. Tap any box for details.` : 'Show every sponsor slot in the app as a gold placeholder'}
+          right={<Switch value={on} onValueChange={(v) => { setOn(v); setAdPreview(v); track('ad_preview', { on: v }); }} />} chevron={false} />
+        {on ? <ListRow icon="list-outline" title="Where every ad space is" onPress={() => Alert.alert('Ad spaces', Object.values(AD_SPACES).map((a) => `• ${a.name}\n   ${a.where}`).join('\n\n'))} last /> : null}
+      </ListGroup>
+      <Note>Only you see this. Placeholders are never counted as views. The 5-second intro shows each time you open the app while this is on.</Note>
+    </>
+  );
 }

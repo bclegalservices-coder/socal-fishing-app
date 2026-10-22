@@ -28,14 +28,15 @@ import { useCatalog } from '../layers/catalog';
 import { MapLayers } from '../layers/MapLayers';
 import { LayersSheet } from '../layers/LayersSheet';
 import { TimeBar } from '../layers/TimeBar';
-import { DEFAULT_LAYERS, type LayerState } from '../layers/state';
+import { DEFAULT_LAYERS, applyKillSwitch, type LayerState } from '../layers/state';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CatchMarkers, type Cluster } from '../components/CatchMap';
 import { CatchBar } from '../components/CatchBar';
 import { ClusterSheet } from '../components/ReportView';
 import { BuddyMarkers } from '../components/Buddies';
 import { loadCoordFormat } from '../coordPref';
-import { HarborLayers, declutter, harborCard, useHarbors } from '../layers/Harbors';
+import { FeaturedPins, HarborLayers, declutter, harborCard, useHarbors } from '../layers/Harbors';
+import { PresentedBy } from '../ads/Sponsor';
 import { harborsOf, wind as windOf } from '../layers/catalog';
 import { WindLayer } from '../layers/Wind';
 import { GroupPins } from '../components/GroupPins';
@@ -54,9 +55,13 @@ import { useNetwork } from '../offline/network';
 import { grid as gridLayer } from '../layers/catalog';
 import { setArea, track } from '../analytics';
 import { friendly } from '../friendly';
+import { SHORT_WARNING } from '../legal';
+import { SafeLayer } from '../components/ErrorBoundary';
+import { reportError } from '../errors';
+import { config, onConfig } from '../appConfig';
 
 const ARRIVE_NM = 0.1;
-const LAYERS_KEY = 'layers:v2'; // v2: fresh start after the Oct 20 crash
+const LAYERS_KEY = 'layers:v3'; // v3: everyone starts once on the new clean chart (Oct 21)
 const REGION_BBOX = '-123.5,30,-116,35'; // Point Conception to below Colonet, out past Cortes and Tanner Banks
 
 // A chart square that fails to load (no signal offshore, or a blank square from NOAA) is normal on the water:
@@ -83,7 +88,9 @@ function buildMapStyle(chartUrl: string) {
 }
 
 type Nav = { points: Pt[]; leg: number; legStart: Pt; name: string };
-type Selected = { kind: 'spot' | 'pin' | 'saved'; pt: Pt & { subtitle?: string; id?: string; saveName?: string } } | null;
+let goToWarned = false;
+
+type Selected = { kind: 'spot' | 'pin' | 'saved'; pt: Pt & { subtitle?: string; id?: string; saveName?: string; sponsor?: string; sponsorTags?: string[] } } | null;
 type Panel = 'none' | 'routes' | 'tracks' | 'layers' | 'search' | 'actions';
 export type PickRequest = { kind: 'spot' | 'saved'; pt: Pt & { subtitle?: string; id?: string }; go?: boolean; route?: Pt[] } | null;
 
@@ -117,7 +124,10 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const [shownLine, setShownLine] = useState<(Pt | TrackPoint)[] | null>(null);
   const [arrived, setArrived] = useState<string | null>(null);
   const [layers, setLayers] = useState<LayerState>(DEFAULT_LAYERS);
-  const chartUrl = useMemo(() => noaaChartTiles({ ...DEFAULT_LAYERS.chart, ...layers.chart }, theme.mode === 'night'), [layers.chart, theme.mode]);
+  const [killed, setKilled] = useState<string[]>(config().features_off ?? []);
+  useEffect(() => onConfig((c) => setKilled(c.features_off ?? [])), []);
+  useEffect(() => { setLayers((p) => applyKillSwitch(p, killed)); }, [killed.join(','), layers.on, layers.overlay]);
+  const chartUrl = useMemo(() => noaaChartTiles({ ...DEFAULT_LAYERS.chart, ...layers.chart }, theme.mode === 'night', killed.includes('chart_helper')), [layers.chart, theme.mode, killed.join(',')]);
   const mapStyle = useMemo(() => buildMapStyle(chartUrl), [chartUrl]);
   // 3D view (Map options): tip the camera back; flat again when switched off.
   useEffect(() => { camera.current?.setStop({ pitch: layers.tilt ? 55 : 0, duration: 600 }).catch(() => {}); }, [layers.tilt]);
@@ -164,7 +174,12 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       let safeStart = false;
       try { safeStart = (await AsyncStorage.getItem('boot:v1')) === 'starting'; await AsyncStorage.setItem('boot:v1', 'starting'); } catch {}
       setTimeout(() => { AsyncStorage.setItem('boot:v1', 'ok').catch(() => {}); }, 30000);
-      if (safeStart) setToast('The map had a problem last time, so your map layers were reset.');
+      if (safeStart) {
+        setToast('The map had a problem last time, so your map layers were reset.');
+        // Native map crashes can't be caught in code, but this tells us one happened (and which layers were on).
+        AsyncStorage.getItem(LAYERS_KEY).then((l) => reportError(new Error('App closed during the first 30 s last launch (likely a native crash)'),
+          `startup · layers ${l ? Object.entries(JSON.parse(l).on ?? {}).filter(([, v]) => v).map(([k]) => k).join(',') : '?'}`, true)).catch(() => {});
+      }
       try { const l = safeStart ? null : await AsyncStorage.getItem(LAYERS_KEY); if (l) { const p = JSON.parse(l); setLayers({ ...DEFAULT_LAYERS, ...p, on: { ...DEFAULT_LAYERS.on, ...p.on }, opacity: { ...DEFAULT_LAYERS.opacity, ...p.opacity }, chart: { ...DEFAULT_LAYERS.chart, ...p.chart } }); } } catch {}
       loadCoordFormat();
       const cachedSpots = await store.loadPublicSpots();
@@ -380,6 +395,10 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     if (!points.length) return;
     setNav({ points, leg: 0, legStart: here() ?? points[0], name });
     track('go_to_start', { legs: points.length });
+    if (!goToWarned) {   // once per app session
+      goToWarned = true;
+      Alert.alert('Straight-line guide only', 'Go To is not checked for land, rocks, kelp, shallow water or traffic. Keep a lookout and use your charts and boat electronics.');
+    }
     setSel(null); setDraft(null); setPanel('none'); setArrived(null); setProbe(false);
     if (!fix) Alert.alert('Waiting for GPS', 'Distance and bearing appear as soon as your position is found.');
   };
@@ -555,9 +574,11 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
                 <Ionicons name="chevron-up" size={14} color={colors.muted} />
               </Pressable>
             ) : null}
+            {/* Sponsor slot: only when wind is on and you're NOT navigating or recording. */}
+            {!openBar && layers.on.wind && !nav && !active && !probe ? <PresentedBy section="Wind" pill /> : null}
             {shownLine ? <Pressable style={st.chip} onPress={() => setShownLine(null)} accessibilityRole="button"><Text style={st.chipT}>Hide line ✕</Text></Pressable> : null}
             {active ? <Pressable style={[st.chip, { borderColor: colors.alert }]} onPress={() => setPanel('tracks')} accessibilityRole="button"><Text style={[st.chipT, { color: colors.alert }]}>● Recording trip</Text></Pressable> : null}
-            <Text style={st.disclaimer}>NOAA chart · not for navigation</Text>
+            <Text style={st.disclaimer}>{SHORT_WARNING}</Text>
           </View>
           <Pressable style={({ pressed }) => [st.plus, pressed && { opacity: 0.8 }]} onPress={() => { setSel(null); setPanel('actions'); }} accessibilityRole="button" accessibilityLabel="Actions: log a catch, save spot, crew, routes, record, conditions, report, weather">
             <Ionicons name="add" size={34} color={colors.accentInk} />
@@ -583,7 +604,9 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         <Camera ref={camera} initialViewState={{ center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM }}
           trackUserLocation={orient === 'heading' ? 'heading' : orient === 'course' ? 'course' : undefined}
           onTrackUserLocationChange={(e: any) => { if (e?.nativeEvent?.trackUserLocation == null && orient !== 'north') setOrient('north'); }} />
-        <MapLayers catalog={catalog} s={layers} compareOffset={compareOffset} radarPlaying={radarPlaying} onRadarLabel={setRadarLabel} onBuoyPress={(p) => { featurePressAt.current = Date.now(); setSel(null); setBuoy(p); }} />
+        <SafeLayer name="ocean" resetKey={JSON.stringify(layers.on)}>
+          <MapLayers catalog={catalog} s={layers} compareOffset={compareOffset} radarPlaying={radarPlaying} onRadarLabel={setRadarLabel} onBuoyPress={(p) => { featurePressAt.current = Date.now(); setSel(null); setBuoy(p); }} />
+        </SafeLayer>
         {/* MPAs on top of every overlay so they're never hidden under relief or satellite */}
         <RulesLayers data={rules} showProtected={layers.on.rules} showHazards={layers.on.hazards}
           onPress={(p, geom) => { featurePressAt.current = Date.now(); setSel(null); setClusterSel(null); setRuleSel({ ...p, geom }); }} />
@@ -608,12 +631,13 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           <Layer type="line" id="nav-line" style={{ lineColor: colors.accent, lineWidth: 3.5, lineDasharray: [2, 1.2] }} />
           <Layer type="circle" id="nav-pts" style={{ circleRadius: 8, circleColor: colors.accent, circleStrokeColor: colors.bg, circleStrokeWidth: 2 }} />
         </GeoJSONSource>
-        <WindLayer on={layers.on.wind} view={view} opacity={layers.opacity.wind ?? 0.55}
-          hour={windOf(catalog)?.hours?.[Math.min(layers.windIndex, (windOf(catalog)?.hours?.length ?? 1) - 1)]} />
-        <HarborLayers fc={harborFc} s={layers} view={view} onPress={(p, [lon, lat]) => {
+        <SafeLayer name="wind" resetKey={`${layers.on.wind}-${layers.windIndex}`}><WindLayer on={layers.on.wind} view={view} opacity={layers.opacity.wind ?? 0.55}
+          hour={windOf(catalog)?.hours?.[Math.min(layers.windIndex, (windOf(catalog)?.hours?.length ?? 1) - 1)]} /></SafeLayer>
+        <SafeLayer name="harbors" resetKey={JSON.stringify(layers.on)}><HarborLayers fc={harborFc} s={layers} view={view} onPress={(p, [lon, lat]) => {
           featurePressAt.current = Date.now(); setBuoy(null); setPanel('none');
-          const c = harborCard(p); setSel({ kind: 'spot', pt: { lat, lon, name: c.name, subtitle: c.subtitle } });
-        }} />
+          const c = harborCard(p); setSel({ kind: 'spot', pt: { lat, lon, name: c.name, subtitle: c.subtitle, sponsor: 'Harbors', sponsorTags: [String(p.kind ?? '')] } });
+        }} /></SafeLayer>
+        <SafeLayer name="featured"><FeaturedPins fc={harborFc} s={layers} view={view} hidden={!!nav} /></SafeLayer>
         {layers.on.spots ? <GeoJSONSource id="public-spots" data={publicSpots} onPress={(e: any) => onSpotPress(e, 'spot')} hitbox={{ top: 15, right: 15, bottom: 15, left: 15 }}>
           <Layer type="circle" id="public-spots-dots" style={{ circleRadius: 5, circleColor: colors.accent, circleStrokeColor: colors.bg, circleStrokeWidth: 1.5 }} />
         </GeoJSONSource> : null}
@@ -678,7 +702,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       <View style={st.bottom} pointerEvents="box-none">{bottom}</View>
 
       {panel === 'layers' ? (
-        <LayersSheet catalog={catalog} cached={catalogCached} s={layers} set={(fn) => setLayers(fn)} radarPlaying={radarPlaying} setRadarPlaying={setRadarPlaying}
+        <LayersSheet catalog={catalog} cached={catalogCached} s={layers} set={(fn) => setLayers((p) => applyKillSwitch(fn(p), killed))} killed={killed} radarPlaying={radarPlaying} setRadarPlaying={setRadarPlaying}
           onClose={() => setPanel('none')} rulesChecked={rules?.checked_at ?? null} onSaveArea={view ? saveArea : undefined} />
       ) : null}
       {logAt ? (
@@ -687,8 +711,11 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       ) : null}
       {today ? <TodaySheet onClose={() => setToday(false)} onOpenCatchMap={() => { setToday(false); setLayers((p) => ({ ...p, on: { ...p.on, catches: true } })); setCatchHours(24); }} /> : null}
       {radarLabel ? (
-        <View pointerEvents="none" style={[st.radarTag, radarLabel.startsWith('Forecast') && st.radarTagFc]}>
-          <Text style={st.radarTagT}>{radarLabel}</Text>
+        <View pointerEvents="box-none" style={st.radarWrap}>
+          <View pointerEvents="none" style={[st.radarTagIn, radarLabel.startsWith('Forecast') && st.radarTagFc]}>
+            <Text style={st.radarTagT}>{radarLabel}</Text>
+          </View>
+          {!nav && !active ? <PresentedBy section="Radar" pill /> : null}
         </View>
       ) : null}
       {toast ? <View style={st.toast} pointerEvents="none"><Text style={st.toastT}>{toast}</Text></View> : null}
@@ -732,7 +759,8 @@ const useSt = makeStyles((colors) => ({
   probe: { backgroundColor: colors.panel, borderColor: colors.live, borderWidth: 1.5, borderRadius: 12, padding: 10, gap: 3, marginRight: 70 },
   probeC: { color: colors.text, fontSize: 16, fontWeight: '700', fontVariant: ['tabular-nums'] },
   probeL: { color: colors.text, fontSize: 13 },
-  radarTag: { position: 'absolute', alignSelf: 'center', top: '46%', backgroundColor: 'rgba(11,27,43,0.82)', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 7 },
+  radarWrap: { position: 'absolute', alignSelf: 'center', top: '46%', alignItems: 'center', gap: 6 },
+  radarTagIn: { backgroundColor: 'rgba(11,27,43,0.82)', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 7 },
   radarTagFc: { backgroundColor: 'rgba(122,62,170,0.88)' },
   radarTagT: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', fontVariant: ['tabular-nums'] },
   crossWrap: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },

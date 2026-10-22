@@ -6,6 +6,12 @@
 set -e
 cd "$(dirname "$0")/.."
 
+if ! grep -q '"updates"' app.json; then
+  echo "⚠  Over-the-air updates aren't set up yet. Run this first:  bash scripts/ota-setup.sh"
+  echo "   (Without it, this phone could never receive fixes without a cable.)"
+  exit 1
+fi
+
 echo "1/3  Setting name, icon and launch screen..."
 node -e '
 const fs = require("fs");

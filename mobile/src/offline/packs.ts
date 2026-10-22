@@ -68,7 +68,7 @@ async function replacePack(name: string, tiles: string[], ne: [number, number], 
  *  Night colors are a different set of squares; the day chart is what gets saved. */
 async function chartTiles(): Promise<string> {
   let chart = DEFAULT_LAYERS.chart;
-  try { const raw = await AsyncStorage.getItem('layers:v2'); if (raw) chart = { ...chart, ...(JSON.parse(raw).chart ?? {}) }; } catch { /* defaults */ }
+  try { const raw = await AsyncStorage.getItem('layers:v3'); if (raw) chart = { ...chart, ...(JSON.parse(raw).chart ?? {}) }; } catch { /* defaults */ }
   return noaaChartTiles(chart, false);
 }
 

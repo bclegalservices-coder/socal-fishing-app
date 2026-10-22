@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { GeoJSONSource, Layer, RasterSource } from '@maplibre/maplibre-react-native';
+import { okTile } from '../config';
 
 type UV = { lats: number[]; lons: number[]; u: (number | null)[][]; v: (number | null)[][] };
 type View4 = { minLon: number; minLat: number; maxLon: number; maxLat: number; zoom: number } | null;
@@ -89,7 +90,7 @@ export function WindLayer({ hour, on, opacity, view }: { hour?: Hour; on: boolea
   if (!on || !hour) return null;
   return (
     <>
-      {typeof hour.tiles === 'string' && hour.tiles.startsWith('http') ? (
+      {okTile(hour.tiles) ? (
         <RasterSource key={`wind-${hour.tiles}`} id="wind-speed" tiles={[hour.tiles]} tileSize={256} minzoom={5} maxzoom={8}>
           <Layer key="wind-speed-layer" type="raster" id="wind-speed-layer" style={{ rasterOpacity: opacity, rasterFadeDuration: 0, rasterResampling: 'linear' }} />
         </RasterSource>

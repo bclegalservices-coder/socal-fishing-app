@@ -2,14 +2,17 @@ import { useEffect, useState } from 'react';
 import * as SplashScreen from 'expo-splash-screen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
-import { getAd, setCouponOpener, type Ad } from './src/ads/ads';
+import { adPreviewOn, getAd, loadAdPreview, setCouponOpener, type Ad } from './src/ads/ads';
 import { CouponSheet, SponsorIntro } from './src/ads/Sponsor';
 import { loadActive } from './src/storage';
+import { installCrashReporter, installFetchTimeout, setErrorScreen } from './src/errors';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { SafetyNotice } from './src/components/SafetyNotice';
 import { Text } from 'react-native';
 import { initAnalytics, setRemoteEnabled, setSignedIn, track } from './src/analytics';
-import { loadConfig, needsUpdate, type AppConfig } from './src/appConfig';
+import { loadConfig, needsUpdate, onConfig, refreshConfigIfStale, type AppConfig } from './src/appConfig';
 import { supabase, supabaseReady } from './src/supabase';
-import { StatusBar, StyleSheet, View } from 'react-native';
+import { AppState, StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { startShareUpdates } from './src/tracking'; // also registers the background tasks at startup
 import { sharingActive } from './src/community/groupsApi';
@@ -27,8 +30,11 @@ import type { GroupNav } from './src/community/GroupsView';
 // Keep the launch logo up until the first screen has drawn, then fade it out ourselves (never rely on auto-hide).
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
+installCrashReporter();
+installFetchTimeout();
+
 export default function App() {
-  return <ThemeProvider><AppInner /></ThemeProvider>;
+  return <ErrorBoundary><ThemeProvider><AppInner /></ThemeProvider></ErrorBoundary>;
 }
 
 function AppInner() {
@@ -54,6 +60,7 @@ function AppInner() {
   }), []);
   const [reloadKey, setReloadKey] = useState(0);
   const [intro, setIntro] = useState<Ad | null>(null);
+  const [legalOk, setLegalOk] = useState(false);
   const [coupon, setCoupon] = useState<Ad | null>(null);
   useEffect(() => setCouponOpener(setCoupon), []);
   const [cfg, setCfg] = useState<AppConfig | null>(null);
@@ -77,24 +84,32 @@ function AppInner() {
       return () => data.subscription.unsubscribe();
     }
   }, []);
-  const goTab = (t: Tab) => { if (t === 'weather') setWxMounted(true); setTab(t); track('screen_view', { screen: t }); };
+  // Pick up admin changes (maintenance message, off-switches) when the app comes back to the screen.
+  useEffect(() => {
+    const off = onConfig(setCfg);
+    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') refreshConfigIfStale(); });
+    return () => { off(); sub.remove(); };
+  }, []);
+  const goTab = (t: Tab) => { if (t === 'weather') setWxMounted(true); setTab(t); setErrorScreen(t); track('screen_view', { screen: t }); };
 
   // 5-second sponsor intro at app open — only at the dock: not moving, not recording, not in the last 4 hours.
   useEffect(() => {
+    if (!legalOk) return;   // never show a sponsor before the safety notice has been accepted
     (async () => {
+      const preview = await loadAdPreview();
       const last = Number((await AsyncStorage.getItem('intro-at')) ?? '0');
-      if (Date.now() - last < 4 * 3600000) return;
+      if (!preview && Date.now() - last < 4 * 3600000) return;
       if (await loadActive()) return;
       const pos = await Location.getLastKnownPositionAsync().catch(() => null);
       if (pos?.coords.speed != null && pos.coords.speed > 1.5) return;   // ~3 kt
       const c = await loadConfig();
-      if (!c.intro_enabled || !c.ads_enabled) return;
+      if (!adPreviewOn() && (!c.intro_enabled || !c.ads_enabled)) return;
       const ad = await getAd('sponsor_intro');
       if (!ad) return;
-      await AsyncStorage.setItem('intro-at', String(Date.now()));
+      if (!adPreviewOn()) await AsyncStorage.setItem('intro-at', String(Date.now()));
       setIntro(ad);
     })();
-  }, []);
+  }, [legalOk]);
   return (
     <SafeAreaProvider>
       <StatusBar barStyle={palette.statusBar} />
@@ -113,6 +128,7 @@ function AppInner() {
           {tab === 'me' ? <View style={StyleSheet.absoluteFill}><ProfileScreen onShowOnMap={showOnMap} /></View> : null}
         </View>
         <TabBar tab={tab} setTab={goTab} />
+        <SafetyNotice onAccepted={() => setLegalOk(true)} />
         {intro ? <SponsorIntro ad={intro} onDone={() => setIntro(null)} /> : null}
         <CouponSheet ad={coupon} onClose={() => setCoupon(null)} />
       </View>

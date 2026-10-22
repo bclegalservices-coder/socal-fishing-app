@@ -1,11 +1,13 @@
 // Harbors & marinas: marina outlines, individual docks and piers, fuel docks, pump-outs, launch ramps and bait.
 // Data: OpenStreetMap (weekly server job → R2), saved on the phone for offline use. © OpenStreetMap contributors.
 import { useEffect, useMemo, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Alert, Pressable, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GeoJSONSource, Layer, Marker } from '@maplibre/maplibre-react-native';
 import { makeStyles } from '../theme';
 import type { LayerState } from './state';
+import { ctaText, getFeatured, impression, tapAd, type Featured } from '../ads/ads';
+import { useAdPreviewTick } from '../ads/Sponsor';
 
 export type HarborManifest = { key: 'harbors'; url?: string; updated_at?: string; counts?: Record<string, number>; attribution?: string; note?: string };
 type View4 = { minLon: number; minLat: number; maxLon: number; maxLat: number; zoom: number } | null;
@@ -142,6 +144,47 @@ export function HarborLayers({ fc, s, view, onPress }: { fc: any; s: LayerState;
   );
 }
 
+/** Gold "Featured" pins for businesses that sponsor (fuel docks, bait, marinas). They only appear when the matching
+ *  layer is on and you're zoomed in to harbor level, at most 4 on screen, and never while navigating. */
+export function FeaturedPins({ fc, s, view, hidden }: { fc: any; s: LayerState; view: View4; hidden?: boolean }) {
+  const st = useSt();
+  const tick = useAdPreviewTick();
+  const kinds = useMemo(() => [s.on.fuel && 'fuel', s.on.bait && 'bait', s.on.marinas && 'marina'].filter(Boolean) as string[], [s.on.fuel, s.on.bait, s.on.marinas]);
+  const [list, setList] = useState<Featured[]>([]);
+  useEffect(() => { let on = true; getFeatured(kinds).then((l) => on && setList(l)); return () => { on = false; }; }, [kinds.join(','), tick]);
+  const pins = useMemo(() => {
+    if (hidden || !view || view.zoom < 10) return [];
+    const inView = (lon: number, lat: number) => lon >= view.minLon && lon <= view.maxLon && lat >= view.minLat && lat <= view.maxLat;
+    const out: (Featured & { lon: number; lat: number })[] = [];
+    for (const a of list) {
+      if (a.lat != null && a.lon != null) { if (inView(a.lon, a.lat)) out.push(a as any); continue; }
+      // Preview placeholder: sit on the first real business of that kind on screen.
+      const f = (fc?.features ?? []).find((x: any) => x.geometry?.type === 'Point' && x.properties?.kind === a.kind && inView(x.geometry.coordinates[0], x.geometry.coordinates[1]));
+      if (f) out.push({ ...a, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], advertiser: `AD SPACE · Featured ${HARBOR_KINDS[a.kind]?.label ?? a.kind}` });
+    }
+    return out.slice(0, 4);
+  }, [list, view, fc, hidden]);
+  useEffect(() => { pins.forEach((p) => impression(p, 'map')); }, [pins.map((p) => p.id).join(',')]);
+  return (
+    <>
+      {pins.map((a, i) => (
+        <Marker key={`feat-${a.id}-${i}`} lngLat={[a.lon, a.lat]} anchor="bottom">
+          <Pressable onPress={() => {
+            if (a.id < 0) { tapAd(a, 'map'); return; }
+            const c = a.creative;
+            Alert.alert(a.advertiser ?? 'Featured', [c.headline, c.body, 'Sponsored'].filter(Boolean).join('\n\n'), [
+              { text: 'Close', style: 'cancel' }, ...(ctaText(c) ? [{ text: ctaText(c), onPress: () => tapAd(a, 'map') }] : []),
+            ]);
+          }} style={st.feat} accessibilityLabel={`Featured: ${a.advertiser}`}>
+            <Text style={st.featStar}>★</Text>
+            <Text style={st.featT} numberOfLines={1}>{a.advertiser}</Text>
+          </Pressable>
+        </Marker>
+      ))}
+    </>
+  );
+}
+
 /** Title + detail lines for the info card when a harbor dot is tapped. */
 export function harborCard(p: any): { name: string; subtitle: string } {
   const k = HARBOR_KINDS[p.kind];
@@ -154,4 +197,7 @@ export function harborCard(p: any): { name: string; subtitle: string } {
 const useSt = makeStyles((colors) => ({
   lbl: { backgroundColor: colors.panel, borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1.5, borderWidth: 1, maxWidth: 170 },
   lblT: { color: colors.text, fontSize: 11, fontWeight: '700' },
+  feat: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FFF6DA', borderColor: '#E0A800', borderWidth: 2, borderRadius: 14, paddingHorizontal: 8, paddingVertical: 3, maxWidth: 200 },
+  featStar: { color: '#E0A800', fontSize: 14, fontWeight: '900' },
+  featT: { color: '#3D2E00', fontSize: 12, fontWeight: '800' },
 }));

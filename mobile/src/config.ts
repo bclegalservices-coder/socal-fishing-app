@@ -29,11 +29,11 @@ export const CHART_DETAIL_LAYER: Record<ChartDetail, number> = { seabed: 3, lane
 export const CHART_HELPER = (process.env.EXPO_PUBLIC_CHART_HELPER ?? '').replace(/\/$/, '');
 export const CHART_SETTINGS_AVAILABLE = CHART_HELPER.startsWith('https://');
 
-export function noaaChartTiles(show: Record<ChartDetail, boolean> & { lightCircles?: boolean; simpleSymbols?: boolean }, night = false): string {
+export function noaaChartTiles(show: Record<ChartDetail, boolean> & { lightCircles?: boolean; simpleSymbols?: boolean; look?: 'clean' | 'standard' | 'full' }, night = false, helperOff = false): string {
   const ids = [0, 1, 2, ...(Object.keys(CHART_DETAIL_LAYER) as ChartDetail[]).filter((k) => show[k]).map((k) => CHART_DETAIL_LAYER[k])].sort((a, b) => a - b);
-  if (CHART_SETTINGS_AVAILABLE) {
+  if (CHART_SETTINGS_AVAILABLE && !helperOff) {
     // ls = light sectors (1 off, 2 on) · cs = color scheme (0 day, 2 night) · ps = symbols (1 simple, 2 paper)
-    return `${CHART_HELPER}/chart?bbox={bbox-epsg-3857}&layers=${ids.join(',')}&ls=${show.lightCircles ? 2 : 1}&cs=${night ? 2 : 0}&ps=${show.simpleSymbols ? 1 : 2}`;
+    return `${CHART_HELPER}/chart?bbox={bbox-epsg-3857}&layers=${ids.join(',')}&ls=${show.lightCircles ? 2 : 1}&cs=${night ? 2 : 0}&ps=${show.simpleSymbols ? 1 : 2}&look=${show.look ?? 'standard'}&hd=1`;
   }
   return `${NOAA_CHART_TILES}&layers=show:${ids.join(',')}`;
 }
@@ -82,3 +82,16 @@ export const NOAA_RADAR = 'https://mapservices.weather.noaa.gov/eventdriven/rest
   + '?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=1024,1024&format=png&transparent=true&interpolation=RSP_BilinearInterpolation&f=image';
 export const radarAt = (ms: number) => `${NOAA_RADAR}&time=${ms - 10 * 60000},${ms}`;
 export const RADAR_ATTRIBUTION = 'NOAA MRMS radar';
+
+/** True only for a tile/data address the map engine can safely load. A blank address or one with % codes
+ *  crashes the native map (seen in testing), so every server-provided layer goes through this first. */
+export function okTile(u: unknown): u is string {
+  return typeof u === 'string' && u.startsWith('https://') && u.length < 2000 && !u.includes('%') && !/\s/.test(u);
+}
+
+/** Just the land from the NOAA chart (chart group 1: land, coastline, ports), clear everywhere else. Drawn on top of
+ *  water temperature and chlorophyll so islands and the coast stay crisp and uncolored, matching the chart exactly. */
+export function chartLandTiles(night = false): string {
+  if (CHART_SETTINGS_AVAILABLE) return `${CHART_HELPER}/chart?bbox={bbox-epsg-3857}&layers=1&ls=1&cs=${night ? 2 : 0}&ps=2&look=clean&hd=1`;
+  return `${NOAA_CHART_TILES}&layers=show:1`;
+}

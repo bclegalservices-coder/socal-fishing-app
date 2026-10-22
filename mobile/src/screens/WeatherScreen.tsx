@@ -10,7 +10,8 @@ import { ageText, getJSON } from '../api';
 import { track } from '../analytics';
 import { Btn, IconButton, Note } from '../components/ui';
 import { SearchSheet } from '../components/SearchSheet';
-import { PresentedBy } from '../ads/Sponsor';
+import { PresentedBy, SponsorBanner } from '../ads/Sponsor';
+import { MoonView } from '../weather/MoonView';
 import { loadPublicSpots, type SavedSpot } from '../storage';
 import { BoatSheet } from '../weather/BoatSheet';
 import { CondIcon, NowCard, PlaceSearch, hourNow, placeName } from '../weather/Conditions';
@@ -22,7 +23,7 @@ import {
 import { friendly } from '../friendly';
 
 export type WeatherPlace = { lat: number; lon: number; label: string; source: 'gps' | 'search' | 'map' | 'harbor' };
-type Section = 'forecast' | 'history' | 'tides';
+type Section = 'forecast' | 'history' | 'tides' | 'moon';
 
 // Quick picks: points just outside each harbor entrance (on the water, so the marine forecast applies).
 const HARBORS: WeatherPlace[] = [
@@ -145,16 +146,16 @@ export function WeatherScreen({ at, mySpots }: { at: WeatherPlace | null; mySpot
       </Modal>
       {locErr ? <Text style={st.warn}>{locErr}</Text> : null}
       <View style={st.seg}>
-        {(['forecast', 'history', 'tides'] as Section[]).map((s) => (
+        {(['forecast', 'history', 'tides', 'moon'] as Section[]).map((s) => (
           <Pressable key={s} onPress={() => { setSection(s); track('weather_section', { section: s }); }} style={[st.segI, section === s && st.segOn]}
             accessibilityRole="tab" accessibilityState={{ selected: section === s }}>
-            <Text style={[st.segT, section === s && st.segOnT]}>{s === 'forecast' ? 'Forecast' : s === 'history' ? 'Past data' : 'Tides'}</Text>
+            <Text style={[st.segT, section === s && st.segOnT]}>{s === 'forecast' ? 'Forecast' : s === 'history' ? 'Past data' : s === 'tides' ? 'Tides' : 'Moon'}</Text>
           </Pressable>
         ))}
       </View>
       {!place || !boat ? <ActivityIndicator color={colors.live} style={{ marginTop: 40 }} /> : section === 'forecast' ? (
         <Forecast place={place} boat={boat} boatIsSet={boatIsSet} course={course} setCourse={setCourse} onEditBoat={() => setEditBoat(true)} />
-      ) : section === 'history' ? <History place={place} /> : <Tides place={place} />}
+      ) : section === 'history' ? <History place={place} /> : section === 'tides' ? <Tides place={place} /> : <MoonView lat={place.lat} lon={place.lon} place={place.label} />}
     </SafeAreaView>
   );
 }
@@ -269,6 +270,8 @@ function Forecast({ place, boat, boatIsSet, course, setCourse, onEditBoat }: {
           <Note>Tap an hour for the why. * period estimated from local wind chop. Arrows point where wind and swell are going.</Note>
         </View>
       ) : null}
+
+      {f?.available ? <SponsorBanner placement="banner_weather" /> : null}
 
       {res?.data.buoy_now ? <BuoyNow b={res.data.buoy_now} /> : null}
 

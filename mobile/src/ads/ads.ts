@@ -1,7 +1,7 @@
 // Sponsors (plan: 'Ads, sponsorships'). Contextual only: what's on screen + the COARSE area (e.g. "Orange County").
 // Frequency caps are kept on the phone; events carry a device hash that changes every day (no identity, no location).
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Linking, Platform } from 'react-native';
+import { Alert, Linking, Platform } from 'react-native';
 import { API_URL } from '../config';
 import { config } from '../appConfig';
 import { currentArea, track } from '../analytics';
@@ -36,7 +36,50 @@ export function normalize(ad: Ad): Ad {
   return { ...ad, creative: { kind: 'image', media_url: ad.creative_url ?? undefined, action_type: ad.click_url ? 'website' : 'none', action_value: ad.click_url ?? undefined } };
 }
 
+// ---------------- ad spaces preview (admins: Me → Ad spaces preview) ----------------
+// Fills every sponsor slot in the app with a labeled placeholder so you can see exactly where ads go.
+// Nothing is sent to the server for placeholders (their id is negative).
+let preview = false;
+const previewListeners = new Set<(on: boolean) => void>();
+export const adPreviewOn = () => preview;
+export async function loadAdPreview() { try { preview = (await AsyncStorage.getItem('ad-preview')) === '1'; } catch { preview = false; } previewListeners.forEach((f) => f(preview)); return preview; }
+export async function setAdPreview(on: boolean) {
+  preview = on; previewListeners.forEach((f) => f(on));
+  try { await AsyncStorage.setItem('ad-preview', on ? '1' : '0'); } catch { /* fine */ }
+}
+export function onAdPreview(fn: (on: boolean) => void) { previewListeners.add(fn); return () => { previewListeners.delete(fn); }; }
+
+/** Every sponsor slot in the app: where it is, why it doesn't get in the way, and what it sells. */
+export const AD_SPACES: Record<string, { name: string; where: string; rule: string }> = {
+  'presented_by:Weather': { name: 'Weather — "Marine forecast presented by"', where: 'Top of the Weather tab, under the conditions card', rule: 'One sponsor per week. One small line with a logo.' },
+  'presented_by:Today': { name: 'Today — "Fishing report presented by"', where: 'Top of the Today sheet on the map', rule: 'One sponsor per week.' },
+  'presented_by:Catch Map': { name: 'Catch Map — "Presented by"', where: 'Catch Map bar on the map', rule: 'One sponsor per week; matched to the species shown.' },
+  'presented_by:SST Map': { name: 'Water temp — "Presented by"', where: 'Time bar when Water temperature is on', rule: 'One sponsor per week.' },
+  'presented_by:Wind': { name: 'Wind — "Presented by"', where: 'Time bar when Wind is on', rule: 'One sponsor per week.' },
+  'presented_by:Radar': { name: 'Radar — "Presented by"', where: 'Radar time pill on the map', rule: 'One sponsor per week.' },
+  'presented_by:Map Layers': { name: 'Map layers — "Presented by"', where: 'Top of the Map options sheet', rule: 'One sponsor per week. Only while the sheet is open.' },
+  'presented_by:Harbors': { name: 'Harbor info — "Presented by"', where: 'Bottom of every harbor / fuel / bait info card', rule: 'One sponsor per week.' },
+  banner_weather: { name: 'Weather banner', where: 'Middle of the Weather tab, after the hourly forecast', rule: 'Max 1 per screen, scrolls with the page.' },
+  banner_dashboard: { name: 'Today banner', where: 'Bottom of the Today sheet', rule: 'Max 1 per screen.' },
+  banner_reports: { name: 'Catch reports banner', where: 'Inside the catch reports feed', rule: 'Matched to the species filter.' },
+  banner_community: { name: 'Community banner', where: 'Top of the forum list', rule: 'Max 1 per screen.' },
+  featured_listing: { name: 'Featured business pin', where: 'Gold pin on the map when Fuel, Bait or Marinas is switched on', rule: 'Only shows with the matching layer. Up to 4 per area.' },
+  sponsor_intro: { name: '5-second intro', where: 'Full screen at app open', rule: 'Only when the boat is stopped, not recording, at most once every 4 hours. Skippable.' },
+};
+
+function demoAd(placement: string, section?: string): Ad {
+  const key = section ? `${placement}:${section}` : placement;
+  const s = AD_SPACES[key] ?? { name: key, where: '', rule: '' };
+  return {
+    id: -1, placement, presented_by_section: section ?? null, creative_url: null, click_url: null, headline: `AD SPACE · ${s.name}`,
+    advertiser: 'Your business here', max_per_user_per_day: 99,
+    creative: { kind: 'native', headline: section ? `Your logo · ${section}` : `Ad space: ${s.name}`, body: s.rule, action_type: 'none' },
+  };
+}
+export const isDemo = (ad: Ad | null | undefined) => !!ad && ad.id < 0;
+
 export async function getAd(placement: string, section?: string, tags: string[] = []): Promise<Ad | null> {
+  if (preview) return demoAd(placement, section);
   if (!API_URL || !config().ads_enabled) return null;
   try {
     const q = new URLSearchParams({ placement, tags: tags.join(',') });
@@ -51,14 +94,37 @@ export async function getAd(placement: string, section?: string, tags: string[] 
   } catch { return null; }
 }
 
+/** Featured business pins (fuel docks, bait, marinas that pay to stand out). Only ads with a map position
+ *  (a "Directions" action: "lat,lon") can be pins. In preview, one placeholder per kind; the map places it. */
+export type Featured = Ad & { lat: number | null; lon: number | null; kind: string };
+export async function getFeatured(kinds: string[]): Promise<Featured[]> {
+  if (!kinds.length) return [];
+  if (preview) return kinds.map((k) => ({ ...demoAd('featured_listing'), id: -1, lat: null, lon: null, kind: k, advertiser: `Featured ${k} business` }));
+  if (!API_URL || !config().ads_enabled) return [];
+  try {
+    const q = new URLSearchParams({ kinds: kinds.join(',') });
+    const area = currentArea();
+    if (area && area !== 'Unknown' && area !== 'Other') q.set('area', area);
+    const r = await fetch(`${API_URL}/ads/featured?${q.toString()}`);
+    if (r.status !== 200) return [];
+    const list = (await r.json()) as any[];
+    return list.map((a) => {
+      const ad = normalize(a as Ad);
+      const [lat, lon] = (ad.creative.action_type === 'directions' ? ad.creative.action_value ?? '' : '').split(',').map(Number);
+      return { ...ad, lat: Number.isFinite(lat) ? lat : null, lon: Number.isFinite(lon) ? lon : null, kind: a.kind ?? '' };
+    }).filter((a) => a.lat != null);
+  } catch { return []; }
+}
+
 export async function send(ad: Ad, event: AdEvent, context?: string) {
+  if (ad.id < 0) return;   // preview placeholder
   try {
     await fetch(`${API_URL}/ads/event`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ campaign_id: ad.id, event, placement: ad.placement, context, device_day_hash: await dayHash(), area: currentArea() }) });
   } catch { /* best effort */ }
 }
 /** Counted once the ad has actually been on screen (the components call this after ~1 second). */
-export async function impression(ad: Ad, context?: string) { await bump(ad.id); send(ad, 'impression', context); }
+export async function impression(ad: Ad, context?: string) { if (ad.id < 0) return; await bump(ad.id); send(ad, 'impression', context); }
 
 // ---------------- what a tap does ----------------
 export function telUrl(v: string) { return `tel:${v.replace(/[^0-9+]/g, '')}`; }
@@ -76,6 +142,12 @@ let couponOpener: ((ad: Ad) => void) | null = null;
 export function setCouponOpener(fn: (ad: Ad) => void) { couponOpener = fn; }
 
 export function tapAd(ad: Ad, context?: string) {
+  if (ad.id < 0) {
+    const k = ad.presented_by_section ? `${ad.placement}:${ad.presented_by_section}` : ad.placement;
+    const s = AD_SPACES[k];
+    Alert.alert(s?.name ?? 'Ad space', [s?.where && `Where: ${s.where}`, s?.rule && `Rule: ${s.rule}`, 'Set the price in Admin → Sponsors. Turn this preview off in Me → Ad spaces preview.'].filter(Boolean).join('\n\n'));
+    return;
+  }
   const c = ad.creative; const v = c.action_value ?? '';
   track('sponsor_click', { placement: ad.placement, action: c.action_type ?? 'none' });
   switch (c.action_type) {
