@@ -8,6 +8,7 @@ import { colors, makeStyles } from '../theme';
 import { autoRefresh, deletePack, getSettings, getStatus, HOME, listPacks, setSettings, type OfflineSettings, type OfflineStatus } from '../offline/packs';
 import { Btn } from '../components/ui';
 import { track } from '../analytics';
+import { friendly } from '../friendly';
 
 const mb = (b: number) => `${Math.round(b / 1048576)} MB`;
 const when = (t?: number) => (t ? new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'never');
@@ -26,7 +27,7 @@ export function OfflineScreen({ onBack }: { onBack: () => void }) {
       const cat = (await getJSON<any>('/layers', { cacheKey: 'layers' })).data;
       await autoRefresh(cat, true, (x) => setS(x));
       track('offline_update', { manual: true });
-    } catch (e: any) { Alert.alert('Update stopped', e?.message ?? String(e)); }
+    } catch (e: any) { Alert.alert('Update stopped', friendly(e)); }
     finally { setBusy(false); load(); }
   };
   const total = packs.reduce((a, p) => a + p.bytes, 0);

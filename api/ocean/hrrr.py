@@ -25,7 +25,7 @@ def url(run: datetime, fh: int, bbox: tuple) -> str:
     lon_min, lat_min, lon_max, lat_max = bbox
     d, h = run.strftime("%Y%m%d"), run.strftime("%H")
     return (f"{FILTER}?dir=%2Fhrrr.{d}%2Fconus&file=hrrr.t{h}z.wrfsfcf{fh:02d}.grib2"
-            "&var_UGRD=on&var_VGRD=on&var_GUST=on&lev_10_m_above_ground=on&lev_surface=on"
+            "&var_UGRD=on&var_VGRD=on&var_GUST=on&var_REFC=on&lev_10_m_above_ground=on&lev_surface=on&lev_entire_atmosphere=on"
             f"&subregion=&toplat={lat_max + 0.3}&leftlon={lon_min - 0.3}&rightlon={lon_max + 0.3}&bottomlat={lat_min - 0.3}")
 
 
@@ -98,13 +98,19 @@ def decode(grib: bytes) -> tuple[np.ndarray, np.ndarray, dict, bool]:
     return lat2, lon2, fields, grid_rel
 
 
-def hour_fields(http: httpx.Client, run: datetime, fh: int, bbox: tuple):
-    """Regular-grid (lats, lons, u, v, gust) in m/s, true north, for one HRRR forecast hour."""
+def hour_fields(http: httpx.Client, run: datetime, fh: int, bbox: tuple, with_radar: bool = False):
+    """Regular-grid (lats, lons, u, v, gust) in m/s, true north, for one HRRR forecast hour.
+    with_radar=True adds a 6th value: forecast composite reflectivity (dBZ), i.e. what the radar should show."""
     r = http.get(url(run, fh, bbox))
     r.raise_for_status()
     lat2, lon2, f, grid_rel = decode(r.content)
     u, v = f["10u"], f["10v"]
     if grid_rel:
         u, v = rotate_to_earth(u, v, lon2)
-    lats, lons, g = regrid(lat2, lon2, {"u": u, "v": v, **({"gust": f["gust"]} if "gust" in f else {})}, bbox)
+    extra = {"gust": f["gust"]} if "gust" in f else {}
+    if with_radar and "refc" in f:
+        extra["refc"] = f["refc"]
+    lats, lons, g = regrid(lat2, lon2, {"u": u, "v": v, **extra}, bbox)
+    if with_radar:
+        return lats, lons, g["u"], g["v"], g.get("gust"), g.get("refc")
     return lats, lons, g["u"], g["v"], g.get("gust")

@@ -74,3 +74,11 @@ export const TERMS_URL = process.env.EXPO_PUBLIC_TERMS_URL ?? '';
 export const SUPPORT_EMAIL = process.env.EXPO_PUBLIC_SUPPORT_EMAIL ?? '';
 export const STUDIO_URL = process.env.EXPO_PUBLIC_STUDIO_URL ?? '';
 export const DEMO_EMAIL = (process.env.EXPO_PUBLIC_DEMO_EMAIL ?? '').toLowerCase();   // App Review account (password sign-in)
+
+/** Live radar: NOAA's MRMS national radar mosaic (all radars blended, ~550 m detail, new image every few minutes),
+ *  drawn for each map square at retina sharpness. `time` picks a moment in the last ~2 hours (epoch ms window).
+ *  No %-codes in the address (see CHART_HELPER). */
+export const NOAA_RADAR = 'https://mapservices.weather.noaa.gov/eventdriven/rest/services/radar/radar_base_reflectivity_time/ImageServer/exportImage'
+  + '?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=1024,1024&format=png&transparent=true&interpolation=RSP_BilinearInterpolation&f=image';
+export const radarAt = (ms: number) => `${NOAA_RADAR}&time=${ms - 10 * 60000},${ms}`;
+export const RADAR_ATTRIBUTION = 'NOAA MRMS radar';

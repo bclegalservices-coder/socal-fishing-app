@@ -1,0 +1,42 @@
+# Checks every hour that the app's server, data and chart helper are working.
+# If something breaks, it opens a GitHub issue titled "🚨 Channel Nav problem" — GitHub emails you.
+# When it's fixed, the issue closes itself. (Keeping the server awake is done by the chart helper's 10-minute timer.)
+name: Uptime
+
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      API_URL: ${{ vars.API_URL || 'https://fishing-app-api-pzto.onrender.com' }}
+      CHART_HELPER_URL: ${{ vars.CHART_HELPER_URL || 'https://channelnav-chart.bclegalservices.workers.dev' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check
+        run: python3 tools/uptime_check.py problems.txt
+      - name: Open, update or close the alert issue
+        run: |
+          gh label create uptime --color B60205 --description "Automatic uptime alert" --force >/dev/null 2>&1 || true
+          OPEN=$(gh issue list --label uptime --state open --json number --jq '.[0].number')
+          if [ -s problems.txt ]; then
+            BODY="$(printf 'Found at %s UTC:\n\n' "$(date -u '+%F %H:%M')"; sed 's/^/- /' problems.txt; printf '\n\nRun log: %s/%s/actions/runs/%s' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")"
+            if [ -z "$OPEN" ]; then
+              gh issue create --title "🚨 Channel Nav problem" --label uptime --body "$BODY"
+            else
+              # Only add a comment if the problem list changed (no spam every 30 minutes).
+              LAST=$(gh issue view "$OPEN" --json comments,body --jq '(.comments | last | .body) // .body')
+              if ! echo "$LAST" | grep -qF "$(head -1 problems.txt)"; then gh issue comment "$OPEN" --body "$BODY"; fi
+            fi
+            exit 0
+          fi
+          if [ -n "$OPEN" ]; then gh issue close "$OPEN" --comment "✅ Back to normal at $(date -u '+%F %H:%M') UTC."; fi

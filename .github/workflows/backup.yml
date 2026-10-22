@@ -1,0 +1,49 @@
+# Nightly database backup → Cloudflare R2, encrypted with your BACKUP_PASSPHRASE (so it's safe even though the
+# bucket serves map tiles publicly). Keeps 30 daily + 12 monthly copies. How to restore: docs/BACKUPS.md
+name: Database backup
+
+on:
+  schedule:
+    - cron: "17 10 * * *"   # 3:17 AM Pacific
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check settings
+        run: |
+          [ -n "$DATABASE_URL" ] || { echo "::error::DATABASE_URL secret is missing"; exit 1; }
+          [ -n "$BACKUP_PASSPHRASE" ] || { echo "::error::Add a BACKUP_PASSPHRASE secret (docs/BACKUPS.md step 1)"; exit 1; }
+      - name: Install Postgres 17 tools
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSo /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client-17
+      - name: Dump
+        run: |
+          # The Supabase "transaction" pooler (port 6543) can't run pg_dump; the same address on 5432 is "session" mode, which can.
+          URL="${DATABASE_URL/:6543\//:5432/}"
+          D=$(date -u +%F)
+          /usr/lib/postgresql/17/bin/pg_dump "$URL" --no-owner --no-privileges --schema=public -Fc -f app.dump
+          # Sign-in accounts (auth schema): best effort — the app data above is what matters most.
+          /usr/lib/postgresql/17/bin/pg_dump "$URL" --no-owner --no-privileges --schema=auth --data-only -Fc -f auth.dump || echo "::warning::auth schema not dumped"
+          tar czf "channelnav-$D.tgz" app.dump $( [ -f auth.dump ] && echo auth.dump )
+          ls -lh "channelnav-$D.tgz"
+          gpg --batch --yes --symmetric --cipher-algo AES256 --passphrase "$BACKUP_PASSPHRASE" -o "channelnav-$D.tgz.gpg" "channelnav-$D.tgz"
+          rm -f app.dump auth.dump "channelnav-$D.tgz"
+          echo "FILE=channelnav-$D.tgz.gpg" >> "$GITHUB_ENV"
+      - name: Upload to R2
+        run: |
+          pip install -q boto3
+          python tools/backup_r2.py "$FILE"

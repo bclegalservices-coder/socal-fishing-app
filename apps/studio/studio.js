@@ -39,6 +39,8 @@ const SPOTS = {
   banner_reports: { title: 'Catch reports banner', where: 'Top of the live catch-report feed', size: [1200, 375], kinds: ['image', 'gif', 'video', 'html5', 'native'], screen: 'reports' },
   banner_community: { title: 'Forum banner', where: 'Top of the community forum', size: [1200, 375], kinds: ['image', 'gif', 'video', 'html5', 'native'], screen: 'forum' },
   sponsor_intro: { title: 'App-open sponsor (5 sec)', where: 'Full screen for 5 seconds when the app opens — only at the dock, never while driving the boat', size: [1080, 1920], kinds: ['image', 'gif', 'video', 'html5', 'pdf', 'native'], screen: 'intro', maxVideo: 10 },
+  banner_weather: { title: 'Weather page banner', where: 'Middle of the Weather tab, right after the hour-by-hour forecast anglers check before every trip', size: [1200, 375], kinds: ['image', 'gif', 'video', 'html5', 'native'], screen: 'today' },
+  featured_listing: { title: 'Featured business pin', where: 'A gold ★ pin with your name on the map, right where your fuel dock, bait or marina is — shows when anglers switch on Fuel, Bait or Marinas. Tap opens directions.', size: [512, 512], kinds: ['native'], screen: 'presented', logo: true },
   presented_by: { title: '"Presented by" sponsor', where: 'Your logo and name on a whole section — only one sponsor per section per week', size: [512, 512], kinds: ['image', 'native'], screen: 'presented', logo: true },
 };
 const KIND_LABEL = { image: 'Image', gif: 'Animated GIF', video: 'Video', html5: 'HTML5 animation', native: 'Quick ad', pdf: 'PDF flyer' };
@@ -454,7 +456,9 @@ function step2() {
         <div class="sub" style="margin-top:6px" id="enddate"></div></div>
       <div class="card"><h2>Where?</h2><p class="sub">Your ad shows to anglers in these areas (based on the general area the phone is in — never exact locations).</p>
         <div class="chips" id="areas"><span class="chip ${W.areas.length ? '' : 'on'}" data-a="">All of SoCal</span>${AREAS.map((a) => `<span class="chip ${W.areas.includes(a) ? 'on' : ''}" data-a="${esc(a)}">${esc(a)}</span>`).join('')}</div></div>
-      ${p !== 'presented_by' && p !== 'sponsor_intro' ? `<div class="card"><h2>Fishing interests <span class="sub">(optional)</span></h2><p class="sub">When several ads share a spot, yours shows first next to matching reports.</p>
+      ${p === 'featured_listing' ? `<div class="card"><h2>What kind of business? <span class="sub">(pick at least one)</span></h2><p class="sub">Your pin shows when anglers switch on that layer.</p>
+        <div class="chips" id="tags">${[['fuel', '⛽ Fuel dock'], ['bait', '🐟 Bait'], ['marina', '⚓ Marina']].map(([t, l]) => `<span class="chip ${W.tags.includes(t) ? 'on' : ''}" data-t="${t}">${l}</span>`).join('')}</div></div>`
+      : p !== 'presented_by' && p !== 'sponsor_intro' ? `<div class="card"><h2>Fishing interests <span class="sub">(optional)</span></h2><p class="sub">When several ads share a spot, yours shows first next to matching reports.</p>
         <div class="chips" id="tags">${TAGS.map((t) => `<span class="chip ${W.tags.includes(t) ? 'on' : ''}" data-t="${esc(t)}">${esc(t)}</span>`).join('')}</div></div>` : ''}
     </div><div class="card quote"><h3>${esc(spotTitle(p, s))}</h3><div id="quote">Calculating…</div></div></div>
     <div class="row"><button class="btn" id="back">← Back</button><button class="btn primary" id="next" disabled>Next: your ad →</button></div>`;
@@ -583,6 +587,10 @@ function normalizedAction() {
 }
 function actionError() {
   const { type, value } = normalizedAction();
+  if ((W.key || '').startsWith('featured_listing|')) {
+    if (type !== 'directions') return 'A featured pin needs your location: choose "📍 Directions to my shop"';
+    if (!W.tags.some((t) => ['fuel', 'bait', 'marina'].includes(t))) return 'Go back one step and pick what kind of business you are (fuel, bait or marina)';
+  }
   if (type === 'website' && !/^https?:\/\/[^\s.]+\.[^\s]+$/i.test(value || '')) return 'Enter your website link';
   if (type === 'call' && !/^[+0-9(). -]{7,20}$/.test(value || '')) return 'Enter a phone number';
   if (type === 'directions' && !/^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(value || '')) return 'For directions, enter latitude, longitude — or paste a Google Maps link';

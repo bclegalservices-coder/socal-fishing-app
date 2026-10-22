@@ -8,6 +8,7 @@ import type { Conditions, Measurement, Section } from '../types';
 import { loadTidePack } from '../offline/packs';
 import { offlineTide } from '../offline/tideMath';
 import { track } from '../analytics';
+import { friendly } from '../friendly';
 
 export function ConditionsView({ lat, lon }: { lat: number; lon: number }) {
   const st = useSt();
@@ -33,7 +34,7 @@ export function ConditionsView({ lat, lon }: { lat: number; lon: number }) {
           if (t.next_low) items.push({ type: 'next_low', value: t.next_low.v, unit: 'ft', kind: 'prediction', source: src, retrieved_at: '', label: `Next low ${t.next_low.v.toFixed(1)} ft ${new Date(t.next_low.t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` });
           setC({ lat, lon, generated_at: new Date().toISOString(), disclaimer: 'Offline: tide from the saved prediction pack. Water and weather need signal.', tide: { ok: true, items, data: {} } });
           setMeta({ cached: true, savedAt: Date.now() });
-        } else setErr(String(e?.message ?? e));
+        } else setErr(friendly(e));
       });
     return () => { alive = false; };
   }, [lat, lon]);

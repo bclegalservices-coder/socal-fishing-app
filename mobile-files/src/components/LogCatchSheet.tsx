@@ -2,6 +2,7 @@
 // technique, bait and — most important — who gets to see where it was.
 import { useEffect, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { colors, touch, makeStyles } from '../theme';
 import { formatLatLon } from '../geo';
@@ -10,6 +11,7 @@ import { newClientId, queueCatch, type LocationMode } from '../community/catchAp
 import { cachedGroups } from '../community/groupsApi';
 import { Btn } from './ui';
 import { track } from '../analytics';
+import { friendly } from '../friendly';
 
 type Props = { lat: number; lon: number; nearestSpot?: { id: string; name: string } | null; depthFt?: number | null; onDone: (msg: string) => void; onCancel: () => void };
 
@@ -22,6 +24,7 @@ const MODES: { key: LocationMode; title: string; sub: string }[] = [
 
 export function LogCatchSheet({ lat, lon, nearestSpot, depthFt, onDone, onCancel }: Props) {
   const st = useSt();
+  const insets = useSafeAreaInsets();
   const [species, setSpecies] = useState<string | null>(null);
   const [qty, setQty] = useState(1);
   const [weight, setWeight] = useState('');
@@ -71,7 +74,7 @@ export function LogCatchSheet({ lat, lon, nearestSpot, depthFt, onDone, onCancel
       if (toGroups.length) track('group_catch_shared', { groups: toGroups.length });
       onDone(r.sent ? 'Catch saved and sent.' : r.signedIn ? 'Catch saved. It will send when you\'re back in range.' : 'Catch saved on this phone. Sign in (Profile tab) to back it up and share it.');
     } catch (e: any) {
-      Alert.alert('Not saved', e?.message ?? String(e));
+      Alert.alert('Not saved', friendly(e));
     } finally { setBusy(false); }
   };
 
@@ -82,7 +85,7 @@ export function LogCatchSheet({ lat, lon, nearestSpot, depthFt, onDone, onCancel
   )); };
 
   return (
-    <View style={st.sheet}>
+    <View style={[st.sheet, { top: insets.top + 56 }]}>
       <View style={st.head}>
         <Text style={st.h1}>Log catch</Text>
         <Pressable onPress={onCancel} style={st.x} accessibilityLabel="Cancel"><Text style={st.xT}>✕</Text></Pressable>

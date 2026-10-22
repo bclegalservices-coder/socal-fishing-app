@@ -13,6 +13,7 @@ import { Btn, ScreenHeader, Segmented } from '../components/ui';
 import { SponsorBanner } from '../ads/Sponsor';
 import { track } from '../analytics';
 import { supabase } from '../supabase';
+import { friendly } from '../friendly';
 
 type Seg = 'reports' | 'forum' | 'groups';
 
@@ -43,7 +44,7 @@ function Reports({ onShowOnMap }: { onShowOnMap: (lat: number, lon: number, name
   const [species, setSpecies] = useState<string | null>(null);
   const [rows, setRows] = useState<PublicReport[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const load = useCallback(() => { setRows(null); latestReports(hours, species).then(setRows).catch((e) => { setErr(e.message); setRows([]); }); }, [hours, species]);
+  const load = useCallback(() => { setRows(null); latestReports(hours, species).then(setRows).catch((e) => { setErr(friendly(e)); setRows([]); }); }, [hours, species]);
   useEffect(load, [load]);
   return (
     <FlatList data={rows ?? []} keyExtractor={(r) => r.id} onRefresh={load} refreshing={false} contentContainerStyle={{ gap: 10, paddingBottom: 30 }}
@@ -122,7 +123,7 @@ function Compose({ cat, onDone }: { cat: forum.Category; onDone: () => void }) {
   const post = async () => {
     setBusy(true);
     try { await forum.createPost({ category_id: cat.id, title: title.trim(), body: body.trim() }); track('forum_post', { category: cat.slug }); onDone(); }
-    catch (e: any) { Alert.alert('Not posted', e?.message ?? String(e)); } finally { setBusy(false); }
+    catch (e: any) { Alert.alert('Not posted', friendly(e)); } finally { setBusy(false); }
   };
   return (
     <ScrollView contentContainerStyle={{ gap: 10, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
@@ -157,13 +158,13 @@ function Thread({ post, onBack }: { post: forum.Post; onBack: () => void }) {
     Alert.alert(own ? 'Your ' + kind : 'Options', undefined, [
       { text: 'Cancel', style: 'cancel' },
       ...(own ? [{ text: 'Delete', style: 'destructive' as const, onPress: () => forum.deleteOwn(kind === 'post' ? 'posts' : 'comments', id).then(() => (kind === 'post' ? onBack() : load())) }] : [
-        { text: 'Report', onPress: () => forum.report(kind, id, 'offensive').then(() => Alert.alert('Thanks — a moderator will look.')).catch((e) => Alert.alert('Not sent', e.message)) },
+        { text: 'Report', onPress: () => forum.report(kind, id, 'offensive').then(() => Alert.alert('Thanks — a moderator will look.')).catch((e) => Alert.alert('Not sent', friendly(e))) },
         { text: 'Block this person', style: 'destructive' as const, onPress: () => forum.block(author).then(() => { Alert.alert('Blocked', 'You won\'t see their posts or comments.'); onBack(); }) },
       ]),
     ]);
   };
   const send = async () => {
-    try { await forum.addComment(post.id, text.trim()); track('forum_comment'); setText(''); load(); } catch (e: any) { Alert.alert('Not sent', e?.message ?? String(e)); }
+    try { await forum.addComment(post.id, text.trim()); track('forum_comment'); setText(''); load(); } catch (e: any) { Alert.alert('Not sent', friendly(e)); }
   };
   return (
     <FlatList data={cs ?? []} keyExtractor={(c) => c.id} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 30 }}
@@ -174,7 +175,7 @@ function Thread({ post, onBack }: { post: forum.Post; onBack: () => void }) {
           <Text style={st.sub}>{names[post.author_id]?.display_name ?? 'Angler'}{names[post.author_id]?.verified_reporter ? ' ✓' : ''} · {new Date(post.created_at).toLocaleString()}{post.edited_at ? ' · edited' : ''}</Text>
           <Text style={st.body}>{post.body}</Text>
           <View style={{ flexDirection: 'row', gap: 18 }}>
-            <Pressable onPress={async () => { try { await forum.toggleLike(post.id, liked); if (!liked) track('forum_like'); setLiked(!liked); setLikes(likes + (liked ? -1 : 1)); } catch (e: any) { Alert.alert(e.message); } }}>
+            <Pressable onPress={async () => { try { await forum.toggleLike(post.id, liked); if (!liked) track('forum_like'); setLiked(!liked); setLikes(likes + (liked ? -1 : 1)); } catch (e: any) { Alert.alert(friendly(e)); } }}>
               <Text style={st.link}>{liked ? '👍 Liked' : '👍 Like'} ({likes})</Text>
             </Pressable>
             <Pressable onPress={() => moreMenu('post', post.id, post.author_id)}><Text style={[st.link, { color: colors.muted }]}>•••</Text></Pressable>

@@ -55,7 +55,7 @@ async function signIn() {
   $('#ver').onclick = async () => { const { error } = await sb.auth.verifyOtp({ email: $('#em').value.trim(), token: $('#code').value.trim(), type: 'email' }); if (error) $('#msg').textContent = error.message; else location.reload(); };
 }
 
-const TABS = { Overview: overview, Audience: audience, Engagement: engagement, 'Ads & reports': adsReports, 'Media kit': mediaKit, Sponsors: sponsors, Users: users, Moderation: moderation, Spots: spots, Categories: categories, Broadcast: broadcast, Announcements: announcements, Settings: settings, 'Data health': health, 'Audit log': audit };
+const TABS = { Overview: overview, Audience: audience, Engagement: engagement, 'Ads & reports': adsReports, 'Media kit': mediaKit, Sponsors: sponsors, Users: users, Moderation: moderation, Spots: spots, Categories: categories, Broadcast: broadcast, Announcements: announcements, Settings: settings, 'Feedback & crashes': feedback, 'Data health': health, 'Audit log': audit };
 function nav(active) {
   $('#nav').innerHTML = Object.keys(TABS).map((t) => `<button class="${t === active ? 'on' : ''}" data-t="${esc(t)}">${esc(t)}</button>`).join('');
   document.querySelectorAll('#nav button').forEach((b) => (b.onclick = () => show(b.dataset.t)));
@@ -217,7 +217,7 @@ async function mediaKit() {
   $('#main').innerHTML = `<div class="toolbar noprint"><b>Media kit</b><button class="act primary" onclick="window.print()">Print / Save as PDF</button>
     <span class="muted">Numbers are live from the last 30 days. Fill in the white boxes (they're saved in this browser), then print.</span></div>
   <div class="card noprint"><div class="grid">${field('app', 'App name')}${field('tagline', 'One-line description')}${field('contact', 'Your name · email · phone')}
-  ${field('rate_presented', 'Price: "Presented by" section, per month')}${field('rate_weather', 'Price: Weather page sponsor, per month')}${field('rate_intro', 'Price: 5-second intro, per month')}${field('rate_banner', 'Price: banner, per month')}</div><button class="act" id="mkSave">Update</button></div>
+  ${field('rate_presented', 'Price: "Presented by" section, per month')}${field('rate_weather', 'Price: Weather page sponsor, per month')}${field('rate_intro', 'Price: 5-second intro, per month')}${field('rate_banner', 'Price: banner, per month')}${field('rate_wxbanner', 'Price: Weather banner, per month')}${field('rate_featured', 'Price: Featured map pin, per month')}</div><button class="act" id="mkSave">Update</button></div>
   <div id="kit">
     <h1>${esc(saved.app || 'Your App Name')}</h1><div class="muted">${esc(saved.tagline || 'The Southern California fishing map: live ocean data, catch reports and navigation — free for anglers.')}</div>
     <h3>Audience (last 30 days)</h3>
@@ -234,6 +234,9 @@ async function mediaKit() {
     <tr><td>"Marine forecast presented by" — Weather page</td><td>${fmt(inv.weather_views || 0)}</td><td>${esc(saved.rate_weather || saved.rate_presented || '—')}</td></tr>
     <tr><td>"Presented by" — Today, Catch Map or SST Map</td><td>${fmt(inv.today_views + inv.catch_map_views + inv.sst_views)}</td><td>${esc(saved.rate_presented || '—')}</td></tr>
     <tr><td>5-second intro at app open (only when the boat is stopped)</td><td>${fmt(inv.intro_eligible_opens)}</td><td>${esc(saved.rate_intro || '—')}</td></tr>
+    <tr><td>Weather page banner (after the hourly forecast)</td><td>${fmt(inv.weather_views || 0)}</td><td>${esc(saved.rate_wxbanner || saved.rate_banner || '—')}</td></tr>
+    <tr><td>"Presented by" — Wind, Radar, Map options or Harbor cards</td><td>—</td><td>${esc(saved.rate_presented || '—')}</td></tr>
+    <tr><td>Featured ★ pin on the map (fuel docks, bait, marinas)</td><td>—</td><td>${esc(saved.rate_featured || '—')}</td></tr>
     <tr><td>Banner — Today, catch reports, community</td><td>${fmt(inv.today_views + inv.reports_views + inv.forum_views)}</td><td>${esc(saved.rate_banner || '—')}</td></tr></table>
     <p class="muted">Average sponsor click-through: ${(ctr * 100).toFixed(1)}%. Ads are matched to what anglers are viewing (species, area) — never to personal data. Sponsors get a monthly report of impressions, clicks and areas.</p>
     <p><b>Contact:</b> ${esc(saved.contact || '—')}</p>
@@ -281,13 +284,28 @@ async function settings() {
   const [cfgRows, store] = await Promise.all([sb.from('app_config').select('*').order('key').then(must), sb.from('store_stats').select('*').order('day', { ascending: false }).limit(60).then(must)]);
   const input = (r) => typeof r.value === 'boolean' ? `<input type="checkbox" data-cfg="${esc(r.key)}" ${r.value ? 'checked' : ''} style="width:auto">`
     : `<input data-cfg="${esc(r.key)}" value="${esc(r.value == null ? '' : r.value)}" placeholder="(empty = none)">`;
-  $('#main').innerHTML = `<h2>Settings</h2><div class="card"><h3>App switches (apply to every phone)</h3><table>${cfgRows.map((r) => `<tr><td><b>${esc(r.key)}</b><div class="muted">${esc(r.description || '')}</div></td><td style="width:45%">${input(r)}</td></tr>`).join('')}</table>
+  const off = (cfgRows.find((r) => r.key === 'features_off')?.value) || [];
+  const KILL = [['wind', 'Wind map'], ['radar', 'Radar'], ['sst', 'Water temperature'], ['chl', 'Chlorophyll / water color'], ['breaks', 'Temperature breaks'],
+    ['bathy', 'Seafloor shading'], ['contours', 'Depth contours'], ['buoys', 'Buoys'], ['catches', 'Catch map'], ['buddies', 'Crew / buddy boats'],
+    ['spots', 'Preloaded spots'], ['marinas', 'Marinas'], ['docks', 'Docks & piers'], ['fuel', 'Fuel docks'], ['pumpout', 'Pump-outs'], ['ramps', 'Launch ramps'], ['bait', 'Bait'],
+    ['rules', 'MPAs & rules'], ['hazards', 'Hazards'], ['relief', 'Relief map style'], ['satellite', 'Satellite map style'], ['chart_helper', 'Chart helper (falls back to the plain NOAA chart)']];
+  $('#main').innerHTML = `<h2>Settings</h2>
+  <div class="card"><h3>🚨 Emergency off-switches</h3><p class="muted">If one feature starts crashing or showing bad data after launch, tick it here: it switches off on every phone within ~10 minutes (when the app is next opened or brought back to the screen) — no app update needed. Users see "Temporarily off while we fix it". Untick when fixed.</p>
+  <div class="grid">${KILL.map(([k, l]) => `<label style="display:flex;gap:8px;align-items:center;color:var(--text);font-size:14px;margin:2px 0"><input type="checkbox" data-kill="${k}" style="width:auto" ${off.includes(k) ? 'checked' : ''}>${esc(l)}</label>`).join('')}</div>
+  <p id="killmsg" class="${off.length ? 'warn' : 'good'}">${off.length ? `Switched off right now: ${esc(off.join(', '))}` : 'Everything is on.'}</p></div>
+  <div class="card"><h3>App switches (apply to every phone)</h3><table>${cfgRows.filter((r) => r.key !== 'features_off').map((r) => `<tr><td><b>${esc(r.key)}</b><div class="muted">${esc(r.description || '')}</div></td><td style="width:45%">${input(r)}</td></tr>`).join('')}</table>
   <p class="muted">Changes take effect the next time each phone opens the app.</p></div>
   <div class="card"><h3>Store numbers</h3><p class="muted">Downloads only exist in App Store Connect (Trends) and Google Play Console (Statistics). Type them here — one row per day, or paste a CSV: <code>2026-10-01,ios,downloads,42</code></p>
   <div class="grid"><input type="date" id="st_d"><select id="st_p"><option>ios</option><option>android</option></select><select id="st_m">${['downloads', 'updates', 'uninstalls', 'rating_avg', 'ratings_count', 'store_page_views'].map((m) => `<option>${m}</option>`).join('')}</select><input id="st_v" placeholder="Value"></div>
   <button class="act primary" id="st_add">Save</button><label>Paste CSV (day,platform,metric,value)</label><textarea id="st_csv" rows="4"></textarea><button class="act" id="st_imp">Import CSV</button>
   <table><tr><th>Day</th><th>Platform</th><th>Metric</th><th>Value</th></tr>${store.map((r) => `<tr><td>${esc(r.day)}</td><td>${esc(r.platform)}</td><td>${esc(r.metric)}</td><td>${fmt(r.value)}</td></tr>`).join('')}</table></div>
   <div class="card"><h3>Export</h3><div class="toolbar"><input type="date" id="ex_from"><input type="date" id="ex_to"><button class="act primary" id="ex_go">Download daily metrics (CSV)</button></div></div>`;
+  document.querySelectorAll('[data-kill]').forEach((el) => (el.onchange = async () => {
+    const list = [...document.querySelectorAll('[data-kill]')].filter((x) => x.checked).map((x) => x.dataset.kill);
+    must(await sb.from('app_config').update({ value: list, updated_at: new Date().toISOString() }).eq('key', 'features_off'));
+    $('#killmsg').className = list.length ? 'warn' : 'good';
+    $('#killmsg').textContent = list.length ? `Switched off right now: ${list.join(', ')}` : 'Everything is on.';
+  }));
   document.querySelectorAll('[data-cfg]').forEach((el) => (el.onchange = async () => {
     let v = el.type === 'checkbox' ? el.checked : el.value.trim();
     if (el.type !== 'checkbox') v = v === '' ? null : v;
@@ -383,8 +401,24 @@ async function categories() {
 }
 
 // ---------- sponsors ----------
-const PLACEMENTS = ['presented_by', 'sponsor_intro', 'banner_dashboard', 'banner_reports', 'banner_community', 'catch_map_open'];
-const SECTIONS = ['Today', 'Weather', 'Catch Map', 'SST Map', 'Offshore Conditions', 'Catalina Report'];
+const PLACEMENTS = ['presented_by', 'sponsor_intro', 'banner_dashboard', 'banner_weather', 'banner_reports', 'banner_community', 'featured_listing', 'catch_map_open'];
+const SECTIONS = ['Today', 'Weather', 'Catch Map', 'SST Map', 'Wind', 'Radar', 'Map Layers', 'Harbors', 'Offshore Conditions', 'Catalina Report'];
+const AD_SPACES = [
+  ['Weather "presented by"', 'presented_by · Weather', 'Top of the Weather tab', 'One line + logo, 1 sponsor/week'],
+  ['Weather banner', 'banner_weather', 'Middle of Weather, after the hourly forecast', 'Max 1 per screen'],
+  ['Today "presented by"', 'presented_by · Today', 'Top of the Today sheet', '1 sponsor/week'],
+  ['Today banner', 'banner_dashboard', 'Bottom of the Today sheet', 'Max 1 per screen'],
+  ['Water temp "presented by"', 'presented_by · SST Map', 'Water-temp time bar', '1 sponsor/week'],
+  ['Wind "presented by"', 'presented_by · Wind', 'Small pill above the map buttons when Wind is on', 'Hidden while navigating or recording'],
+  ['Radar "presented by"', 'presented_by · Radar', 'Under the radar time label', 'Hidden while navigating or recording'],
+  ['Map options "presented by"', 'presented_by · Map Layers', 'Top of the Map options sheet', 'Only while the sheet is open'],
+  ['Harbor cards "presented by"', 'presented_by · Harbors', 'Bottom of every harbor/fuel/bait info card', 'Matched to fuel/bait/marina'],
+  ['Featured business pin', 'featured_listing', 'Gold ★ pin on the map at the business', 'Only with Fuel/Bait/Marinas on, zoomed in, max 4, never while navigating'],
+  ['Catch Map "presented by"', 'presented_by · Catch Map', 'Catch filter bar', 'Matched to species'],
+  ['Catch reports banner', 'banner_reports', 'Catch reports feed', 'Matched to species'],
+  ['Forum banner', 'banner_community', 'Top of the forum', 'Max 1 per screen'],
+  ['5-second intro', 'sponsor_intro', 'Full screen at app open', 'Only when stopped & not recording, max once per 4 h, skippable'],
+];
 async function sponsors() {
   const [adv, camps, stats] = await Promise.all([sb.from('advertisers').select('*').order('name'), sb.from('ad_campaigns').select('*').order('starts_at', { ascending: false }), sb.from('ad_campaign_stats').select('*')]);
   const st = Object.fromEntries((must(stats) || []).map((s) => [s.id, s]));
@@ -394,12 +428,15 @@ async function sponsors() {
   ${must(camps).map((c) => `<tr><td>${esc(c.name)}<div class="muted">${esc(c.headline || '')} ${c.presented_by_section ? '· ' + esc(c.presented_by_section) : ''} ${esc((c.context_tags || []).join(', '))}</div></td>
   <td>${esc(advs.find((a) => a.id === c.advertiser_id)?.name)}</td><td>${esc(c.placement)}</td><td class="muted">${esc(c.starts_at.slice(0, 10))} → ${esc(c.ends_at.slice(0, 10))}</td>
   <td>${st[c.id]?.impressions ?? 0}</td><td>${st[c.id]?.clicks ?? 0}</td><td>${st[c.id]?.ctr_pct ?? '—'}%</td><td><input type="checkbox" data-camp="${c.id}" ${c.active ? 'checked' : ''}></td></tr>`).join('')}</table></div>
+  <div class="card"><h3>Where every ad space is</h3><p class="muted">Want to see them? On your phone: Me → Admin → <b>Ad spaces preview</b> turns every slot into a gold placeholder.</p>
+  <table><tr><th>Space</th><th>Placement / section</th><th>Where in the app</th><th>Guard rail</th></tr>${AD_SPACES.map(([n, k, w, g]) => `<tr><td><b>${esc(n)}</b></td><td class="muted">${esc(k)}</td><td>${esc(w)}</td><td class="muted">${esc(g)}</td></tr>`).join('')}</table></div>
   <div class="card"><h3>New campaign</h3><div class="grid">
   <div><label>Advertiser</label><select id="a_adv">${advs.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select></div>
   <div><label>Campaign name</label><input id="a_name"></div><div><label>Placement</label><select id="a_pl">${PLACEMENTS.map((p) => `<option>${p}</option>`).join('')}</select></div>
   <div><label>"Presented by" section</label><select id="a_sec"><option value="">—</option>${SECTIONS.map((p) => `<option>${p}</option>`).join('')}</select></div>
   <div><label>Logo / image URL (https)</label><input id="a_img"></div><div><label>Click-through URL</label><input id="a_click"></div>
   <div><label>Headline</label><input id="a_head"></div><div><label>Context tags (e.g. tuna, catalina)</label><input id="a_tags"></div>
+  <div><label>Map position "lat, lon" (Featured pin only)</label><input id="a_pos" placeholder="33.7225, -118.2730"></div>
   <div><label>Start</label><input type="date" id="a_start"></div><div><label>End</label><input type="date" id="a_end"></div><div><label>Max per person per day</label><input id="a_cap" value="3"></div></div>
   <button class="act primary" id="a_add">Create campaign</button></div>
   <div class="card"><h3>Advertisers</h3>${advs.map((a) => `<div>${esc(a.name)} <span class="muted">${esc(a.contact_email || '')} ${esc(a.website || '')}</span></div>`).join('')}
@@ -407,7 +444,15 @@ async function sponsors() {
   document.querySelectorAll('[data-camp]').forEach((el) => (el.onchange = async () => must(await sb.from('ad_campaigns').update({ active: el.checked }).eq('id', el.dataset.camp))));
   $('#v_add').onclick = async () => { must(await sb.from('advertisers').insert({ name: $('#v_name').value.trim(), contact_email: $('#v_mail').value.trim() || null, website: $('#v_web').value.trim() || null })); sponsors(); };
   $('#a_add').onclick = async () => {
-    must(await sb.from('ad_campaigns').insert({ advertiser_id: +$('#a_adv').value, name: $('#a_name').value.trim(), placement: $('#a_pl').value, presented_by_section: $('#a_sec').value || null,
+    const pl = $('#a_pl').value, tags = $('#a_tags').value.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+    let creative = null;
+    if (pl === 'featured_listing') {
+      const m = $('#a_pos').value.match(/(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
+      if (!m) return alert('A Featured pin needs a map position: latitude, longitude (e.g. 33.7225, -118.2730).');
+      if (!tags.some((t) => ['fuel', 'bait', 'marina'].includes(t))) return alert('Add fuel, bait or marina to Context tags so the pin shows with that layer.');
+      creative = { kind: 'native', headline: $('#a_head').value.trim() || null, logo_url: $('#a_img').value.trim() || null, action_type: 'directions', action_value: `${m[1]},${m[2]}` };
+    }
+    must(await sb.from('ad_campaigns').insert({ ...(creative ? { creative } : {}), advertiser_id: +$('#a_adv').value, name: $('#a_name').value.trim(), placement: $('#a_pl').value, presented_by_section: $('#a_sec').value || null,
       creative_url: $('#a_img').value.trim(), click_url: $('#a_click').value.trim() || null, headline: $('#a_head').value.trim() || null,
       context_tags: $('#a_tags').value.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean), region: 'socal',
       starts_at: new Date($('#a_start').value).toISOString(), ends_at: new Date($('#a_end').value + 'T23:59:59').toISOString(), max_per_user_per_day: parseInt($('#a_cap').value) || 3, active: true }));
@@ -427,6 +472,39 @@ async function announcements() {
 }
 
 // ---------- data health (spec §58-59: know when NOAA stops updating before users complain) ----------
+// ---------- Feedback & crashes ----------
+async function feedback(view = 'feedback') {
+  clearCharts();
+  const tabs = `<div class="toolbar"><button class="act ${view === 'feedback' ? 'primary' : ''}" id="fbT">Feedback</button><button class="act ${view === 'crashes' ? 'primary' : ''}" id="crT">Crashes</button>
+    <span class="muted">Sent from the app: Me → Send feedback, and automatic crash reports.</span></div>`;
+  if (view === 'feedback') {
+    const rows = must(await sb.from('app_feedback').select('*').order('created_at', { ascending: false }).limit(300));
+    const icon = { bug: '🐞', idea: '💡', data: '🗺️', other: '💬' };
+    $('#main').innerHTML = tabs + `<div class="kpis">${['new', 'seen', 'done'].map((k) => `<div class="kpi"><div class="k">${k}</div><div class="v">${rows.filter((r) => r.status === k).length}</div></div>`).join('')}</div>
+    <div class="card"><table><tr><th></th><th>Message</th><th>From</th><th>When</th><th>Status</th></tr>${rows.map((r) => `<tr>
+      <td style="font-size:20px">${icon[r.kind] || '💬'}</td><td style="max-width:520px">${esc(r.message)}<div class="muted">${esc([r.app_version && 'v' + r.app_version, r.device, r.area].filter(Boolean).join(' · '))}</div></td>
+      <td>${r.email ? `<a style="color:var(--live)" href="mailto:${esc(r.email)}?subject=${encodeURIComponent('Re: your Channel Nav feedback')}">${esc(r.email)}</a>` : '<span class="muted">no email</span>'}</td>
+      <td class="muted">${esc(ago(r.created_at))}</td>
+      <td><select data-fb="${r.id}" style="width:auto">${['new', 'seen', 'done'].map((k) => `<option ${r.status === k ? 'selected' : ''}>${k}</option>`).join('')}</select></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No feedback yet.</td></tr>'}</table></div>`;
+    document.querySelectorAll('[data-fb]').forEach((el) => (el.onchange = async () => must(await sb.from('app_feedback').update({ status: el.value }).eq('id', el.dataset.fb))));
+  } else {
+    const groups = must(await sb.rpc('admin_error_groups', { days: 30 }));
+    $('#main').innerHTML = tabs + `<div class="kpis"><div class="kpi"><div class="k">Different crashes (30 days)</div><div class="v">${groups.filter((g) => g.status === 'new').length}</div></div>
+      <div class="kpi"><div class="k">Total reports</div><div class="v">${fmt(groups.reduce((a, g) => a + Number(g.n), 0))}</div></div></div>
+    <div class="card"><p class="muted">Same crash = one row. Copy the details into your chat with Claude to get a fix. Mark "fixed" once the fix is shipped — if it comes back, it shows as new again.</p>
+    <table><tr><th>Error</th><th>Times</th><th>App versions</th><th>Last seen</th><th></th></tr>${groups.map((g, i) => `<tr>
+      <td style="max-width:560px">${g.fatal ? '<span class="bad">CRASH</span> ' : ''}<b>${esc(g.message)}</b><div class="muted">${esc(g.context || '')}</div>
+      <details><summary class="muted">details</summary><pre id="st${i}">${esc(g.message)}\n${esc(g.context || '')}\n${esc(g.sample_stack || '')}</pre><button class="act" data-copy="${i}">Copy</button></details></td>
+      <td>${fmt(g.n)}</td><td class="muted">${esc((g.versions || []).filter(Boolean).join(', '))}</td><td class="muted">${esc(ago(g.last_seen))}</td>
+      <td>${g.status === 'new' ? `<button class="act" data-fix="${i}">Mark fixed</button><button class="act" data-ign="${i}">Ignore</button>` : `<span class="pill">${esc(g.status)}</span>`}</td></tr>`).join('') || '<tr><td colspan="5" class="good">No crashes reported. 🎉</td></tr>'}</table></div>`;
+    const setStatus = async (i, status) => { must(await sb.from('app_errors').update({ status }).in('id', groups[i].ids)); feedback('crashes'); };
+    document.querySelectorAll('[data-fix]').forEach((b) => (b.onclick = () => setStatus(+b.dataset.fix, 'fixed')));
+    document.querySelectorAll('[data-ign]').forEach((b) => (b.onclick = () => setStatus(+b.dataset.ign, 'ignored')));
+    document.querySelectorAll('[data-copy]').forEach((b) => (b.onclick = () => navigator.clipboard.writeText($('#st' + b.dataset.copy).textContent).then(() => (b.textContent = 'Copied'))));
+  }
+  $('#fbT').onclick = () => feedback('feedback'); $('#crT').onclick = () => feedback('crashes');
+}
+
 async function health() {
   const limits = { sst: 36, chl: 48, wind: 12, rules: 24 * 60 };
   let api = null, layers = [];

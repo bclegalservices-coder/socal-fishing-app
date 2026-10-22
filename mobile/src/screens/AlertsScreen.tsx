@@ -11,6 +11,7 @@ import { SPECIES } from '../community/species';
 import { supabase } from '../supabase';
 import { Btn } from '../components/ui';
 import { track } from '../analytics';
+import { friendly } from '../friendly';
 
 const AREAS = [
   { label: 'Catalina', center: [-118.42, 33.38] }, { label: 'San Clemente Island', center: [-118.5, 32.9] },
@@ -57,7 +58,7 @@ export function AlertsScreen({ onBack }: { onBack: () => void }) {
     if (kind === 'species') params.verified_only = verified;
     if (kind === 'sst') { params.min_f = Number(minF); params.max_f = Number(maxF); }
     const { error } = await supabase.from('alert_subscriptions').insert({ kind, params });
-    if (error) Alert.alert('Not added', error.message); else { track('alert_created', { kind, species: (params.species ?? [])[0] ?? 'any' }); load(); }
+    if (error) Alert.alert('Not added', friendly(error)); else { track('alert_created', { kind, species: (params.species ?? [])[0] ?? 'any' }); load(); }
   };
   const describe = (s: any) => {
     const p = s.params ?? {};

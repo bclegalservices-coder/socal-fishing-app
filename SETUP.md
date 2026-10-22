@@ -681,7 +681,7 @@ Add to `mobile/package.json`:
 
 | Problem | Fix |
 | --- | --- |
-| Chart area is blank/gray, map moves fine | NOAA's tile cache may be down or updating (they update Fridays). In `mobile/src/config.ts` set `CHART_MODE` to `'export'`, save, reload. |
+| Chart area is blank/gray, map moves fine | NOAA's chart service may be down or updating (they update Fridays) — try again later. The chart comes from NOAA's Maritime Chart Service (`NOAA_CHART_TILES` in `mobile/src/config.ts`); NOAA retired the older `NOAACharts …/tile` cache, so don't switch back to it. |
 | Top panel says "Location off" | iPhone Settings → Privacy & Security → Location Services → Fishing App → **While Using**. |
 | `eas build` fails on credentials | Make sure the Apple Developer membership shows "Active" at developer.apple.com/account, then rerun. |
 | App can't find the dev server | Phone and computer on the same Wi-Fi; or run `npx expo start --dev-client --tunnel`. |
@@ -771,3 +771,5 @@ The default seafloor layer uses NOAA's global model (~1.8 km). For banks and can
 ## What's next (Week 2–3)
 
 Week 2: coordinate-format setting, measure tool, layer panel with opacity. Week 3: fishing-spot importer (GPX/KML/KMZ, licensed data only) and search wired to `/spots/search`. See the build plan doc for the full backlog.
+
+Planned features (automatic data updates, editable rules, admin alerts, over-the-air updates, chart cache, crowd-sourced depth) are written up in [`docs/ROADMAP.md`](docs/ROADMAP.md).

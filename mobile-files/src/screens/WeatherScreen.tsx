@@ -1,7 +1,7 @@
 // Weather page: your location or any spot — 5-day hourly marine forecast rated for YOUR boat,
 // the official NWS marine zone text, buoy history (up to 45 days) and tides for any date.
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
@@ -10,17 +10,20 @@ import { ageText, getJSON } from '../api';
 import { track } from '../analytics';
 import { Btn, IconButton, Note } from '../components/ui';
 import { SearchSheet } from '../components/SearchSheet';
-import { PresentedBy } from '../ads/Sponsor';
+import { PresentedBy, SponsorBanner } from '../ads/Sponsor';
+import { MoonView } from '../weather/MoonView';
 import { loadPublicSpots, type SavedSpot } from '../storage';
 import { BoatSheet } from '../weather/BoatSheet';
+import { CondIcon, NowCard, PlaceSearch, hourNow, placeName } from '../weather/Conditions';
 import { Bars } from '../weather/Charts';
 import {
   addDays, arrow, boatLabel, clock, compass, dayLabel, downsample, hourLabel, isDate, levelColor, levelText, loadBoat, localDate,
   n0, n1, saveBoat, seasText, weatherPath, type Boat, type BuoyRow, type Hour, type WeatherResponse,
 } from '../weather/model';
+import { friendly } from '../friendly';
 
 export type WeatherPlace = { lat: number; lon: number; label: string; source: 'gps' | 'search' | 'map' | 'harbor' };
-type Section = 'forecast' | 'history' | 'tides';
+type Section = 'forecast' | 'history' | 'tides' | 'moon';
 
 // Quick picks: points just outside each harbor entrance (on the water, so the marine forecast applies).
 const HARBORS: WeatherPlace[] = [
@@ -29,6 +32,11 @@ const HARBORS: WeatherPlace[] = [
   ['Long Beach', 33.72, -118.12], ['Newport', 33.585, -117.885], ['Dana Point', 33.45, -117.705],
   ['Oceanside', 33.195, -117.405], ['Mission Bay', 32.755, -117.27], ['San Diego Bay', 32.675, -117.245], ['Avalon', 33.35, -118.31],
 ].map(([label, lat, lon]) => ({ label: `Off ${label}`, lat: lat as number, lon: lon as number, source: 'harbor' as const }));
+/** Rough distance in nautical miles (good enough to sort harbors). */
+const nm = (a: { lat: number; lon: number }, b: { lat: number; lon: number }) =>
+  Math.hypot((a.lat - b.lat) * 60, (a.lon - b.lon) * 60 * Math.cos((a.lat * Math.PI) / 180));
+const nearest = (p: { lat: number; lon: number } | null, n: number) =>
+  (p ? [...HARBORS].sort((x, y) => nm(p, x) - nm(p, y)) : HARBORS).slice(0, n);
 const COURSES: { label: string; deg: number | null }[] = [
   { label: 'Not set', deg: null }, { label: 'N', deg: 0 }, { label: 'NE', deg: 45 }, { label: 'E', deg: 90 }, { label: 'SE', deg: 135 },
   { label: 'S', deg: 180 }, { label: 'SW', deg: 225 }, { label: 'W', deg: 270 }, { label: 'NW', deg: 315 },
@@ -45,6 +53,7 @@ export function WeatherScreen({ at, mySpots }: { at: WeatherPlace | null; mySpot
   const [searching, setSearching] = useState(false);
   const [publicSpots, setPublicSpots] = useState<any>(null);
   const [locErr, setLocErr] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
 
   useEffect(() => { if (at) setPlace(at); }, [at?.lat, at?.lon]);
   useEffect(() => {
@@ -59,17 +68,23 @@ export function WeatherScreen({ at, mySpots }: { at: WeatherPlace | null; mySpot
       const perm = await Location.requestForegroundPermissionsAsync();
       if (perm.status !== 'granted') throw new Error('Location permission is off');
       const pos = (await Location.getLastKnownPositionAsync()) ?? (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
-      setPlace({ lat: pos.coords.latitude, lon: pos.coords.longitude, label: 'My location', source: 'gps' });
+      const p = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      setPlace({ ...p, label: 'My location', source: 'gps' });
+      placeName(p.lat, p.lon).then((n) => { if (n) setPlace((cur) => (cur?.source === 'gps' && cur.lat === p.lat ? { ...cur, label: n } : cur)); });
     } catch (e: any) {
-      setLocErr(`${e?.message ?? 'No GPS fix'} — pick a harbor or search a spot.`);
+      setLocErr(friendly(e));
       setPlace((p) => p ?? HARBORS[7]);
     }
   }
 
   const go = (p: WeatherPlace) => { setPlace(p); setSearching(false); };
   if (searching) {
-    return <SearchSheet boat={place ? { lat: place.lat, lon: place.lon } : null} mySpots={mySpots} publicSpots={publicSpots}
-      onClose={() => setSearching(false)} onPick={(h) => go({ lat: h.lat, lon: h.lon, label: h.name, source: 'search' })} />;
+    const spots = [
+      ...mySpots.map((s: any) => ({ name: s.name, lat: s.lat, lon: s.lon, sub: 'My spot' })),
+      ...((publicSpots?.features ?? []) as any[]).map((f) => ({ name: f.properties?.name, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], sub: f.properties?.subtitle })),
+    ];
+    return <PlaceSearch spots={spots} onClose={() => setSearching(false)}
+      onPick={(r) => { go({ lat: r.lat, lon: r.lon, label: r.label, source: 'search' }); track('weather_search_pick'); }} />;
   }
   if (editBoat && boat) {
     return <BoatSheet boat={boat} onClose={() => setEditBoat(false)}
@@ -84,27 +99,63 @@ export function WeatherScreen({ at, mySpots }: { at: WeatherPlace | null; mySpot
           {place ? <Text style={st.coords}>{place.lat.toFixed(3)}, {place.lon.toFixed(3)}</Text> : null}
         </View>
         <IconButton icon="navigate" label="Use my location" onPress={locateMe} />
-        <IconButton icon="search" label="Search a spot" onPress={() => setSearching(true)} />
+        <IconButton icon="search" label="Search a place or spot" onPress={() => setSearching(true)} />
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.harbors}>
-        {HARBORS.map((h) => (
-          <Pressable key={h.label} onPress={() => go(h)} style={[st.pill, place?.label === h.label && st.pillOn]}>
-            <Text style={[st.pillT, place?.label === h.label && st.pillOnT]}>{h.label.replace('Off ', '')}</Text>
+      {/* Closest harbors as clear buttons, and every harbor one tap away */}
+      <View style={st.nearRow}>
+        {nearest(place, 3).map((h) => {
+          const on = place?.label === h.label;
+          return (
+            <Pressable key={h.label} onPress={() => go(h)} style={[st.near, on && st.nearOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
+              <MaterialCommunityIcons name="anchor" size={14} color={on ? colors.accentInk : colors.accent} />
+              <Text style={[st.nearT, on && st.nearTOn]} numberOfLines={1}>{h.label.replace('Off ', '')}</Text>
+            </Pressable>
+          );
+        })}
+        <Pressable onPress={() => setPicking(true)} style={[st.near, st.nearAll]} accessibilityRole="button">
+          <MaterialCommunityIcons name="format-list-bulleted" size={15} color={colors.text} />
+          <Text style={st.nearT}>All harbors</Text>
+        </Pressable>
+      </View>
+      <Modal visible={picking} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setPicking(false)}>
+        <View style={st.pick}>
+          <View style={st.pickHead}>
+            <Text style={st.pickH}>Harbors</Text>
+            <Pressable onPress={() => setPicking(false)} hitSlop={10}><Text style={st.pickDone}>Done</Text></Pressable>
+          </View>
+          <Pressable style={st.pickRow} onPress={() => { setPicking(false); locateMe(); }}>
+            <MaterialCommunityIcons name="crosshairs-gps" size={20} color={colors.accent} />
+            <Text style={[st.pickName, { color: colors.accent }]}>My location</Text>
           </Pressable>
-        ))}
-      </ScrollView>
+          <Pressable style={st.pickRow} onPress={() => { setPicking(false); setSearching(true); }}>
+            <MaterialCommunityIcons name="magnify" size={20} color={colors.accent} />
+            <Text style={[st.pickName, { color: colors.accent }]}>Search any town, island or spot</Text>
+          </Pressable>
+          <Text style={st.pickCap}>Southern California harbors</Text>
+          <ScrollView>
+            {nearest(place, HARBORS.length).map((h) => (
+              <Pressable key={h.label} style={st.pickRow} onPress={() => { setPicking(false); go(h); }}>
+                <MaterialCommunityIcons name="anchor" size={20} color={colors.muted} />
+                <Text style={st.pickName}>{h.label.replace('Off ', '')}</Text>
+                {place ? <Text style={st.pickDist}>{Math.round(nm(place, h))} nm</Text> : null}
+                {place?.label === h.label ? <MaterialCommunityIcons name="check" size={20} color={colors.accent} /> : null}
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
       {locErr ? <Text style={st.warn}>{locErr}</Text> : null}
       <View style={st.seg}>
-        {(['forecast', 'history', 'tides'] as Section[]).map((s) => (
+        {(['forecast', 'history', 'tides', 'moon'] as Section[]).map((s) => (
           <Pressable key={s} onPress={() => { setSection(s); track('weather_section', { section: s }); }} style={[st.segI, section === s && st.segOn]}
             accessibilityRole="tab" accessibilityState={{ selected: section === s }}>
-            <Text style={[st.segT, section === s && st.segOnT]}>{s === 'forecast' ? 'Forecast' : s === 'history' ? 'Past data' : 'Tides'}</Text>
+            <Text style={[st.segT, section === s && st.segOnT]}>{s === 'forecast' ? 'Forecast' : s === 'history' ? 'Past data' : s === 'tides' ? 'Tides' : 'Moon'}</Text>
           </Pressable>
         ))}
       </View>
       {!place || !boat ? <ActivityIndicator color={colors.live} style={{ marginTop: 40 }} /> : section === 'forecast' ? (
         <Forecast place={place} boat={boat} boatIsSet={boatIsSet} course={course} setCourse={setCourse} onEditBoat={() => setEditBoat(true)} />
-      ) : section === 'history' ? <History place={place} /> : <Tides place={place} />}
+      ) : section === 'history' ? <History place={place} /> : section === 'tides' ? <Tides place={place} /> : <MoonView lat={place.lat} lon={place.lon} place={place.label} />}
     </SafeAreaView>
   );
 }
@@ -131,7 +182,7 @@ function Forecast({ place, boat, boatIsSet, course, setCourse, onEditBoat }: {
       const r = await getJSON<WeatherResponse>(path, { cacheKey: `wx:${place.lat.toFixed(2)},${place.lon.toFixed(2)}:${boat.type}:${boat.length_ft}:${boat.comfort}:${course}`, timeoutMs: 20000 });
       setRes(r);
       track('weather_view', { source: place.source, boat_type: boat.type, cached: r.cached });
-    } catch (e: any) { setErr(e?.message ?? 'Could not load'); } finally { setLoading(false); }
+    } catch (e: any) { setErr(friendly(e)); } finally { setLoading(false); }
   };
   useEffect(() => { load(); setDay(null); setOpenHour(null); }, [path]);
 
@@ -143,6 +194,7 @@ function Forecast({ place, boat, boatIsSet, course, setCourse, onEditBoat }: {
 
   return (
     <ScrollView contentContainerStyle={st.body} refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.live} />}>
+      {f?.available ? <NowCard place={place.label} sub={place.source === 'gps' ? 'My location' : f.place ?? undefined} hour={hourNow(f.hourly)} today={days[0]} /> : null}
       <Pressable onPress={onEditBoat} style={st.boat} accessibilityLabel="Change my boat">
         <Text style={st.boatK}>Rated for</Text>
         <Text style={st.boatV}>{boatLabel(boat)}{boatIsSet ? '' : ' (default — tap to set yours)'}</Text>
@@ -150,13 +202,13 @@ function Forecast({ place, boat, boatIsSet, course, setCourse, onEditBoat }: {
       </Pressable>
       <View>
         <Text style={st.smallH}>Heading toward (optional — rates beam vs. head seas)</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 4 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingVertical: 4 }}>
           {COURSES.map((c) => (
-            <Pressable key={c.label} onPress={() => setCourse(c.deg)} style={[st.pill, course === c.deg && st.pillOn]}>
+            <Pressable key={c.label} onPress={() => setCourse(c.deg)} style={[st.pill, { minWidth: 44, alignItems: 'center' }, course === c.deg && st.pillOn]}>
               <Text style={[st.pillT, course === c.deg && st.pillOnT]}>{c.label}</Text>
             </Pressable>
           ))}
-        </ScrollView>
+        </View>
       </View>
 
       {alerts.map((a, i) => (
@@ -181,7 +233,10 @@ function Forecast({ place, boat, boatIsSet, course, setCourse, onEditBoat }: {
               style={[st.dayCard, selDay === d.date && { borderColor: colors.text }]}
               accessibilityLabel={`${dayLabel(d.date)}: ${d.summary.label}`}>
               <View style={[st.dayBar, { backgroundColor: levelColor(d.summary.level) }]} />
-              <Text style={st.dayName}>{dayLabel(d.date)}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={st.dayName}>{dayLabel(d.date)}</Text>
+                <CondIcon size={24} day={d} hour={(f?.hourly ?? []).find((h) => localDate(h.t) === d.date && new Date(h.t).getHours() === 12) ?? (f?.hourly ?? []).find((h) => localDate(h.t) === d.date)} />
+              </View>
               <Text style={[st.dayVerdict, { color: levelText(d.summary.level, mode) }]}>{d.summary.label}</Text>
               <View style={st.dayRow}><MaterialCommunityIcons name="weather-windy" size={15} color={colors.muted} /><Text style={st.dayLine}>{n0(d.wind_kt_max)}{d.gust_kt_max ? `g${n0(d.gust_kt_max)}` : ''} kt</Text></View>
               <View style={st.dayRow}><MaterialCommunityIcons name="waves" size={15} color={colors.muted} /><Text style={st.dayLine}>{d.seas_ft_min != null ? `${n0(d.seas_ft_min)}–${n0(d.seas_ft_max)}` : '—'} ft</Text></View>
@@ -216,6 +271,8 @@ function Forecast({ place, boat, boatIsSet, course, setCourse, onEditBoat }: {
         </View>
       ) : null}
 
+      {f?.available ? <SponsorBanner placement="banner_weather" /> : null}
+
       {res?.data.buoy_now ? <BuoyNow b={res.data.buoy_now} /> : null}
 
       {res?.data.zone ? (
@@ -248,6 +305,7 @@ function HourRow({ h, open, onPress }: { h: Hour; open: boolean; onPress: () => 
     <Pressable onPress={onPress} style={st.hourWrap} accessibilityLabel={`${hourLabel(h.t)}: ${r.label}, wind ${n0(h.wind_kt)} knots, seas ${seasText(h)}`}>
       <View style={st.hRow}>
         <Text style={[st.td, { width: 40 }]}>{hourLabel(h.t)}</Text>
+        <CondIcon hour={h} size={18} />
         <View style={[st.lvl, { flex: 1 }]}>
           <View style={[st.dot, { backgroundColor: levelColor(r.level) }]} />
           <Text style={[st.td, { color: levelText(r.level, mode), fontWeight: '700' }]}>{r.label}</Text>
@@ -301,7 +359,7 @@ function History({ place }: { place: WeatherPlace }) {
     getJSON<any>(`/weather/history?lat=${place.lat.toFixed(4)}&lon=${place.lon.toFixed(4)}&days=${days}${station ? `&station=${station}` : ''}`,
       { cacheKey: `wxh:${station ?? place.lat.toFixed(2) + ',' + place.lon.toFixed(2)}:${days}`, timeoutMs: 20000 })
       .then((r) => { setData(r.data); track('weather_history_view', { days }); })
-      .catch((e) => setErr(e?.message ?? 'Could not load'));
+      .catch((e) => setErr(friendly(e)));
   }, [place.lat, place.lon, days, station]);
   const rows: BuoyRow[] = data?.rows ?? [];
   const first = rows[0]?.t, last = rows[rows.length - 1]?.t;
@@ -356,7 +414,7 @@ function Tides({ place }: { place: WeatherPlace }) {
     getJSON<any>(`/tides/range?lat=${place.lat.toFixed(4)}&lon=${place.lon.toFixed(4)}&begin=${addDays(date, -1)}&end=${addDays(date, 1)}`,
       { cacheKey: `tide:${place.lat.toFixed(2)},${place.lon.toFixed(2)}:${date}`, timeoutMs: 20000 })
       .then((r) => { setData(r.data); track('tide_date_view', { past: date < today, future: date > today }); })
-      .catch((e) => setErr(e?.message ?? 'Could not load'));
+      .catch((e) => setErr(friendly(e)));
   }, [place.lat, place.lon, date]);
 
   const curve = (data?.curve ?? []).filter((p: any) => localDate(p.t) === date);
@@ -398,6 +456,20 @@ function Tides({ place }: { place: WeatherPlace }) {
 }
 
 const useSt = makeStyles((colors) => ({
+  nearRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16, paddingTop: 10 },
+  near: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, paddingHorizontal: 12, borderRadius: 18, backgroundColor: colors.panelSolid, borderWidth: 1, borderColor: colors.border },
+  nearOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  nearAll: { backgroundColor: colors.inset },
+  nearT: { color: colors.text, fontSize: 14, fontWeight: '600', maxWidth: 140 },
+  nearTOn: { color: colors.accentInk },
+  pick: { flex: 1, backgroundColor: colors.bg, paddingTop: 8 },
+  pickHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 12 },
+  pickH: { color: colors.text, fontSize: 24, fontWeight: '800' },
+  pickDone: { color: colors.accent, fontSize: 17, fontWeight: '700' },
+  pickCap: { color: colors.muted, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4, paddingHorizontal: 18, paddingTop: 16, paddingBottom: 6 },
+  pickRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 14, backgroundColor: colors.panelSolid, borderBottomWidth: 0.5, borderColor: colors.line },
+  pickName: { flex: 1, color: colors.text, fontSize: 16.5 },
+  pickDist: { color: colors.muted, fontSize: 14, fontVariant: ['tabular-nums'] },
   root: { flex: 1, backgroundColor: colors.bg },
   header: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10, backgroundColor: colors.panelSolid, borderBottomWidth: 1, borderColor: colors.border },
   title: { color: colors.text, fontSize: 28, fontWeight: '800', letterSpacing: -0.3 },

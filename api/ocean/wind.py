@@ -54,6 +54,10 @@ def arrows(lats: np.ndarray, lons: np.ndarray, u: np.ndarray, v: np.ndarray, gus
 # WindAlert-style speed colors, in knots: calm blue → green → yellow → orange → red → magenta.
 WIND_KT = {"min": 0.0, "max": 35.0, "stops": ["#4b5fc4", "#3a8fd6", "#33bfc0", "#5ccf6e", "#c8d84a", "#f2c43a",
                                                "#f5902a", "#e2532f", "#c0303f", "#9b2f8f"]}
+# Radar colors (NWS reflectivity scale, dBZ). Below 15 dBZ (drizzle/clutter) is left clear.
+RADAR_DBZ = {"min": 15.0, "max": 65.0, "stops": ["#04e9e7", "#019ff4", "#0300f4", "#02fd02", "#01c501", "#008e00",
+                                                 "#fdf802", "#e5bc00", "#fd9500", "#fd0000", "#d40000", "#bc0000"]}
+RADAR_FORECAST_HOURS = 4   # forecast radar for the next few hours (HRRR)
 TILE_ZOOMS = range(5, 10)   # ~90 small squares per hour; the map smooths them when zoomed further
 
 
@@ -68,6 +72,27 @@ def speed_tiles(store, lats, lons, u, v, base: str, bbox: tuple) -> int:
     for z in TILE_ZOOMS:
         for zz, x, y in tiles_for_bbox(bbox, z):
             png = render(g, zz, x, y, lambda val: apply(val, WIND_KT, 255))
+            if png:
+                store.put(f"{base}/{zz}/{x}/{y}.png", png, "image/png")
+                n += 1
+    return n
+
+
+def radar_tiles(store, lats, lons, dbz, base: str, bbox: tuple) -> int:
+    """Forecast-radar map squares for one hour (only squares with rain are saved)."""
+    from .colormaps import apply
+    from .grid import Grid
+    from .tiles import render, tiles_for_bbox
+    if dbz is None:
+        return 0
+    v = np.where(np.asarray(dbz) >= RADAR_DBZ["min"], dbz, np.nan).astype(np.float32)
+    if not np.isfinite(v).any():
+        return 0
+    g = Grid(np.asarray(lats, dtype=np.float64), np.asarray(lons, dtype=np.float64), v, {"units": "dBZ"})
+    n = 0
+    for z in range(5, 9):
+        for zz, x, y in tiles_for_bbox(bbox, z):
+            png = render(g, zz, x, y, lambda val: apply(val, RADAR_DBZ, 230))
             if png:
                 store.put(f"{base}/{zz}/{x}/{y}.png", png, "image/png")
                 n += 1
@@ -166,12 +191,24 @@ def run(store, bbox: tuple, region: str = "socal") -> dict:
     plan = [p for p in plan if p[0] >= now - timedelta(hours=1)][:30]
     tag = (plan[0][2] if plan else cycle).strftime("%Y%m%d%H")
     hours = []
+    radar_frames = []
     for i, (valid, src, run_t, fh) in enumerate(plan):
+        want_radar = src == "hrrr" and valid <= now + timedelta(hours=RADAR_FORECAST_HOURS) and valid >= now - timedelta(minutes=30)
+        dbz = None
         try:
-            lats, lons, u, v, gust = (hrrr.hour_fields(http, run_t, fh, bbox) if src == "hrrr" else _gfs_hour(http, run_t, fh, bbox))
+            if src == "hrrr":
+                got = hrrr.hour_fields(http, run_t, fh, bbox, with_radar=want_radar)
+                lats, lons, u, v, gust = got[:5]
+                dbz = got[5] if want_radar else None
+            else:
+                lats, lons, u, v, gust = _gfs_hour(http, run_t, fh, bbox)
         except Exception as e:
-            print(f"wind: {src} f{fh:02d} skipped ({str(e)[:120]})")
+            print(f"wind {i + 1}/{len(plan)}: {src} f{fh:02d} skipped ({str(e)[:120]})")
             continue
+        if want_radar:
+            rbase = f"tiles/radarfc/{region}/{tag}/h{i:03d}"
+            rn = radar_tiles(store, lats, lons, dbz, rbase, bbox)
+            radar_frames.append({"valid": valid.isoformat(), "tiles": store.url(rbase) + "/{z}/{x}/{y}.png" if rn else None, "rain_tiles": rn})
         fc = arrows(*_thin(lats, lons, u, v, gust, 4 if src == "hrrr" else 1))
         key = f"vectors/wind/{region}/{tag}/h{i:03d}.geojson"
         store.put(key, json.dumps(fc).encode(), "application/geo+json")
@@ -181,6 +218,7 @@ def run(store, bbox: tuple, region: str = "socal") -> dict:
         store.put(uvk, json.dumps(uv_grid(lats, lons, u, v), separators=(",", ":")).encode(), "application/json")
         hours.append({"fh": i, "valid": valid.isoformat(), "url": store.url(key), "model": "HRRR 3 km" if src == "hrrr" else "GFS 25 km",
                       "tiles": store.url(tbase) + "/{z}/{x}/{y}.png" if n else None, "uv": store.url(uvk)})
+        print(f"wind {i + 1}/{len(plan)}: {src.upper()} {valid:%a %H:%MZ} ✓")
     if not hours:
         raise RuntimeError("No wind hours could be processed")
     sources = sorted({h["model"] for h in hours})
@@ -189,6 +227,7 @@ def run(store, bbox: tuple, region: str = "socal") -> dict:
         "source": "NOAA " + " + ".join(sources) + " via NOMADS", "resolution_m": 3000 if any("HRRR" in x for x in sources) else 25000,
         "note": "Model forecast, not measured. Color = wind speed; streaks and arrows move the way the wind blows. See buoys for measured wind.",
         "run": plan[0][2].isoformat(), "hours": hours,
+        "radar_forecast": {"source": "NOAA HRRR forecast radar (model, not measured)", "frames": radar_frames},
         "legend": {"unit": "kt", "stops": WIND_KT["stops"], "ticks": [0, 5, 10, 15, 20, 25, 30, 35], "min": 0, "max": 35},
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -202,6 +241,7 @@ def run(store, bbox: tuple, region: str = "socal") -> dict:
             if k not in keep and hasattr(store, "delete_prefix"):
                 store.delete_prefix(f"tiles/wind/{region}/{k}/")
                 store.delete_prefix(f"vectors/wind/{region}/{k}/")
+                store.delete_prefix(f"tiles/radarfc/{region}/{k}/")
         manifest["older_runs"] = sorted(keep - {tag})
         store.put("manifests/wind.json", json.dumps(manifest).encode(), "application/json")
     except Exception as e:

@@ -11,6 +11,7 @@ import { SPECIES, speciesColor, speciesName } from '../community/species';
 import { loadTracks, type TrackMeta } from '../storage';
 import { supabase, supabaseReady } from '../supabase';
 import { track } from '../analytics';
+import { friendly } from '../friendly';
 
 type Filters = { species: string | null; period: number | null; text: string; sstMin: string; sstMax: string; tide: 'any' | 'rising' | 'falling'; moon: 'any' | 'new' | 'full' };
 const PERIODS = [{ label: '30 days', d: 30 }, { label: '1 year', d: 365 }, { label: 'All', d: null as number | null }];
@@ -34,7 +35,7 @@ export function MyFishingScreen({ onShowOnMap, onBack }: { onShowOnMap: (lat: nu
     setSignedIn(!!data.session);
     if (!data.session) { setRows([]); return; }
     try { await syncQueue(); setPending(await loadQueue()); setRows(await myCatches()); setErr(null); }
-    catch (e: any) { setErr(e?.message ?? String(e)); }
+    catch (e: any) { setErr(friendly(e)); }
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -166,7 +167,7 @@ function CatchDetail({ r, onBack, onDeleted, onShowOnMap }: { r: any; onBack: ()
             if (!gs.length) { Alert.alert('No groups yet', 'Create or join a fishing group in Community → My groups.'); return; }
             const send = (ids: string[]) => shareCatch(r.id, ids)
               .then((n) => { track('group_catch_shared', { groups: ids.length }); Alert.alert(n ? 'Sent to your group' : 'Already shared with that group'); })
-              .catch((e) => Alert.alert('Not sent', e.message));
+              .catch((e) => Alert.alert('Not sent', friendly(e)));
             Alert.alert('Send this catch to…', 'Members see the exact spot. Nothing changes on the public map.', [
               ...gs.slice(0, 3).map((g) => ({ text: g.name, onPress: () => send([g.id]) })),
               ...(gs.length > 1 ? [{ text: 'All my groups', onPress: () => send(gs.map((g) => g.id)) }] : []),
@@ -174,7 +175,7 @@ function CatchDetail({ r, onBack, onDeleted, onShowOnMap }: { r: any; onBack: ()
           }}><Text style={st.link}>Send to group</Text></Pressable>
           <Pressable onPress={() => Alert.alert('Delete this catch?', 'It is removed from your log and from the public map.', [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Delete', style: 'destructive', onPress: () => deleteMyCatch(r.id).then(onDeleted).catch((e) => Alert.alert('Not deleted', e.message)) }])}>
+            { text: 'Delete', style: 'destructive', onPress: () => deleteMyCatch(r.id).then(onDeleted).catch((e) => Alert.alert('Not deleted', friendly(e))) }])}>
             <Text style={[st.link, { color: colors.alert }]}>Delete</Text>
           </Pressable>
         </View>

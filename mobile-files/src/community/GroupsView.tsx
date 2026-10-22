@@ -14,6 +14,7 @@ import * as store from '../storage';
 import type { Pt } from '../nav';
 import * as G from './groupsApi';
 import { lastSeen } from '../components/Buddies';
+import { friendly } from '../friendly';
 
 export type GroupNav = {
   onShowOnMap: (lat: number, lon: number, name: string) => void;
@@ -25,7 +26,7 @@ const when = (iso: string) => {
   const d = new Date(iso), now = new Date();
   return d.toDateString() === now.toDateString() ? timeOf(iso) : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${timeOf(iso)}`;
 };
-const fail = (e: any) => Alert.alert('Not done', e?.message ?? String(e));
+const fail = (e: any) => Alert.alert('Not done', friendly(e));
 
 export function GroupsView({ nav, openGroupId }: { nav: GroupNav; openGroupId?: string | null }) {
   const st = useSt();
@@ -151,7 +152,7 @@ function GroupDetailView({ groupId, me, nav, plan, onPlanChanged, onBack }: {
 
   const load = useCallback(async () => {
     await Promise.all([
-      G.groupDetail(groupId).then(setD).catch((e) => { Alert.alert('Group', e.message); onBack(); }),
+      G.groupDetail(groupId).then(setD).catch((e) => { Alert.alert('Group', friendly(e)); onBack(); }),
       G.feed(groupId).then(setItems).catch(() => {}),
     ]);
   }, [groupId]);
@@ -175,7 +176,7 @@ function GroupDetailView({ groupId, me, nav, plan, onPlanChanged, onBack }: {
       await G.sendShare(groupId, kind, { lat: at.lat, lon: at.lon, body: text });
       setText(''); track(kind === 'ping' ? 'group_ping' : 'group_position_sent', { groups: 1 });
       await load();
-    } catch (e: any) { Alert.alert('Not sent', `${e?.message ?? e}\n\nNo signal? Try again when you have service — or use VHF.`); }
+    } catch (e: any) { Alert.alert('Not sent', `${friendly(e)}\n\nNo signal? Try again when you have service — or use VHF.`); }
     finally { setBusy(false); }
   };
   const sendMsg = async () => {

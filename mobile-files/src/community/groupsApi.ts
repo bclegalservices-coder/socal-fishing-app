@@ -2,6 +2,7 @@
 // "come to me", shared catches / spots / routes, messages, and float plans with overdue alerts.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../supabase';
+import { friendly } from '../friendly';
 
 export type Member = { user_id: string; boat_name: string | null; sharing_until: string | null; hidden: boolean; role: string };
 export type Group = { id: string; name: string; invite_code: string; owner_id: string; group_members: Member[] };
@@ -151,7 +152,7 @@ export async function sendShare(groupId: string, kind: 'ping' | 'position' | 'sp
 export async function sendToGroups(groups: { id: string; name: string }[], kind: Parameters<typeof sendShare>[1], d: Parameters<typeof sendShare>[2]) {
   const failed: string[] = [];
   for (const g of groups) {
-    try { await sendShare(g.id, kind, d); } catch (e: any) { failed.push(`${g.name}: ${e?.message ?? e}`); }
+    try { await sendShare(g.id, kind, d); } catch (e: any) { failed.push(`${g.name}: ${friendly(e)}`); }
   }
   return failed;
 }

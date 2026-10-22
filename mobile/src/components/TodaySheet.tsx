@@ -8,6 +8,7 @@ import { colors, makeStyles } from '../theme';
 import { speciesColor, speciesName } from '../community/species';
 import { PresentedBy, SponsorBanner } from '../ads/Sponsor';
 import { Btn } from './ui';
+import { friendly } from '../friendly';
 
 export function TodaySheet({ onClose, onOpenCatchMap }: { onClose: () => void; onOpenCatchMap: () => void }) {
   const st = useSt();
@@ -16,7 +17,7 @@ export function TodaySheet({ onClose, onOpenCatchMap }: { onClose: () => void; o
   const [meta, setMeta] = useState<{ cached: boolean; savedAt: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
-    getJSON<any>('/today', { cacheKey: 'today', timeoutMs: 20000 }).then((r) => { setD(r.data); setMeta({ cached: r.cached, savedAt: r.savedAt }); }).catch((e) => setErr(e.message));
+    getJSON<any>('/today', { cacheKey: 'today', timeoutMs: 20000 }).then((r) => { setD(r.data); setMeta({ cached: r.cached, savedAt: r.savedAt }); }).catch((e) => setErr(friendly(e)));
   }, []);
   const total = (d?.species ?? []).reduce((a: number, s: any) => a + Number(s.fish), 0);
   return (

@@ -15,6 +15,7 @@ import { AlertsScreen } from './AlertsScreen';
 import { OfflineScreen } from './OfflineScreen';
 import { SavedCoupons } from '../ads/Sponsor';
 import { getOptOut, setOptOut, track } from '../analytics';
+import { friendly } from '../friendly';
 
 export function ProfileScreen({ onShowOnMap }: { onShowOnMap: (lat: number, lon: number, name: string) => void }) {
   const st = useSt();
@@ -113,7 +114,7 @@ function confirmDelete() {
         if (error) throw error;
         await supabase.auth.signOut();
         Alert.alert('Account deleted', 'Thanks for fishing with us.');
-      } catch (e: any) { Alert.alert('Could not delete', e?.message ?? String(e)); }
+      } catch (e: any) { Alert.alert('Could not delete', friendly(e)); }
     } },
   ]);
 }
@@ -130,24 +131,24 @@ function SignIn() {
     setBusy(true);
     const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: true } });
     setBusy(false);
-    if (error) Alert.alert('Could not send code', error.message); else setSent(true);
+    if (error) Alert.alert('Could not send code', friendly(error)); else setSent(true);
   };
   const verify = async () => {
     setBusy(true);
     const { error } = await supabase.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'email' });
     setBusy(false);
-    if (error) Alert.alert('Code not accepted', error.message); else track('sign_in');
+    if (error) Alert.alert('Code not accepted', friendly(error)); else track('sign_in');
   };
   const demo = async () => {
     setBusy(true);
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     setBusy(false);
-    if (error) Alert.alert('Not signed in', error.message); else track('sign_in');
+    if (error) Alert.alert('Not signed in', friendly(error)); else track('sign_in');
   };
   return (
     <Card>
       <Text style={st.h2}>Sign in or create an account</Text>
-      <Text style={st.p}>We email you a 6-digit code — no password to remember. Your real name is never required. An account adds cloud backup, catch reports, your crew and the community.</Text>
+      <Text style={st.p}>We email you a sign-in code — no password to remember. Your real name is never required. An account adds cloud backup, catch reports, your crew and the community.</Text>
       <TextInput value={email} onChangeText={setEmail} placeholder="you@example.com" placeholderTextColor={colors.faint}
         keyboardType="email-address" autoCapitalize="none" autoComplete="email" style={st.input} editable={!sent} accessibilityLabel="Email" />
       {isDemo ? (
@@ -157,7 +158,7 @@ function SignIn() {
         </>
       ) : sent ? (
         <>
-          <TextInput value={code} onChangeText={setCode} placeholder="6-digit code" placeholderTextColor={colors.faint} keyboardType="number-pad" maxLength={6} style={st.input} accessibilityLabel="Code from the email" />
+          <TextInput value={code} onChangeText={setCode} placeholder="Code from the email" placeholderTextColor={colors.faint} keyboardType="number-pad" maxLength={10} style={st.input} accessibilityLabel="Code from the email" />
           <Btn label={busy ? 'Checking…' : 'Sign in'} kind="primary" onPress={verify} disabled={busy || code.length < 6} />
           <Pressable onPress={() => { setSent(false); setCode(''); }}><Text style={st.linkT}>Use a different email</Text></Pressable>
         </>
@@ -187,7 +188,7 @@ function Account({ session }: { session: Session }) {
     setBusy(true);
     const { error } = await supabase.from('profiles').upsert({ id: session.user.id, display_name: displayName.trim() || null, prefs: { boat_name: boat.trim() || null } });
     setBusy(false);
-    if (error) Alert.alert('Not saved', error.message); else Alert.alert('Saved');
+    if (error) Alert.alert('Not saved', friendly(error)); else Alert.alert('Saved');
   };
   return (
     <View style={st.card}>
@@ -211,7 +212,7 @@ function DataSources({ onBack }: { onBack: () => void }) {
   const [layers, setLayers] = useState<any[]>([]);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
-    getJSON<any[]>('/sources', { cacheKey: 'sources' }).then((r) => setSources(r.data)).catch((e) => setErr(String(e.message ?? e)));
+    getJSON<any[]>('/sources', { cacheKey: 'sources' }).then((r) => setSources(r.data)).catch((e) => setErr(friendly(e)));
     getJSON<any>('/layers', { cacheKey: 'layers' }).then((r) => setLayers(r.data.layers ?? [])).catch(() => {});
   }, []);
   return (

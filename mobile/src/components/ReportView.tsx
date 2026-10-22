@@ -7,14 +7,15 @@ import { flagCatch, publicPhotoUrl, reportsIn, summarize, type PublicReport } fr
 import { speciesColor, speciesName } from '../community/species';
 import type { Cluster } from './CatchMap';
 import { Btn, Note, Sheet, Title } from './ui';
+import { friendly } from '../friendly';
 
 export function ReportCard({ r, onGo }: { r: PublicReport; onGo?: () => void }) {
   const st = useSt();
   const loc = r.area_name ? `${r.area_name}${r.fuzz_radius_nm ? ' (approx.)' : ''}` : r.fuzz_radius_nm ? `Approximate area (±${r.fuzz_radius_nm} NM)` : 'Exact location shared';
   const flag = () => Alert.alert('Report this catch?', 'Flag reports that look fake or misleading.', [
     { text: 'Cancel', style: 'cancel' },
-    { text: 'Looks fake', onPress: () => flagCatch(r.id, 'fake').then(() => Alert.alert('Thanks — a moderator will look.')).catch((e) => Alert.alert('Not sent', e.message)) },
-    { text: 'Wrong location', onPress: () => flagCatch(r.id, 'wrong_location').then(() => Alert.alert('Thanks.')).catch((e) => Alert.alert('Not sent', e.message)) },
+    { text: 'Looks fake', onPress: () => flagCatch(r.id, 'fake').then(() => Alert.alert('Thanks — a moderator will look.')).catch((e) => Alert.alert('Not sent', friendly(e))) },
+    { text: 'Wrong location', onPress: () => flagCatch(r.id, 'wrong_location').then(() => Alert.alert('Thanks.')).catch((e) => Alert.alert('Not sent', friendly(e))) },
   ]);
   return (
     <View style={st.card}>
@@ -51,7 +52,7 @@ export function ClusterSheet({ c, hours, onClose }: { c: Cluster; hours: number;
   useEffect(() => {
     const d = Math.max(c.cell, 0.01);
     reportsIn({ minLon: c.lon - d, minLat: c.lat - d, maxLon: c.lon + d, maxLat: c.lat + d }, hours, [c.species_code], 50)
-      .then(setRs).catch((e) => setErr(e.message));
+      .then(setRs).catch((e) => setErr(friendly(e)));
   }, [c.lon, c.lat, c.species_code, hours]);
   const s = rs ? summarize(rs) : null;
   return (

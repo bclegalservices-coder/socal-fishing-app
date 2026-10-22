@@ -172,3 +172,7 @@ Free, supported by ads and local sponsors.
 2. Private spots are private by default, enforced by the database (RLS), not just the UI.
 3. No fake data presented as real. Dev/test rows are named as such.
 4. Navigation assistance only — "Go To" is a straight-line bearing, never a route.
+
+## Roadmap
+
+Planned features and the order to build them: [`docs/ROADMAP.md`](docs/ROADMAP.md).

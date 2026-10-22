@@ -11,6 +11,7 @@ import { newClientId, queueCatch, type LocationMode } from '../community/catchAp
 import { cachedGroups } from '../community/groupsApi';
 import { Btn } from './ui';
 import { track } from '../analytics';
+import { friendly } from '../friendly';
 
 type Props = { lat: number; lon: number; nearestSpot?: { id: string; name: string } | null; depthFt?: number | null; onDone: (msg: string) => void; onCancel: () => void };
 
@@ -73,7 +74,7 @@ export function LogCatchSheet({ lat, lon, nearestSpot, depthFt, onDone, onCancel
       if (toGroups.length) track('group_catch_shared', { groups: toGroups.length });
       onDone(r.sent ? 'Catch saved and sent.' : r.signedIn ? 'Catch saved. It will send when you\'re back in range.' : 'Catch saved on this phone. Sign in (Profile tab) to back it up and share it.');
     } catch (e: any) {
-      Alert.alert('Not saved', e?.message ?? String(e));
+      Alert.alert('Not saved', friendly(e));
     } finally { setBusy(false); }
   };
 

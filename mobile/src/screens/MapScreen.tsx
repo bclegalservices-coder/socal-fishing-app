@@ -36,7 +36,8 @@ import { ClusterSheet } from '../components/ReportView';
 import { BuddyMarkers } from '../components/Buddies';
 import { loadCoordFormat } from '../coordPref';
 import { HarborLayers, declutter, harborCard, useHarbors } from '../layers/Harbors';
-import { harborsOf } from '../layers/catalog';
+import { harborsOf, wind as windOf } from '../layers/catalog';
+import { WindLayer } from '../layers/Wind';
 import { GroupPins } from '../components/GroupPins';
 import { SendToGroupSheet } from '../community/SendToGroupSheet';
 import { LogCatchSheet } from '../components/LogCatchSheet';
@@ -52,6 +53,7 @@ import { autoRefresh, downloadArea } from '../offline/packs';
 import { useNetwork } from '../offline/network';
 import { grid as gridLayer } from '../layers/catalog';
 import { setArea, track } from '../analytics';
+import { friendly } from '../friendly';
 
 const ARRIVE_NM = 0.1;
 const LAYERS_KEY = 'layers:v2'; // v2: fresh start after the Oct 20 crash
@@ -121,6 +123,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   useEffect(() => { camera.current?.setStop({ pitch: layers.tilt ? 55 : 0, duration: 600 }).catch(() => {}); }, [layers.tilt]);
   const [compareOffset, setCompareOffset] = useState<number | null>(null);
   const [radarPlaying, setRadarPlaying] = useState(false);
+  const [radarLabel, setRadarLabel] = useState<string | null>(null);
   const [probe, setProbe] = useState(false);
   // Catch and water-temp filters stay folded into small pills until tapped, so the chart stays clear.
   const [openBar, setOpenBar] = useState<'catch' | 'time' | null>(null);
@@ -359,7 +362,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     const extra = [gridLayer(catalog, 'bathy')?.dates?.[0]?.tiles].filter(Boolean) as string[];
     setPanel('none'); setToast('Saving this area for offline use…'); track('offline_area_saved');
     downloadArea(name, [view.maxLon, view.maxLat], [view.minLon, view.minLat], extra, (pct) => { if (pct >= 100) setToast('Area saved for offline use'); })
-      .catch((e) => setToast(`Area not saved: ${e?.message ?? e}`));
+      .catch((e) => setToast(`Area not saved: ${friendly(e)}`));
   };
 
   const navInfo = useMemo(() => {
@@ -413,7 +416,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         const mode = await startTrack(); setActive(await store.loadActive()); track('track_started', { background: mode === 'background' });
         if (mode === 'foreground') Alert.alert('Recording while the app is open', 'To keep recording with the screen off, set Location to "Always" for this app in Settings.');
       }
-    } catch (e: any) { Alert.alert('Could not record', e?.message ?? String(e)); }
+    } catch (e: any) { Alert.alert('Could not record', friendly(e)); }
   };
   const cycleOrient = () => {
     const next: Orientation = orient === 'north' ? 'heading' : orient === 'heading' ? 'course' : 'north';
@@ -580,7 +583,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         <Camera ref={camera} initialViewState={{ center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM }}
           trackUserLocation={orient === 'heading' ? 'heading' : orient === 'course' ? 'course' : undefined}
           onTrackUserLocationChange={(e: any) => { if (e?.nativeEvent?.trackUserLocation == null && orient !== 'north') setOrient('north'); }} />
-        <MapLayers catalog={catalog} s={layers} compareOffset={compareOffset} radarPlaying={radarPlaying} onBuoyPress={(p) => { featurePressAt.current = Date.now(); setSel(null); setBuoy(p); }} />
+        <MapLayers catalog={catalog} s={layers} compareOffset={compareOffset} radarPlaying={radarPlaying} onRadarLabel={setRadarLabel} onBuoyPress={(p) => { featurePressAt.current = Date.now(); setSel(null); setBuoy(p); }} />
         {/* MPAs on top of every overlay so they're never hidden under relief or satellite */}
         <RulesLayers data={rules} showProtected={layers.on.rules} showHazards={layers.on.hazards}
           onPress={(p, geom) => { featurePressAt.current = Date.now(); setSel(null); setClusterSel(null); setRuleSel({ ...p, geom }); }} />
@@ -605,6 +608,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           <Layer type="line" id="nav-line" style={{ lineColor: colors.accent, lineWidth: 3.5, lineDasharray: [2, 1.2] }} />
           <Layer type="circle" id="nav-pts" style={{ circleRadius: 8, circleColor: colors.accent, circleStrokeColor: colors.bg, circleStrokeWidth: 2 }} />
         </GeoJSONSource>
+        <WindLayer on={layers.on.wind} view={view} opacity={layers.opacity.wind ?? 0.55}
+          hour={windOf(catalog)?.hours?.[Math.min(layers.windIndex, (windOf(catalog)?.hours?.length ?? 1) - 1)]} />
         <HarborLayers fc={harborFc} s={layers} view={view} onPress={(p, [lon, lat]) => {
           featurePressAt.current = Date.now(); setBuoy(null); setPanel('none');
           const c = harborCard(p); setSel({ kind: 'spot', pt: { lat, lon, name: c.name, subtitle: c.subtitle } });
@@ -681,6 +686,11 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           onCancel={() => setLogAt(null)} onDone={(m) => { setLogAt(null); setToast(m); }} />
       ) : null}
       {today ? <TodaySheet onClose={() => setToday(false)} onOpenCatchMap={() => { setToday(false); setLayers((p) => ({ ...p, on: { ...p.on, catches: true } })); setCatchHours(24); }} /> : null}
+      {radarLabel ? (
+        <View pointerEvents="none" style={[st.radarTag, radarLabel.startsWith('Forecast') && st.radarTagFc]}>
+          <Text style={st.radarTagT}>{radarLabel}</Text>
+        </View>
+      ) : null}
       {toast ? <View style={st.toast} pointerEvents="none"><Text style={st.toastT}>{toast}</Text></View> : null}
       {panel === 'search' ? <SearchSheet boat={here()} mySpots={mySpots} publicSpots={publicSpots} onPick={onSearchPick} onClose={() => setPanel('none')} /> : null}
     </View>
@@ -722,6 +732,9 @@ const useSt = makeStyles((colors) => ({
   probe: { backgroundColor: colors.panel, borderColor: colors.live, borderWidth: 1.5, borderRadius: 12, padding: 10, gap: 3, marginRight: 70 },
   probeC: { color: colors.text, fontSize: 16, fontWeight: '700', fontVariant: ['tabular-nums'] },
   probeL: { color: colors.text, fontSize: 13 },
+  radarTag: { position: 'absolute', alignSelf: 'center', top: '46%', backgroundColor: 'rgba(11,27,43,0.82)', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 7 },
+  radarTagFc: { backgroundColor: 'rgba(122,62,170,0.88)' },
+  radarTagT: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', fontVariant: ['tabular-nums'] },
   crossWrap: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   crossH: { position: 'absolute', width: 56, height: 2, backgroundColor: colors.live },
   crossV: { position: 'absolute', width: 2, height: 56, backgroundColor: colors.live },

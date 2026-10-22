@@ -3,12 +3,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { OfflineManager } from '@maplibre/maplibre-react-native';
 import { getJSON } from '../api';
-import { API_URL, NOAA_CHART_TILES } from '../config';
+import { API_URL, noaaChartTiles } from '../config';
+import { DEFAULT_LAYERS } from '../layers/state';
 import { savePublicSpots } from '../storage';
 import { readJSON, writeJSON } from './files';
 import { isOnline, onWifi } from './network';
 import { refreshRules } from './rules';
 import type { PackStation } from './tideMath';
+import { friendly } from '../friendly';
 
 export const HOME = { name: 'home-waters', label: 'Southern California & North Baja', ne: [-116.6, 35.0] as [number, number], sw: [-121.0, 31.0] as [number, number] };
 const SETTINGS = 'offline-settings:v1';
@@ -26,7 +28,10 @@ export const setSettings = (s: OfflineSettings) => AsyncStorage.setItem(SETTINGS
 export async function getStatus(): Promise<OfflineStatus> { try { return JSON.parse((await AsyncStorage.getItem(STATUS)) ?? '{}'); } catch { return {}; } }
 const patch = async (p: Partial<OfflineStatus>) => { const s = { ...(await getStatus()), ...p }; await AsyncStorage.setItem(STATUS, JSON.stringify(s)); return s; };
 
-const styleUrl = (tiles: string[]) => `${API_URL}/offline/style.json?${tiles.map((t) => `tiles=${encodeURIComponent(t)}`).join('&')}`;
+// The tile list travels as base64url (letters, digits, - and _ only). A %-code anywhere in an address the map engine
+// loads can crash it when that request fails (Oct 20), so none are used here.
+const b64url = (s: string) => globalThis.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const styleUrl = (tiles: string[]) => `${API_URL}/offline/style.json?t=${b64url(JSON.stringify(tiles))}`;
 
 function createPack(name: string, tiles: string[], ne: [number, number], sw: [number, number], minZoom: number, maxZoom: number,
   onProgress: (pct: number, bytes: number, done: boolean) => void): Promise<void> {
@@ -59,10 +64,18 @@ async function replacePack(name: string, tiles: string[], ne: [number, number], 
   return createPack(name, tiles, ne, sw, minZoom, maxZoom, onProgress);
 }
 
+/** The exact chart address the live map uses (your chart-detail switches, day colors), so saved squares match.
+ *  Night colors are a different set of squares; the day chart is what gets saved. */
+async function chartTiles(): Promise<string> {
+  let chart = DEFAULT_LAYERS.chart;
+  try { const raw = await AsyncStorage.getItem('layers:v2'); if (raw) chart = { ...chart, ...(JSON.parse(raw).chart ?? {}) }; } catch { /* defaults */ }
+  return noaaChartTiles(chart, false);
+}
+
 /** Chart + seafloor for the whole region (zoom 5–12). Big, so normally only on Wi-Fi. */
 export async function downloadChartPack(bathyTiles: string | null, onProgress?: (s: OfflineStatus) => void) {
   OfflineManager.setTileCountLimit?.(200000);
-  const tiles = [NOAA_CHART_TILES, ...(bathyTiles ? [bathyTiles] : [])];
+  const tiles = [await chartTiles(), ...(bathyTiles ? [bathyTiles] : [])];
   await replacePack(HOME.name, tiles, HOME.ne, HOME.sw, 5, 12, async (percent, bytes, done) => {
     const s = await patch({ chart: { percent, bytes, done, at: done ? Date.now() : undefined } });
     onProgress?.(s);
@@ -81,7 +94,7 @@ export async function downloadOceanPack(sstTiles: string | null, chlTiles: strin
 
 /** Extra detail for one area you're about to fish (zoom 10–14). */
 export async function downloadArea(name: string, ne: [number, number], sw: [number, number], extraTiles: string[], onProgress: (pct: number) => void) {
-  await replacePack(`area-${name}`, [NOAA_CHART_TILES, ...extraTiles], ne, sw, 10, 14, (pct) => onProgress(pct));
+  await replacePack(`area-${name}`, [await chartTiles(), ...extraTiles], ne, sw, 10, 14, (pct) => onProgress(pct));
 }
 
 export async function downloadSmallData(): Promise<OfflineStatus> {
@@ -124,7 +137,7 @@ export async function autoRefresh(catalog: any, force = false, onProgress?: (s: 
   }
   const chartOld = !st.chart?.done || !st.chart.at || Date.now() - st.chart.at > 30 * 86400000;
   if ((force || chartOld) && (!settings.wifiOnly || (await onWifi()))) {
-    await downloadChartPack(g('bathy')?.dates?.[0]?.tiles ?? null, onProgress).catch(async (e) => patch({ chart: { percent: 0, bytes: 0, done: false, error: String(e?.message ?? e) } }));
+    await downloadChartPack(g('bathy')?.dates?.[0]?.tiles ?? null, onProgress).catch(async (e) => patch({ chart: { percent: 0, bytes: 0, done: false, error: friendly(e) } }));
   }
   return getStatus();
 }

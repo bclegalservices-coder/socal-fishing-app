@@ -30,7 +30,7 @@ from .tiles import pixel_lonlat, render, tiles_for_bbox
 
 KEEP_DAYS = 14
 LEGENDS = {
-    "sst": legend(SST_F, "°F", [56, 60, 64, 68, 72, 76]),
+    "sst": legend(SST_F, "°F", [54, 58, 62, 66, 70, 74, 78]),
     "chl": legend(CHL, "mg/m³", [0.05, 0.1, 0.25, 0.5, 1, 3, 10]),
     "bathy": legend(DEPTH_FT, "ft", [60, 300, 600, 1200, 3000, 6000]),
 }

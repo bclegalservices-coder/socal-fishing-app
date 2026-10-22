@@ -8,6 +8,7 @@ from fastapi import Body
 from fastapi.responses import JSONResponse
 
 from conditions import buoys, tides
+from features import support as support_mod
 from features import ads as ads_mod, analytics as analytics_mod, billing as billing_mod, offline as offline_mod, today as today_mod
 from datetime import datetime, timezone
 
@@ -105,6 +106,42 @@ async def ad(request: Request, placement: str, section: str | None = None, tags:
     area = area if area in analytics_mod.AREAS else None
     a = await ads_mod.pick(getattr(request.app.state, "pool", None), placement, section, [t for t in tags.split(",") if t], area=area)
     return a or JSONResponse(status_code=204, content=None)
+
+
+@router.get("/ads/featured")
+async def ads_featured(request: Request, kinds: str = "", area: str | None = None):
+    """Gold "Featured" business pins for the switched-on harbor layers (fuel, bait, marina)."""
+    area = area if area in analytics_mod.AREAS else None
+    return await ads_mod.featured(getattr(request.app.state, "pool", None), [k for k in kinds.split(",") if k], area=area)
+
+
+@router.post("/feedback")
+async def feedback(request: Request, body: dict = Body(...)):
+    """Me → Send feedback. Rate-limited per network address."""
+    ip = request.client.host if request.client else "?"
+    if not support_mod.rate_ok(f"fb:{ip}", 20):
+        raise HTTPException(429, "Too many messages, try again later")
+    try:
+        f = support_mod.clean_feedback(body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    ok = await support_mod.store_feedback(getattr(request.app.state, "pool", None), f)
+    if not ok:
+        raise HTTPException(503, "Feedback is not set up")
+    return {"ok": True}
+
+
+@router.post("/reports/errors")
+async def error_reports(request: Request, body: dict = Body(...)):
+    """Crash reports saved on the phone and sent on the next launch."""
+    ip = request.client.host if request.client else "?"
+    if not support_mod.rate_ok(f"err:{ip}", 60):
+        return {"stored": 0}
+    try:
+        errs = support_mod.clean_errors(body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"stored": await support_mod.store_errors(getattr(request.app.state, "pool", None), errs)}
 
 
 @router.get("/billing/config")

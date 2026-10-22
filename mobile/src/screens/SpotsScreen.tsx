@@ -9,6 +9,7 @@ import { trackStats } from '../nav';
 import { ScreenHeader, Btn } from '../components/ui';
 import { track } from '../analytics';
 import type { PickRequest } from './MapScreen';
+import { friendly } from '../friendly';
 
 type Item = { key: string; kind: 'spot' | 'saved'; name: string; sub: string; lat: number; lon: number; id?: string };
 
@@ -17,10 +18,10 @@ export function SpotsScreen({ mySpots, onPick, onImported }: { mySpots: SavedSpo
   const [preview, setPreview] = useState<{ fileName: string; data: Imported } | null>(null);
   const startImport = async () => {
     try { const r = await pickAndParse(); if (r) setPreview(r); }
-    catch (e: any) { Alert.alert('Could not read file', e?.message ?? String(e)); }
+    catch (e: any) { Alert.alert('Could not read file', friendly(e)); }
   };
   const doExport = async () => {
-    try { await exportAllGPX(); track('export_done'); } catch (e: any) { Alert.alert('Export failed', e?.message ?? String(e)); }
+    try { await exportAllGPX(); track('export_done'); } catch (e: any) { Alert.alert('Export failed', friendly(e)); }
   };
   if (preview) return <ImportPreview p={preview} mySpots={mySpots} onDone={(msg) => { setPreview(null); onImported(); if (msg) Alert.alert('Imported', msg); }} />;
   const [pub, setPub] = useState<any>(null);

@@ -4,7 +4,8 @@ Contextual only: ads are chosen by placement, section, what's on screen (tags) a
 events carry no identity."""
 import random
 
-PLACEMENTS = {"banner_dashboard", "banner_reports", "banner_community", "sponsor_intro", "presented_by", "catch_map_open"}
+PLACEMENTS = {"banner_dashboard", "banner_reports", "banner_community", "banner_weather", "sponsor_intro", "presented_by", "catch_map_open", "featured_listing"}
+FEATURED_KINDS = ("fuel", "bait", "marina")
 EVENTS = {"impression", "click", "call", "directions", "coupon_open", "coupon_save", "video_start", "video_complete"}
 
 PICK_SQL = """
@@ -63,3 +64,27 @@ async def log_event(pool, campaign_id: int, event: str, placement: str, context:
     async with pool.connection() as conn:
         await conn.execute("insert into ad_events (campaign_id, event, placement, context, device_day_hash, area) values (%s, %s, %s::ad_placement, %s, %s, %s)",
                            (campaign_id, event, placement, (context or "")[:80], (device_day_hash or "")[:64], area))
+
+
+def featured_from(rows: list[dict], kinds: list[str], limit: int = 12) -> list[dict]:
+    """Featured business pins: every live featured_listing whose tags include one of the switched-on kinds
+    (fuel / bait / marina). Each needs a "Directions" action (lat,lon) to be placed on the map."""
+    want = [k for k in kinds if k in FEATURED_KINDS]
+    out = []
+    for r in rows:
+        tags = {t.lower() for t in (r.get("context_tags") or [])}
+        kind = next((k for k in want if k in tags), None)
+        c = r.get("creative") or {}
+        if not kind or c.get("action_type") != "directions" or not c.get("action_value"):
+            continue
+        out.append({**shape(r), "kind": kind})
+    random.shuffle(out)   # fair rotation when more than fit on screen
+    return out[:limit]
+
+
+async def featured(pool, kinds: list[str], region: str = "socal", area: str | None = None) -> list[dict]:
+    if pool is None:
+        return []
+    async with pool.connection() as conn:
+        rows = await (await conn.execute(PICK_SQL, {"placement": "featured_listing", "section": None, "region": region, "area": area})).fetchall()
+    return featured_from(rows, kinds)

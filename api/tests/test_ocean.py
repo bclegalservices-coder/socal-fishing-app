@@ -316,3 +316,30 @@ def test_hrrr_rotation_and_regrid():
     lats, lons, g = regrid(lat2, lon2, {"u": np.full(lat2.shape, 7.0)}, (-118.8, 32.2, -117.5, 33.8))
     assert lats[0] == 32.2 and abs(lons[-1] - (-117.5)) < 0.031
     assert np.nanmin(g["u"]) == 7.0 and np.isfinite(g["u"]).mean() > 0.95
+
+
+def test_forecast_radar_tiles_skip_dry_hours():
+    import tempfile
+    import numpy as np
+    from core.storage import LocalStore
+    from ocean.wind import radar_tiles
+    lats = np.arange(32.0, 34.01, 0.03)
+    lons = np.arange(-119.0, -116.99, 0.03)
+    st = LocalStore(tempfile.mkdtemp())
+    dry = np.full((lats.size, lons.size), 5.0)
+    assert radar_tiles(st, lats, lons, dry, "tiles/radarfc/t/h000", (-119.0, 32.0, -117.0, 34.0)) == 0
+    wet = dry.copy()
+    wet[20:40, 20:40] = 40.0
+    assert radar_tiles(st, lats, lons, wet, "tiles/radarfc/t/h001", (-119.0, 32.0, -117.0, 34.0)) > 0
+
+
+def test_sst_bands_are_crisp():
+    """Each 1 °F band is one solid color; neighboring degrees get different colors."""
+    import numpy as np
+    from ocean import colormaps
+    v = np.array([64.1, 64.9, 65.1, np.nan])
+    rgba = colormaps.apply(v, colormaps.SST_F)
+    assert (rgba[0, :3] == rgba[1, :3]).all()          # same band → identical color
+    assert not (rgba[1, :3] == rgba[2, :3]).all()      # next degree → a different color
+    assert rgba[3, 3] == 0                              # no data → transparent
+    assert len(colormaps.SST_F["stops"]) == 24

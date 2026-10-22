@@ -9,12 +9,14 @@ and a rough size. **Status** is updated as work happens.
 | 2 | Automatic data updates + "what changed" notices | Yes | 2–3 days | Planned |
 | 3 | Rules text editable from the admin console | Yes | 1 day | Planned |
 | 4 | Admin push alerts for closures / rule changes | Yes | 1 day | Planned |
-| 5 | Over-the-air app updates | No | ½ day | Planned |
+| 5 | Over-the-air app updates | No | ½ day | Built (#12) |
 | 6 | Server copy (cache) of the NOAA chart | Yes | 1–2 days | Planned |
 | 7 | Crowd-sourced depth ("our SonarChart") | Yes | 2–4 weeks | After launch |
 | 8 | Polish pass, screen by screen, on a real iPhone | No | ongoing | In progress |
 | 9 | Final name, icon and launch logo | No | ½ day | Waiting on logo pick |
 | 10 | Live wind map (colored speed + moving wind streaks + station arrows) | Yes | 4–6 days | Planned |
+| 12 | Over-the-air app updates — scripts ready (`mobile/scripts/ota-setup.sh`, `ship.sh`) | No | done | Set up before the iPhone build |
+| 13 | Multiple regions (see docs/REGIONS.md) | Yes | 3–5 days | Planned |
 | 11 | Water clarity layer (Copernicus daily gap-free transparency) + "actual satellite pass" chlorophyll view | Yes | 1 day | Planned |
 
 ---

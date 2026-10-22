@@ -4,9 +4,10 @@ import { bearingTrue, distanceNm, formatLatLon, formatNm } from '../geo';
 import type { Pt } from '../nav';
 import { Btn, Note, Row, Sheet, Stat, Title } from './ui';
 import { ConditionsView } from './ConditionsView';
+import { PresentedBy } from '../ads/Sponsor';
 
 type Props = {
-  spot: Pt & { subtitle?: string }; boat: Pt | null; kind: 'spot' | 'pin' | 'saved';
+  spot: Pt & { subtitle?: string; sponsor?: string; sponsorTags?: string[] }; boat: Pt | null; kind: 'spot' | 'pin' | 'saved';
   onGo: () => void; onAddToRoute: () => void; onSave?: () => void; onDelete?: () => void; onClose: () => void; onLog?: () => void; onWeather?: () => void; onShareToGroup?: () => void; protectedHere?: any[];
 };
 
@@ -40,6 +41,7 @@ export function SpotCard({ spot, boat, kind, onGo, onAddToRoute, onSave, onDelet
       {onShareToGroup ? <Btn label="Send to my crew" icon="megaphone-outline" onPress={onShareToGroup} /> : null}
       {onWeather ? <Btn label="5-day weather for this spot" icon="partly-sunny-outline" onPress={onWeather} /> : null}
       <ConditionsView lat={spot.lat} lon={spot.lon} />
+      {spot.sponsor ? <PresentedBy section={spot.sponsor} tags={spot.sponsorTags} /> : null}
     </Sheet>
   );
 }

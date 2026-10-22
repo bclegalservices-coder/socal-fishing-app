@@ -1,19 +1,21 @@
 // "My boat": the forecast is rated for this boat. Saved on the phone.
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, touch, makeStyles } from '../theme';
 import { Btn, Note, Row } from '../components/ui';
 import { BOAT_TYPES, COMFORT, type Boat } from './model';
 
 export function BoatSheet({ boat, onSave, onClose }: { boat: Boat; onSave: (b: Boat) => void; onClose: () => void }) {
   const st = useSt();
+  const insets = useSafeAreaInsets();
   const [type, setType] = useState(boat.type);
   const [len, setLen] = useState(boat.length_ft ? String(boat.length_ft) : '');
   const [comfort, setComfort] = useState(boat.comfort);
   const n = Number(len);
   const lenOk = !len || (n >= 6 && n <= 120);
   return (
-    <View style={st.wrap}>
+    <View style={[st.wrap, { paddingTop: insets.top + 12 }]}>
       <ScrollView contentContainerStyle={st.body} keyboardShouldPersistTaps="handled">
         <Text style={st.title}>My boat</Text>
         <Note>The forecast is rated for this boat: 🟢 Comfortable · 🟡 Bumpy · 🟠 Rough · 🔴 Stay in.</Note>
