@@ -38,7 +38,7 @@ if [ "$NATIVE" != "0" ]; then
   echo "     ⚠ app.json or package.json changed. Phones need a NEW BUILD for that part (TestFlight / cable)."
 fi
 cd "$APPDIR"
-npx eas-cli@latest update --channel production --message "$MSG" --non-interactive
+npx eas-cli@latest update --channel production --environment production --message "$MSG" --non-interactive
 
 echo "4/4  Done."
 echo ""
