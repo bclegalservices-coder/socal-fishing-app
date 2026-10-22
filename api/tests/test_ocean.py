@@ -343,3 +343,40 @@ def test_sst_bands_are_crisp():
     assert not (rgba[1, :3] == rgba[2, :3]).all()      # next degree → a different color
     assert rgba[3, 3] == 0                              # no data → transparent
     assert len(colormaps.SST_F["stops"]) == 24
+
+
+def test_sst_uses_freshest_source():
+    """MUR (1 km) 3 days behind, Copernicus has yesterday → Copernicus. Same day → the sharper MUR wins."""
+    from ocean.jobs import pick_freshest
+    assert pick_freshest([("mur", "2026-10-19"), ("copernicus", "2026-10-21")]) == 1
+    assert pick_freshest([("mur", "2026-10-21"), ("copernicus", "2026-10-21")]) == 0
+    assert pick_freshest([("mur", "2026-10-21")]) == 0
+
+
+def test_latest_sst_picks_newest(monkeypatch=None):
+    """End to end with fake sources: publishes the newer Copernicus day, skips NOAA's backup server when NOAA worked."""
+    import numpy as np
+    from dataclasses import replace
+    from ocean import jobs
+    from ocean.grid import Grid
+    calls, published = [], {}
+    mur = jobs.DATASETS["sst"]
+    cop = replace(mur, erddap="copernicus", dataset_id="OSTIA")
+    up = replace(mur, erddap=jobs.UPWELL)
+    def fake_candidates():
+        yield mur; yield up; yield cop
+    def fake_fetch(layer, region, when, http, ds):
+        calls.append(ds.erddap)
+        day = "2026-10-21" if ds.erddap == "copernicus" else "2026-10-18"
+        return Grid(np.array([33.0, 34.0]), np.array([-119.0, -118.0]), np.full((2, 2), 65.0, np.float32), {"observed_at": day + "T12:00:00+00:00"})
+    def fake_process(layer, region, when, http, store, ds=None, grid=None):
+        published["ds"], published["day"] = ds.dataset_id, jobs.grid_day(grid)
+        return {"date": published["day"]}
+    old = (jobs.sst_candidates, jobs.fetch_surface, jobs.process_surface)
+    jobs.sst_candidates, jobs.fetch_surface, jobs.process_surface = fake_candidates, fake_fetch, fake_process
+    try:
+        ds, entry = jobs._latest_surface("sst", "socal", None, None)
+    finally:
+        jobs.sst_candidates, jobs.fetch_surface, jobs.process_surface = old
+    assert published == {"ds": "OSTIA", "day": "2026-10-21"} and entry["date"] == "2026-10-21"
+    assert jobs.UPWELL not in calls   # NOAA's backup server isn't asked when the main one answered

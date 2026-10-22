@@ -58,14 +58,23 @@ def _save_manifest(store, layer: str, m: dict):
     store.put(f"manifests/{layer}.json", json.dumps(m, indent=1).encode(), "application/json")
 
 
-def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds=None) -> dict:
-    ds = ds or DATASETS[layer]
+def fetch_surface(layer: str, region: str, when, http: httpx.Client, ds) -> Grid:
+    """Download one day (or the newest) of a surface layer, in display units. Nothing is saved."""
     if ds.erddap == "copernicus":
         from . import copernicus
         raw = (copernicus.fetch_sst if layer == "sst" else copernicus.fetch_chl)(REGIONS[region], when)
     else:
         raw = fetch_grid(ds, REGIONS[region], when, http=http)
-    g = to_display_units(raw)
+    return to_display_units(raw)
+
+
+def grid_day(g: Grid) -> str:
+    return (g.meta.get("observed_at") or datetime.now(timezone.utc).isoformat())[:10]
+
+
+def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds=None, grid: Grid | None = None) -> dict:
+    ds = ds or DATASETS[layer]
+    g = grid if grid is not None else fetch_surface(layer, region, when, http, ds)
     day = (g.meta.get("observed_at") or datetime.now(timezone.utc).isoformat())[:10]
     base = f"{layer}/{region}/{day}"
     store.put(f"grids/{base}.npz", g.to_bytes())
@@ -94,7 +103,7 @@ def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds
 def _note(layer: str, ds) -> str:
     if layer == "sst" and ds.erddap == "copernicus":
         from .copernicus import CREDIT
-        return f"Satellite blend with cloud gaps filled in (about 5 km detail today; NOAA's 1 km map was unavailable). {CREDIT}."
+        return f"Satellite blend with cloud gaps filled in (about 5 km detail; used because it's newer than NOAA's 1 km map today). {CREDIT}."
     if layer == "chl" and ds.erddap == "copernicus":
         from .copernicus import CREDIT
         return f"Satellite blend from several satellites with cloud gaps filled in. {CREDIT}."
@@ -149,9 +158,38 @@ def sst_candidates():
                       units="K", resolution_m=5500, source=copernicus.SST_SOURCE)
 
 
+def pick_freshest(found: list) -> int:
+    """Index of the source with the newest day. On a tie the earlier (sharper, preferred) source wins."""
+    best = 0
+    for i, (_, day) in enumerate(found):
+        if day > found[best][1]:
+            best = i
+    return best
+
+
 def _latest_surface(layer: str, region: str, http: httpx.Client, store):
     if layer not in ("sst", "chl"):
         return DATASETS[layer], process_surface(layer, region, "last", http, store)
+    if layer == "sst":
+        # Water temp: the 1 km NASA/NOAA map is sharpest but often 2-3 days behind; Copernicus usually has yesterday.
+        # Ask every source for its newest day, then publish the freshest (ties go to the sharper map).
+        found, last_err = [], None
+        for ds in sst_candidates():
+            if found and ds.erddap != "copernicus" and found[-1][0].dataset_id == ds.dataset_id:
+                continue   # same NOAA map on the backup server: only needed if the first server failed
+            try:
+                g = fetch_surface(layer, region, "last", http, ds)
+                found.append((ds, grid_day(g), g))
+                log(f"sst: {ds.dataset_id} on {ds.erddap} has {grid_day(g)}")
+            except Exception as e:
+                last_err = e
+                log(f"sst: {ds.dataset_id} on {ds.erddap} failed ({str(e)[:200]})")
+        if not found:
+            raise RuntimeError(f"No sst source worked. Last error: {last_err}")
+        i = pick_freshest([(ds, day) for ds, day, _ in found])
+        ds, day, g = found[i]
+        log(f"sst: using {ds.dataset_id} ({day}) — newest of {', '.join(d for _, d, _ in found)}")
+        return ds, process_surface(layer, region, "last", http, store, ds, grid=g)
     last_err = None
     for ds in (sst_candidates() if layer == "sst" else chl_candidates(http)):
         try:
