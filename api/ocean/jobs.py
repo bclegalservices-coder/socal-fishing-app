@@ -58,6 +58,9 @@ def _save_manifest(store, layer: str, m: dict):
     store.put(f"manifests/{layer}.json", json.dumps(m, indent=1).encode(), "application/json")
 
 
+RUN_STAMP = datetime.now(timezone.utc).strftime("%Y%m%d%H%M")   # one per job run
+
+
 def fetch_surface(layer: str, region: str, when, http: httpx.Client, ds) -> Grid:
     """Download one day (or the newest) of a surface layer, in display units. Nothing is saved."""
     if ds.erddap == "copernicus":
@@ -104,8 +107,10 @@ def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds
     log(f"{layer} {day}: {n} tiles, {len(fc['features'])} break groups")
     return {
         "date": day, "observed_at": g.meta.get("observed_at"), "region": region,
-        "tiles": store.url(f"tiles/{base}") + "/{z}/{x}/{y}.png",
-        "breaks": store.url(f"vectors/{layer}-breaks/{region}/{day}.geojson"),
+        # ?v= changes every run, so phones and the CDN fetch the redrawn map right away instead of a saved copy
+        # (the pictures are kept for a day, and a same-day redraw would otherwise not show until tomorrow).
+        "tiles": store.url(f"tiles/{base}") + "/{z}/{x}/{y}.png?v=" + RUN_STAMP,
+        "breaks": store.url(f"vectors/{layer}-breaks/{region}/{day}.geojson") + "?v=" + RUN_STAMP,
         "grid": f"grids/{base}.npz", "tile_count": n,
     }
 
