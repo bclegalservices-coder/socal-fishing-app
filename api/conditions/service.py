@@ -11,7 +11,7 @@ from core.models import Measurement, Section
 from core.storage import get_store
 from ocean.breaks import describe_near
 from ocean.grid import Grid
-from ocean.registry import BREAKS, REGIONS
+from ocean.registry import BREAKS, REGIONS, break_settings
 
 from . import buoys, tides, weather
 from .astro import moon_phase
@@ -82,7 +82,7 @@ def _water(lat: float, lon: float) -> Section:
         else:
             sec.items.append(Measurement(type=layer, value=None, unit=unit, kind=kind, source=g.meta.get("source", ""),
                                          label=f"{name}: no satellite data here (cloud or coast)"))
-        b = BREAKS[layer]
+        b = break_settings(layer, g.meta.get("resolution_m"))
         near = describe_near(g, lat, lon, 5.0, b["moderate"], b["strong"], log10=(layer == "chl"))
         if near:
             if layer == "sst":

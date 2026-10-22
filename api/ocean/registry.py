@@ -80,6 +80,23 @@ BREAKS = {
     "chl": {"moderate": float(_env("CHL_EDGE_MODERATE_LOG_PER_NM", "0.06")), "strong": float(_env("CHL_EDGE_STRONG_LOG_PER_NM", "0.12")), "interval": 0.1},
 }
 
+
+def break_settings(layer: str, resolution_m: float | None) -> dict:
+    """Break thresholds tuned to how sharp the map is. The numbers above are for ~1 km maps (NOAA MUR, VIIRS).
+    A coarser map (e.g. Copernicus OSTIA, ~5 km) spreads the same front over more miles, so the change per mile
+    looks smaller; scale the thresholds down (but never below 35%) and skip the extra smoothing, which a
+    blended map doesn't need. Example: 5.5 km → 0.21 / 0.43 °F per NM ≈ a 1-2 °F change across 5 miles."""
+    b = dict(BREAKS[layer])
+    res = float(resolution_m or 1000)
+    if res > 1500:
+        f = max(0.35, min(1.0, (1000.0 / res) ** 0.5))
+        b["moderate"] = round(b["moderate"] * f, 3)
+        b["strong"] = round(b["strong"] * f, 3)
+        b["sigma"] = 0.0
+    else:
+        b["sigma"] = 1.0
+    return b
+
 TILE_ZOOMS = {"sst": range(5, 11), "chl": range(5, 11), "bathy": range(5, 12)}
 
 # Live layers served directly by public providers (tiles never pass through our server).

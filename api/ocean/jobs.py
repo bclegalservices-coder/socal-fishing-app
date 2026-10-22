@@ -25,7 +25,7 @@ from .breaks import break_lines
 from .colormaps import CHL, DEPTH_FT, SST_F, apply, legend
 from .erddap import fetch_grid, search
 from .grid import Grid, to_display_units
-from .registry import BREAKS, DATASETS, REGIONS, TILE_ZOOMS
+from .registry import BREAKS, DATASETS, REGIONS, TILE_ZOOMS, break_settings
 from .tiles import pixel_lonlat, render, tiles_for_bbox
 
 KEEP_DAYS = 14
@@ -101,8 +101,8 @@ def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds
             if png:
                 store.put(f"tiles/{base}/{zz}/{x}/{y}.png", png, "image/png")
                 n += 1
-    b = BREAKS[layer]
-    fc = break_lines(g, b["moderate"], b["strong"], b["interval"], log10=(layer == "chl"))
+    b = break_settings(layer, ds.resolution_m)
+    fc = break_lines(g, b["moderate"], b["strong"], b["interval"], log10=(layer == "chl"), sigma_cells=b["sigma"])
     store.put(f"vectors/{layer}-breaks/{region}/{day}.geojson", json.dumps(fc).encode(), "application/geo+json")
     log(f"{layer} {day}: {n} tiles, {len(fc['features'])} break groups")
     return {
@@ -240,7 +240,7 @@ def run_surface(layer: str, region: str, days: list[int]):
         "label": LABELS[layer], "note": _note(layer, ds), "legend": LEGENDS[layer], "kind": ds.kind,
         "source": ds.source, "dataset": ds.dataset_id, "resolution_m": ds.resolution_m, "verified": ds.verified,
         "dates": sorted(by_date.values(), key=lambda e: e["date"], reverse=True)[:KEEP_DAYS],
-        "breaks_thresholds": BREAKS[layer],
+        "breaks_thresholds": break_settings(layer, ds.resolution_m),
     })
     _save_manifest(store, layer, m)
 

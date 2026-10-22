@@ -443,3 +443,21 @@ def test_land_mask_coast_stays_exact():
     m = landmask.LandMask(bbox[0], bbox[1], landmask.RES, land)
     assert not m.is_land(np.array([33.997]), np.array([-119.0]))[0]   # 300 m offshore is still water
     assert m.is_land(np.array([34.1]), np.array([-119.0]))[0]
+
+
+def test_breaks_found_on_coarse_5km_map():
+    """A 2 °F front spread over ~6 NM on a 5 km map: missed by the 1 km settings, found by the tuned ones."""
+    import numpy as np
+    from ocean.breaks import break_lines
+    from ocean.grid import Grid
+    from ocean.registry import BREAKS, break_settings
+    lats = np.arange(32.0, 34.0, 0.05); lons = np.arange(-120.0, -118.0, 0.05)
+    LO, LA = np.meshgrid(lons, lats)
+    v = (66 + 1.0 * np.tanh((LO + 119.0) / 0.06)).astype(np.float32)   # 64 °F west → 68 °F east, front near -119
+    g = Grid(lats, lons, v, {"resolution_m": 5500})
+    old = BREAKS["sst"]
+    assert break_lines(g, old["moderate"], old["strong"], old["interval"])["features"] == []
+    b = break_settings("sst", 5500)
+    assert 0.15 < b["moderate"] < 0.3 and b["sigma"] == 0.0
+    assert break_lines(g, b["moderate"], b["strong"], b["interval"], sigma_cells=b["sigma"])["features"]
+    assert break_settings("sst", 1000)["moderate"] == old["moderate"]   # sharp 1 km map: unchanged
