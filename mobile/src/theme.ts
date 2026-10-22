@@ -4,7 +4,7 @@
 //           night vision and doesn't glare at the helm.
 // AUTO switches at sunset / sunrise for where you are. Styles are written once: makeStyles((colors) => ({ … })).
 import { createContext, createElement, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, type ImageStyle, type TextStyle, type ViewStyle } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type Mode = 'day' | 'night';
@@ -159,7 +159,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 export const useTheme = () => useContext<Ctx>(ThemeCtx);
 
 /** Write styles once with the palette; each component gets the right set for day or night. */
-export function makeStyles<T>(fn: (c: Palette, mode: Mode) => T): () => T {
+type NamedStyles<T> = { [P in keyof T]: ViewStyle | TextStyle | ImageStyle };
+/** Theme-aware StyleSheet. Typed like StyleSheet.create, so values such as fontWeight: '700' keep their exact type. */
+export function makeStyles<T extends NamedStyles<T>>(fn: (c: Palette, mode: Mode) => T & NamedStyles<any>): () => T {
   const cache: Partial<Record<Mode, T>> = {};
   return function useStyles(): T {
     const { mode } = useContext<Ctx>(ThemeCtx);

@@ -1,0 +1,5 @@
+{
+  "//": "Used by ship.sh and the GitHub 'Checks' job: the normal app settings, minus test files (they run under Jest).",
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "**/*.test.ts", "**/*.test.tsx"]
+}

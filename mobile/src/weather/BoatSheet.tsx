@@ -52,7 +52,7 @@ export function BoatSheet({ boat, onSave, onClose }: { boat: Boat; onSave: (b: B
 }
 
 const useSt = makeStyles((colors) => ({
-  wrap: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.bg, zIndex: 30, paddingTop: 50 },
+  wrap: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: colors.bg, zIndex: 30, paddingTop: 50 },
   body: { padding: 16, gap: 10, paddingBottom: 40 },
   title: { color: colors.text, fontSize: 26, fontWeight: '800' },
   h: { color: colors.text, fontSize: 15, fontWeight: '700', marginTop: 6 },

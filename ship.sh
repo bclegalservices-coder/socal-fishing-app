@@ -16,7 +16,8 @@ APPDIR=$(for d in mobile mobile-files; do [ -f "$d/app.json" ] && echo "$d" && b
 NATIVE=$(git status --porcelain "$APPDIR/package.json" "$APPDIR/app.json" 2>/dev/null | wc -l | tr -d ' ')
 
 echo "1/4  Checking the app code..."
-if (cd "$APPDIR" && npx --yes -p typescript tsc --noEmit -p . > /tmp/channelnav-tsc.txt 2>&1); then
+CFG=.; [ -f "$APPDIR/tsconfig.check.json" ] && CFG=tsconfig.check.json
+if (cd "$APPDIR" && npx --yes -p typescript tsc --noEmit -p "$CFG" > /tmp/channelnav-tsc.txt 2>&1); then
   echo "     looks good"
 else
   echo "     ✗ Found problems in the app code:"

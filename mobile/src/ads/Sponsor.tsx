@@ -32,7 +32,7 @@ function AdVideo({ ad, style, fit }: { ad: Ad; style: any; fit: 'cover' | 'conta
     const b = player.addListener('playToEnd', () => { if (!done.current) { done.current = true; send(ad, 'video_complete'); } });
     return () => { a.remove(); b.remove(); };
   }, [player, ad.id]);
-  return <VideoView player={player} style={style} contentFit={fit} nativeControls={false} allowsFullscreen={false} allowsPictureInPicture={false} />;
+  return <VideoView player={player} style={style} contentFit={fit} nativeControls={false} allowsPictureInPicture={false} />;
 }
 
 /** HTML5 ads run sealed off: no navigation, no storage, no access to the app; taps go through our own handler. */

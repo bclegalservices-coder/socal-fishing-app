@@ -34,11 +34,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"   # React Native 0.88 needs Node 22+
       - name: Type check (finds typos, missing files, wrong names)
         run: |
           APPDIR=$(for d in mobile mobile-files; do [ -f "$d/package.json" ] && echo "$d" && break; done)
           [ -n "$APPDIR" ] || { echo "No app folder with package.json found — skipping"; exit 0; }
           cd "$APPDIR"
           npm ci || npm install
-          npx --yes -p typescript tsc --noEmit -p .
+          if [ -f tsconfig.check.json ]; then CFG=tsconfig.check.json; else CFG=.; fi
+          npx --yes -p typescript tsc --noEmit -p "$CFG"
