@@ -78,7 +78,9 @@ def test_uses_new_noaa_name_and_converts_longitude():
                 q = url.split("topo", 1)[1]
                 lo = [float(x) for x in q.split("][")[1].strip("[]").replace("(", "").replace(")", "").split(":1:")]
                 assert lo[0] > 180, "longitude must be asked for as 0–360"
-                return R(200, nc([33.0004], [lo[0] + 0.0004]))
+                la = [float(x) for x in q.split("][")[0].strip("[]").replace("(", "").replace(")", "").split(":1:")]
+                la0, la1 = min(la), max(la)
+                return R(200, nc(np.arange(la0, la1, 1 / 1200) + 1 / 2400, np.arange(lo[0], lo[1], 1 / 1200) + 1 / 2400))
             return R(404)
 
     bbox = (-118.30, 33.00, -118.29, 33.01)
@@ -92,3 +94,61 @@ def test_uses_new_noaa_name_and_converts_longitude():
     assert any("/info/usgsCeCrm6_Lon0360/" in u for u in asked)
     assert g.lons.min() < 0 and np.isfinite(g.values).any()      # data landed at -118°, not off the grid
     assert crm.lon_offset("usgsCeCrm6_Lon0360") == 360 and crm.lon_offset("usgsCeCrm6") == 0
+
+
+def test_falls_back_to_ncei_when_coastwatch_refuses():
+    """CoastWatch answering 403 to everything (as on 2026-10-23) must not stop the job: NCEI's copy is used instead."""
+    from scipy.io import netcdf_file
+    from urllib.parse import urlencode
+    from ocean import crm
+
+    def nc(lats, lons, val):
+        buf = io.BytesIO(); f = netcdf_file(buf, "w")
+        f.createDimension("lat", len(lats)); f.createDimension("lon", len(lons))
+        f.createVariable("lat", "d", ("lat",))[:] = lats
+        f.createVariable("lon", "d", ("lon",))[:] = lons
+        f.createVariable("Band1", "f", ("lat", "lon"))[:] = val
+        f.flush(); return buf.getvalue()
+
+    class R:
+        def __init__(self, code, body=b"", text=""): self.status_code, self.content, self.text = code, body, text
+        def json(self): raise ValueError
+        def raise_for_status(self):
+            if self.status_code >= 400: raise RuntimeError(f"HTTP {self.status_code}")
+
+    ncss = []
+
+    class H:
+        def get(self, url, params=None, **k):
+            if url.startswith(crm.PFEG): return R(403)
+            if url.endswith("/dataset.xml"): return R(200, text='<gridDataset><grid name="Band1" desc="z" shape="lat lon" type="float"/></gridDataset>')
+            if url == crm.NCEI_NCSS:
+                ncss.append(params)
+                s_, n_, w_, e_ = (float(params[x]) for x in ("south", "north", "west", "east"))
+                la = np.arange(s_, n_, 1 / 1200) + 1 / 2400; lo = np.arange(w_, e_, 1 / 1200) + 1 / 2400
+                return R(200, nc(la, lo, np.full((la.size, lo.size), -120.0)))
+            return R(404)
+
+    bbox = (-118.30, 33.00, -118.25, 33.04)
+    g = crm.fetch_crm(bbox, H(), log=lambda *a: None)
+    assert g.meta["dataset"] == crm.NCEI_ID
+    assert ncss and ncss[0]["var"] == "Band1" and ncss[0]["accept"] == "netcdf3"
+    assert np.isfinite(g.values).all() and np.allclose(g.values, -120.0)   # every cell filled, depth stays negative
+    assert -118.31 < g.lons.min() < g.lons.max() < -118.24
+
+
+def test_stops_cleanly_when_both_noaa_servers_fail():
+    from ocean import crm
+
+    class R:
+        status_code, content, text = 403, b"", ""
+        def json(self): raise ValueError
+        def raise_for_status(self): raise RuntimeError("HTTP 403")
+
+    class H:
+        def get(self, *a, **k): return R()
+    try:
+        crm.fetch_crm((-118.3, 33.0, -118.25, 33.04), H(), log=lambda *a: None)
+        assert False, "should have stopped"
+    except RuntimeError as e:
+        assert "Nothing was changed" in str(e)

@@ -1,3 +1,4 @@
 eccodes>=2.38
 copernicusmarine>=2.3
 rasterio>=1.3       # HD bottom: reads NOAA BlueTopo GeoTIFFs
+h5py>=3.10        # seafloor backup: reads netCDF-4 files from NOAA NCEI
