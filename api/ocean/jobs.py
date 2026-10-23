@@ -333,7 +333,7 @@ def verify():
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("job", choices=["sst", "chl", "bathy", "wind", "rules", "harbors", "navmask", "all", "discover", "verify"])
+    p.add_argument("job", choices=["sst", "chl", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "all", "discover", "verify"])
     p.add_argument("--region", default="socal")
     p.add_argument("--days", default="0,1,2,3,7")
     p.add_argument("--file", default=None, help="local seafloor file for `bathy`")
@@ -342,10 +342,10 @@ def main(argv=None):
     days = [int(x) for x in a.days.split(",") if x.strip()]
     if a.job == "discover":
         return discover()
-    if a.job == "navmask":       # water map for auto routing (resumable; run again to continue)
+    if a.job in ("navmask", "navmask-rebuild"):   # water map for auto routing (resumable; "-rebuild" starts over)
         from navroute.build import run as run_navmask
         http = httpx.Client(timeout=120, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})
-        return run_navmask(get_store(), REGIONS[a.region], a.region, http, log, force=a.force)
+        return run_navmask(get_store(), REGIONS[a.region], a.region, http, log, force=a.force or a.job == "navmask-rebuild")
     if a.job in ("rules", "harbors"):
         failed_weekly = []
         if a.job == "rules":

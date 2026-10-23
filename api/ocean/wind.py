@@ -61,8 +61,9 @@ RADAR_FORECAST_HOURS = 4   # forecast radar for the next few hours (HRRR)
 TILE_ZOOMS = range(5, 10)   # ~90 small squares per hour; the map smooths them when zoomed further
 
 
-def speed_tiles(store, lats, lons, u, v, base: str, bbox: tuple) -> int:
-    """Colored wind-speed map squares for one forecast hour."""
+def speed_tiles(store, lats, lons, u, v, base: str, bbox: tuple, mask=None) -> int:
+    """Colored wind-speed map squares for one forecast hour. With a land mask, only the water is colored
+    (Oct 22: coloring the land too washed out the whole chart)."""
     from .colormaps import apply
     from .grid import Grid
     from .tiles import render, tiles_for_bbox
@@ -71,7 +72,8 @@ def speed_tiles(store, lats, lons, u, v, base: str, bbox: tuple) -> int:
     n = 0
     for z in TILE_ZOOMS:
         for zz, x, y in tiles_for_bbox(bbox, z):
-            png = render(g, zz, x, y, lambda val: apply(val, WIND_KT, 255))
+            cut = (lambda val, la, lo: np.where(mask.is_land(la, lo), np.nan, val)) if mask is not None else None
+            png = render(g, zz, x, y, lambda val: apply(val, WIND_KT, 255), cut)
             if png:
                 store.put(f"{base}/{zz}/{x}/{y}.png", png, "image/png")
                 n += 1
@@ -190,6 +192,11 @@ def run(store, bbox: tuple, region: str = "socal") -> dict:
     now = datetime.now(timezone.utc)
     plan = [p for p in plan if p[0] >= now - timedelta(hours=1)][:30]
     tag = (plan[0][2] if plan else cycle).strftime("%Y%m%d%H")
+    try:                                  # the saved coastline (built by the water-temp job); none = color everywhere
+        from . import landmask
+        mask = landmask.get(region, bbox, store, None, print)
+    except Exception:
+        mask = None
     hours = []
     radar_frames = []
     for i, (valid, src, run_t, fh) in enumerate(plan):
@@ -213,7 +220,7 @@ def run(store, bbox: tuple, region: str = "socal") -> dict:
         key = f"vectors/wind/{region}/{tag}/h{i:03d}.geojson"
         store.put(key, json.dumps(fc).encode(), "application/geo+json")
         tbase = f"tiles/wind/{region}/{tag}/h{i:03d}"
-        n = speed_tiles(store, lats, lons, u, v, tbase, bbox)
+        n = speed_tiles(store, lats, lons, u, v, tbase, bbox, mask)
         uvk = f"vectors/wind/{region}/{tag}/h{i:03d}.uv.json"
         store.put(uvk, json.dumps(uv_grid(lats, lons, u, v), separators=(",", ":")).encode(), "application/json")
         hours.append({"fh": i, "valid": valid.isoformat(), "url": store.url(key), "model": "HRRR 3 km" if src == "hrrr" else "GFS 25 km",

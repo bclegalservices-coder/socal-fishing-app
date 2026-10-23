@@ -12,6 +12,7 @@ import { Btn, IconButton, Note } from '../components/ui';
 import { SearchSheet } from '../components/SearchSheet';
 import { PresentedBy, SponsorBanner } from '../ads/Sponsor';
 import { MoonView } from '../weather/MoonView';
+import { WindView } from '../weather/WindView';
 import { loadPublicSpots, type SavedSpot } from '../storage';
 import { BoatSheet } from '../weather/BoatSheet';
 import { CondIcon, NowCard, PlaceSearch, hourNow, placeName } from '../weather/Conditions';
@@ -22,8 +23,8 @@ import {
 } from '../weather/model';
 import { friendly } from '../friendly';
 
-export type WeatherPlace = { lat: number; lon: number; label: string; source: 'gps' | 'search' | 'map' | 'harbor' };
-type Section = 'forecast' | 'history' | 'tides' | 'moon';
+type Section = 'forecast' | 'wind' | 'history' | 'tides' | 'moon';
+export type WeatherPlace = { lat: number; lon: number; label: string; source: 'gps' | 'search' | 'map' | 'harbor'; tab?: Section };
 
 // Quick picks: points just outside each harbor entrance (on the water, so the marine forecast applies).
 const HARBORS: WeatherPlace[] = [
@@ -55,7 +56,7 @@ export function WeatherScreen({ at, mySpots }: { at: WeatherPlace | null; mySpot
   const [locErr, setLocErr] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
 
-  useEffect(() => { if (at) setPlace(at); }, [at?.lat, at?.lon]);
+  useEffect(() => { if (at) { setPlace(at); if (at.tab) setSection(at.tab); } }, [at]);
   useEffect(() => {
     loadBoat().then(({ boat: b, isSet }) => { setBoat(b); setBoatIsSet(isSet); });
     loadPublicSpots().then(setPublicSpots);
@@ -146,16 +147,16 @@ export function WeatherScreen({ at, mySpots }: { at: WeatherPlace | null; mySpot
       </Modal>
       {locErr ? <Text style={st.warn}>{locErr}</Text> : null}
       <View style={st.seg}>
-        {(['forecast', 'history', 'tides', 'moon'] as Section[]).map((s) => (
+        {(['forecast', 'wind', 'tides', 'moon', 'history'] as Section[]).map((s) => (
           <Pressable key={s} onPress={() => { setSection(s); track('weather_section', { section: s }); }} style={[st.segI, section === s && st.segOn]}
             accessibilityRole="tab" accessibilityState={{ selected: section === s }}>
-            <Text style={[st.segT, section === s && st.segOnT]}>{s === 'forecast' ? 'Forecast' : s === 'history' ? 'Past data' : s === 'tides' ? 'Tides' : 'Moon'}</Text>
+            <Text style={[st.segT, section === s && st.segOnT]} numberOfLines={1}>{s === 'forecast' ? 'Forecast' : s === 'wind' ? 'Wind' : s === 'history' ? 'Past' : s === 'tides' ? 'Tides' : 'Moon'}</Text>
           </Pressable>
         ))}
       </View>
       {!place || !boat ? <ActivityIndicator color={colors.live} style={{ marginTop: 40 }} /> : section === 'forecast' ? (
         <Forecast place={place} boat={boat} boatIsSet={boatIsSet} course={course} setCourse={setCourse} onEditBoat={() => setEditBoat(true)} />
-      ) : section === 'history' ? <History place={place} /> : section === 'tides' ? <Tides place={place} /> : <MoonView lat={place.lat} lon={place.lon} place={place.label} />}
+      ) : section === 'wind' ? <WindView place={place} boat={boat} /> : section === 'history' ? <History place={place} /> : section === 'tides' ? <Tides place={place} /> : <MoonView lat={place.lat} lon={place.lon} place={place.label} />}
     </SafeAreaView>
   );
 }

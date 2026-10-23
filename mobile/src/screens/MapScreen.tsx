@@ -60,6 +60,7 @@ import { useWaterTemp } from '../waterTemp';
 import { autoZoom, guidance, offRouteLimit } from '../navMode';
 import { fetchAutoRoute, getSafetyFt, setSafetyFt, type AutoRoute } from '../autoRoute';
 import { RoutePreview } from '../components/RoutePreview';
+import { WindCard } from '../components/WindCard';
 import { reportError } from '../errors';
 import { config, onConfig } from '../appConfig';
 
@@ -105,7 +106,7 @@ const lineF = (pts: (Pt | TrackPoint)[]) => ({ type: 'Feature' as const, propert
 
 function StayAwake() { useKeepAwake(); return null; }
 
-export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWeather }: { pick: PickRequest; clearPick: () => void; onSpotsChanged?: (s: store.SavedSpot[]) => void; reloadKey?: number; onWeather?: (lat: number, lon: number, label: string) => void }) {
+export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWeather }: { pick: PickRequest; clearPick: () => void; onSpotsChanged?: (s: store.SavedSpot[]) => void; reloadKey?: number; onWeather?: (lat: number, lon: number, label: string, tab?: 'wind') => void }) {
   const st = useSt();
   const theme = useTheme();
   const camera = useRef<CameraRef>(null);
@@ -692,6 +693,11 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
                 <Text style={st.pillT}>{layers.on.sst ? 'Water temp' : 'Water color'} · {layers.dayIndex ? 'past day' : 'latest'}</Text>
                 <Ionicons name="chevron-up" size={14} color={colors.muted} />
               </Pressable>
+            ) : null}
+            {/* How hard it's blowing at the middle of the map (tap → Weather → Wind) */}
+            {!openBar && layers.on.wind && !probe && view ? (
+              <WindCard lat={(view.minLat + view.maxLat) / 2} lon={(view.minLon + view.maxLon) / 2}
+                onOpen={onWeather ? () => onWeather((view.minLat + view.maxLat) / 2, (view.minLon + view.maxLon) / 2, 'Map spot', 'wind') : undefined} />
             ) : null}
             {/* Sponsor slot: only when wind is on and you're NOT navigating or recording. */}
             {!openBar && layers.on.wind && !nav && !active && !probe ? <PresentedBy section="Wind" pill /> : null}

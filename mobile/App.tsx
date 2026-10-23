@@ -66,7 +66,7 @@ function AppInner() {
   const [cfg, setCfg] = useState<AppConfig | null>(null);
   const [weatherAt, setWeatherAt] = useState<WeatherPlace | null>(null);
   const [wxMounted, setWxMounted] = useState(false);
-  const showWeather = (lat: number, lon: number, label: string) => { setWeatherAt({ lat, lon, label, source: 'map' }); setWxMounted(true); setTab('weather'); track('screen_view', { screen: 'weather' }); };
+  const showWeather = (lat: number, lon: number, label: string, tab?: WeatherPlace['tab']) => { setWeatherAt({ lat, lon, label, source: 'map', tab }); setWxMounted(true); setTab('weather'); track('screen_view', { screen: 'weather' }); };
 
   useEffect(() => {
     (async () => {

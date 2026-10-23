@@ -133,9 +133,10 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
       }) : null}
       {keep('wind', s.on.wind) && windHour ? (
         <GeoJSONSource key={`wind-${windHour.url}`} id="wind" data={windHour.url}>
-          <Layer type="line" id="wind-arrows" minzoom={9} style={{
+          {/* Arrows only when zoomed in close (harbor scale); farther out the moving streaks show the wind (Oct 22: too cluttered) */}
+          <Layer type="line" id="wind-arrows" minzoom={11.5} style={{
             visibility: vis(s.on.wind),
-            lineWidth: 2, lineCap: 'round',
+            lineWidth: 1.6, lineCap: 'round', lineOpacity: 0.85,
             lineColor: ['interpolate', ['linear'], ['get', 'kt'], 0, '#7fd0e8', 8, '#62cbe2', 12, '#f2d36a', 18, '#f5a524', 24, '#e7663a', 30, '#c43a3a'] as any,
           }} />
         </GeoJSONSource>

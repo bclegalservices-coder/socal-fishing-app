@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "sst, chl, bathy, wind, rules, harbors, navmask (auto-route water map), all, verify or discover"
+        description: "sst, chl, bathy, wind, rules, harbors, navmask / navmask-rebuild (auto-route water map), all, verify or discover"
         default: "all"
 
 jobs:

@@ -27,7 +27,7 @@ import numpy as np
 from .grid import CRES, FINE, FRES, K, LAND, N, PREFIX, TILE, UNKNOWN, WATER, pack, unpack
 
 BLOCK = 5                      # tiles per side fetched together from NOAA (0.25°)
-SCALES = ["enc_berthing", "enc_harbour", "enc_approach", "enc_coastal"]   # most detailed first
+SCALES = ["enc_berthing", ("enc_harbour", "enc_harbor"), "enc_approach", "enc_coastal"]   # most detailed first (either spelling)
 M_TO_FT = 3.28084
 
 
@@ -46,14 +46,25 @@ def discover(http, log=print) -> list[dict]:
     """For each chart scale: the layer ids for land, depth areas, dredged areas and shoreline construction."""
     root = service_root()
     out = []
-    for svc in SCALES:
-        base = f"{root}/{svc}/MapServer"
-        try:
-            r = http.get(f"{base}/layers", params={"f": "json"})
-            r.raise_for_status()
-            layers = r.json().get("layers", [])
-        except Exception as e:
-            log(f"navmask: {svc} not reachable ({str(e)[:120]})")
+    for entry in SCALES:
+        names = entry if isinstance(entry, tuple) else (entry,)
+        layers, base, svc = [], "", names[0]
+        for svc in names:
+            base = f"{root}/{svc}/MapServer"
+            try:
+                r = http.get(f"{base}/layers", params={"f": "json"})
+                r.raise_for_status()
+                j = r.json()
+                if "error" in j:                         # ArcGIS answers 200 + {"error": …} for a wrong service name
+                    log(f"navmask: {svc}: NOAA says {str(j['error'])[:150]}")
+                    continue
+                layers = j.get("layers", [])
+                if layers:
+                    break
+                log(f"navmask: {svc}: no layers listed")
+            except Exception as e:
+                log(f"navmask: {svc} not reachable ({str(e)[:120]})")
+        if not layers:
             continue
         found = {"land": [], "depth": [], "dredged": [], "shore": []}
         for L in layers:
@@ -68,6 +79,8 @@ def discover(http, log=print) -> list[dict]:
                 found["dredged"].append(L["id"])
             elif any(k in n for k in ("shorelineconstruction", "pontoon", "floatingdock", "hulk")) and ("Polyline" in gt or "Polygon" in gt):
                 found["shore"].append((L["id"], gt))
+        if not (found["land"] or found["depth"]):
+            log(f"navmask: {svc}: no land/depth layers matched — first names: {[L.get('name') for L in layers[:12]]}")
         if found["land"] or found["depth"]:
             out.append({"scale": svc, "base": base, **found})
             log(f"navmask: {svc}: land {found['land']}, depth {found['depth']}, dredged {found['dredged']}, shore {[i for i, _ in found['shore']]}")
