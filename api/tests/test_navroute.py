@@ -153,3 +153,33 @@ def test_start_on_land_uses_nearest_launch():
         assert False
     except Exception as e:
         assert "start isn't on or near the water" in str(e)
+
+
+def _min_land_gap_m(pts, lat_c=33.64, lon_c=-118.22, radius_deg=0.01, skip_m=300):
+    """Closest the route lines come to the island's shore (m), ignoring the first/last skip_m of the trip."""
+    cosl = math.cos(math.radians(lat_c))
+    best, walked = 1e9, 0.0
+    total = sum(dist_nm(p, q) * 1852 for p, q in zip(pts[:-1], pts[1:]))
+    for p, q in zip(pts[:-1], pts[1:]):
+        seg = dist_nm(p, q) * 1852
+        for t in np.linspace(0, 1, max(2, int(seg / 10))):
+            at = walked + t * seg
+            if at < skip_m or at > total - skip_m:
+                continue
+            la, lo = p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t
+            r = math.hypot(la - lat_c, (lo - lon_c) * cosl)
+            best = min(best, (r - radius_deg) * 111_000)
+        walked += seg
+    return best
+
+
+def test_keeps_sea_room_around_the_island():
+    """Oct 23: lines were drawn right along the shore (Catalina). Open-water legs must keep ~0.25 NM off land."""
+    from navroute.router import SEA_ROOM_M
+    n = nd()
+    r = route(n, [(33.64, -118.26), (33.64, -118.18)], safety_ft=8)      # straight through the island → must go around
+    pts = [(p["lat"], p["lon"]) for p in r["points"]]
+    assert _all_water(n, pts)
+    gap = _min_land_gap_m(pts)
+    assert gap >= 0.7 * SEA_ROOM_M, f"route passes only {gap:.0f} m off the island"
+    assert r["distance_nm"] < 4.5                                          # …but no silly detour

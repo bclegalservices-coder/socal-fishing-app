@@ -1,7 +1,7 @@
 // The instrument banner at the top of the map.
 //  • Normal: position + GPS accuracy, then SPEED (knots + mph), HEADING (°T + compass point) and WATER temp (°F).
-//  • Navigating (Go To / route), Garmin-style: three big boxes — distance to the next point, speed, arrival —
-//    then the next instruction in plain words ("Turn right to 155° in 0.30 NM"), and a strip with bearing, heading,
+//  • Navigating (Go To / route), Garmin-style: three big boxes — distance left to the DESTINATION (whole route, counts
+//    down as you go), speed, arrival — then the next turn in plain words ("Next turn: right to 155°"), and a strip with bearing, heading,
 //    water temp and how far off the line you are. Tap a big box to switch its units (NM ↔ miles, kt ↔ mph,
 //    arrival time ↔ time to go); the choice is remembered. Turns red with a Re-route button when you're off course.
 import { useEffect, useState } from 'react';
@@ -65,8 +65,8 @@ export function Hud({ fix, status, sogKt, cogT, compass, recording, nav, waterF,
       <View style={[s.navBox, off && s.navOff]} accessibilityLabel={`Going to ${nav.target}. ${instruction}`}>
         {/* Three big boxes, like a plotter */}
         <View style={s.bar}>
-          <Pressable style={s.box3} onPress={() => flip('dist')} accessibilityRole="button" accessibilityLabel="Distance, tap to switch units">
-            <View style={s.box3Head}><Ionicons name="navigate" size={13} color={colors.accent} /><Ionicons name="arrow-forward" size={11} color="#9AA6B2" /><View style={s.wpDot} /></View>
+          <Pressable style={s.box3} onPress={() => flip('dist')} accessibilityRole="button" accessibilityLabel="Distance left to the destination, tap to switch units">
+            <View style={s.box3Head}><Text style={s.boxK}>to go</Text><Ionicons name="flag" size={12} color="#FF1CF0" /></View>
             <Text style={s.huge} numberOfLines={1} adjustsFontSizeToFit>{dist}<Text style={s.hugeU}> {u.dist === 'nm' ? 'NM' : 'mi'}</Text></Text>
           </Pressable>
           <View style={s.div} />

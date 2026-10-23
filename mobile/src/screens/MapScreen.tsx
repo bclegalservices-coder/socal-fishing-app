@@ -58,7 +58,7 @@ import { SHORT_WARNING } from '../legal';
 import { SafeLayer } from '../components/ErrorBoundary';
 import { FEATURES_TOP, SHADING_TOP, setLayerOrder } from '../layers/order';
 import { useWaterTemp } from '../waterTemp';
-import { autoZoom, guidance, offRouteLimit } from '../navMode';
+import { autoZoom, guidance, offRouteLimit, remainingNm } from '../navMode';
 import { fetchAutoRoute, getSafetyFt, setSafetyFt, type AutoRoute } from '../autoRoute';
 import { RoutePreview } from '../components/RoutePreview';
 import { WindCard } from '../components/WindCard';
@@ -423,15 +423,15 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const navInfo = useMemo(() => {
     if (!nav) return null;
     const tgt = nav.points[nav.leg];
-    if (!fix) return { tgt, dist: null, brg: null, xte: null, steer: null, eta: null, turnText: null as string | null, nextBrg: null as number | null, offCourse: false };
+    if (!fix) return { tgt, dist: null, rest: null as number | null, brg: null, xte: null, steer: null, eta: null, turnText: null as string | null, nextBrg: null as number | null, offCourse: false };
     const dist = distanceNm(fix.lat, fix.lon, tgt.lat, tgt.lon);
     const brg = bearingTrue(fix.lat, fix.lon, tgt.lat, tgt.lon);
     const xte = crossTrackNm(nav.legStart, tgt, fix);
     const g = guidance(nav, { lat: fix.lat, lon: fix.lon });
     const legNm = distanceNm(nav.legStart.lat, nav.legStart.lon, tgt.lat, tgt.lon);
-    // Total time to the END of the route (all legs left), not just this waypoint.
-    let rest = dist; for (let i = nav.leg; i < nav.points.length - 1; i++) rest += distanceNm(nav.points[i].lat, nav.points[i].lon, nav.points[i + 1].lat, nav.points[i + 1].lon);
-    return { tgt, dist, brg, xte, steer: motion.cogT != null ? steerDelta(motion.cogT, brg) : null, eta: etaMinutes(rest, motion.sogKt),
+    // Distance and time to the END of the route (all legs left), not just this waypoint. The banner shows this.
+    const rest = remainingNm(nav, { lat: fix.lat, lon: fix.lon });
+    return { tgt, dist, rest, brg, xte, steer: motion.cogT != null ? steerDelta(motion.cogT, brg) : null, eta: etaMinutes(rest, motion.sogKt),
       turnText: g.text, nextBrg: g.nextBrg, offCourse: legNm > 0.05 && Math.abs(xte) > offRouteLimit(legNm) };
   }, [nav, fix, motion]);
 
@@ -619,7 +619,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const mySpotsFC = useMemo(() => fc(mySpots.map((s) => pointF(s, { id: s.id, name: s.name, subtitle: 'Private — only you' }))), [mySpots]);
   const pinFC = useMemo(() => fc(sel?.kind === 'pin' ? [pointF(sel.pt)] : []), [sel]);
   const draftFC = useMemo(() => fc(draft && draft.length ? [...(draft.length > 1 ? [lineF(draft)] : []), ...draft.map((p) => pointF(p))] : []), [draft]);
-  const navColor = theme.mode === 'night' ? colors.accent : '#D61FD6';
+  const navColor = theme.mode === 'night' ? colors.accent : '#FF1CF0';   // bright magenta, like a plotter (was #D61FD6)
   const planFC = useMemo(() => fc(plan?.route ? [lineF(plan.route.points), ...plan.route.points.slice(1).map((p) => pointF(p))] : []), [plan?.route]);
   const navFC = useMemo(() => (!nav || !fix ? fc([]) : fc([lineF([{ lat: fix.lat, lon: fix.lon }, ...nav.points.slice(nav.leg)]), ...nav.points.slice(nav.leg).map((p, i) => pointF(p, { n: i + 1 }))])), [nav, fix]);
   const activeFC = useMemo(() => fc(active && active.points.length > 1 ? [lineF(active.points)] : []), [active]);
@@ -774,19 +774,21 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         <GeoJSONSource id="plan" data={planFC}>
           <Layer type="line" id="plan-casing" style={{ lineColor: '#FFFFFF', lineWidth: 8, lineCap: 'round', lineJoin: 'round', lineOpacity: 0.85 }} />
           <Layer type="line" id="plan-line" style={{ lineColor: navColor, lineWidth: 5, lineCap: 'round', lineJoin: 'round', lineDasharray: [1.6, 1] }} />
-          <Layer type="circle" id="plan-pts" style={{ circleRadius: 6, circleColor: navColor, circleStrokeColor: '#FFFFFF', circleStrokeWidth: 2 }} />
+          <Layer type="circle" id="plan-pts" style={{ circleRadius: 4, circleColor: navColor, circleStrokeColor: '#FFFFFF', circleStrokeWidth: 1.5 }} />
         </GeoJSONSource>
-        {/* Route: thick magenta line with a white edge (plotter style), turn points numbered, the next one biggest */}
+        {/* Route: bright magenta line with a soft glow and a white edge (plotter style). Turn points are small dots;
+            only the next one and the destination get a number badge, so a curvy route doesn't turn into clutter. */}
         <GeoJSONSource id="nav" data={navFC}>
-          <Layer type="line" id="nav-casing" style={{ lineColor: theme.mode === 'night' ? '#000000' : '#FFFFFF', lineWidth: 10, lineCap: 'round', lineJoin: 'round', lineOpacity: 0.9 }} />
-          <Layer type="line" id="nav-line" style={{ lineColor: navColor, lineWidth: 6, lineCap: 'round', lineJoin: 'round' }} />
-          <Layer type="circle" id="nav-pts" style={{ circleRadius: ['case', ['==', ['get', 'n'], 1], 11, 8] as any, circleColor: navColor, circleStrokeColor: '#FFFFFF', circleStrokeWidth: 2.5 }} />
+          <Layer type="line" id="nav-glow" style={{ lineColor: navColor, lineWidth: 18, lineBlur: 8, lineOpacity: 0.35, lineCap: 'round', lineJoin: 'round' }} />
+          <Layer type="line" id="nav-casing" style={{ lineColor: theme.mode === 'night' ? '#000000' : '#FFFFFF', lineWidth: 11, lineCap: 'round', lineJoin: 'round', lineOpacity: 0.95 }} />
+          <Layer type="line" id="nav-line" style={{ lineColor: navColor, lineWidth: 7, lineCap: 'round', lineJoin: 'round' }} />
+          <Layer type="circle" id="nav-pts" style={{ circleRadius: ['case', ['==', ['get', 'n'], 1], 6, 3.5] as any, circleColor: navColor, circleStrokeColor: '#FFFFFF', circleStrokeWidth: ['case', ['==', ['get', 'n'], 1], 2, 1.5] as any }} />
         </GeoJSONSource>
-        {nav && nav.points.length > 1 ? nav.points.slice(nav.leg).map((p, i) => (
-          <Marker key={`wp-${nav.leg + i}`} lngLat={[p.lon, p.lat]} anchor="bottom" offset={[0, -12]}>
-            <View pointerEvents="none" style={[st.wpNum, i === 0 && st.wpNumNext]}><Text style={st.wpNumT}>{nav.leg + i + 1}</Text></View>
+        {nav && nav.points.length > 1 ? nav.points.slice(nav.leg).map((p, i, rest) => (i === 0 || i === rest.length - 1 ? (
+          <Marker key={`wp-${nav.leg + i}`} lngLat={[p.lon, p.lat]} anchor="bottom" offset={[0, -8]}>
+            <View pointerEvents="none" style={[st.wpNum, i === 0 && st.wpNumNext]}><Text style={st.wpNumT}>{i === rest.length - 1 && i !== 0 ? '🏁' : nav.leg + i + 1}</Text></View>
           </Marker>
-        )) : null}
+        ) : null)) : null}
         {orderOn !== null ? <SafeLayer name="wind" resetKey={`${layers.on.wind}-${layers.windIndex}`}><WindLayer on={layers.on.wind} view={view} opacity={layers.opacity.wind ?? 0.55}
           hour={windOf(catalog)?.hours?.[Math.min(layers.windIndex, (windOf(catalog)?.hours?.length ?? 1) - 1)]} /></SafeLayer> : null}
         {orderOn !== null ? <SafeLayer name="harbors" resetKey={JSON.stringify(layers.on)}><HarborLayers fc={harborFc} s={layers} view={view} onPress={(p, [lon, lat]) => {
@@ -808,6 +810,18 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         <GeoJSONSource id="pin" data={pinFC}>
           <Layer type="circle" id="pin-ring" style={{ circleRadius: 11, circleColor: 'rgba(0,0,0,0)', circleStrokeColor: colors.text, circleStrokeWidth: 2 }} />
         </GeoJSONSource>
+        {/* While navigating: a big bright boat on top of EVERYTHING (markers draw above every map layer), pointing
+            where the boat is going (course when moving, the compass when stopped). Last child = drawn last = on top. */}
+        {nav && fix ? (
+          <Marker key="nav-boat" lngLat={[fix.lon, fix.lat]} anchor="center">
+            <View pointerEvents="none" style={st.boatHalo}>
+              <View style={st.boat}>
+                <Ionicons name="navigate" size={20} color="#FFFFFF"
+                  style={{ transform: [{ rotate: `${(((motion.sogKt ?? 0) >= 1 && motion.cogT != null ? motion.cogT : heading ?? 0) - (view?.heading ?? 0) - 45)}deg` }] }} />
+              </View>
+            </View>
+          </Marker>
+        ) : null}
       </MapView>
       {/* NOAA draws a real night chart now, so only a light red wash is needed to protect night vision */}
       {theme.mode === 'night' ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(28,0,0,0.3)' }]} /> : null}
@@ -831,7 +845,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           nav={nav && navInfo ? {
             target: navInfo.tgt.name ?? (nav.points.length > 1 ? `Waypoint ${nav.leg + 1}` : 'Waypoint'),
             legLabel: nav.points.length > 1 ? `Leg ${nav.leg + 1} of ${nav.points.length}` : null,
-            distNm: navInfo.dist, brg: navInfo.brg, etaMin: navInfo.eta, xteNm: navInfo.xte, steer: navInfo.steer,
+            distNm: navInfo.rest, brg: navInfo.brg, etaMin: navInfo.eta, xteNm: navInfo.xte, steer: navInfo.steer,
             turnText: navInfo.turnText ?? null, offCourse: !!navInfo.offCourse,
             onReroute: () => {
               offAlarmed.current = false; track('reroute');
@@ -941,9 +955,12 @@ const useSt = makeStyles((colors) => ({
   resume: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.accent, borderRadius: 18, paddingHorizontal: 12, height: 36,
     shadowColor: colors.shadow, shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
   resumeT: { color: colors.accentInk, fontSize: 14, fontWeight: '800' },
-  wpNum: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 5, backgroundColor: '#FFFFFF', borderWidth: 2, borderColor: '#D61FD6', alignItems: 'center', justifyContent: 'center' },
-  wpNumNext: { borderWidth: 3 },
-  wpNumT: { color: '#7A0F7A', fontSize: 12, fontWeight: '900' },
+  wpNum: { minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, backgroundColor: '#FFFFFF', borderWidth: 2, borderColor: '#FF1CF0', alignItems: 'center', justifyContent: 'center' },
+  wpNumNext: { borderWidth: 2.5 },
+  wpNumT: { color: '#7A0F7A', fontSize: 10, fontWeight: '900' },
+  boatHalo: { width: 54, height: 54, borderRadius: 27, backgroundColor: 'rgba(0,163,255,0.22)', alignItems: 'center', justifyContent: 'center' },
+  boat: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#00A3FF', borderWidth: 3, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000000', shadowOpacity: 0.45, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 6 },
   railRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
   railLeft: { flex: 1, gap: 6, alignItems: 'flex-start' },
   radarTagIn: { backgroundColor: 'rgba(11,27,43,0.82)', borderRadius: 14, paddingHorizontal: 11, paddingVertical: 5 },

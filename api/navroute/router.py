@@ -7,8 +7,10 @@ How a leg is found:
   3. The path is straightened into a few turn points: a point is skipped whenever the straight line around it stays
      on water, with a little room either side (no cutting breakwater tips or points of land).
 Costs: land and breakwaters can't be crossed; charted water shallower than the safety depth costs 25× (used only
-when there's no other way, e.g. leaving a shallow marina, and reported as a warning); hugging the shore costs a bit
-extra so routes keep some sea room.
+when there's no other way, e.g. leaving a shallow marina, and reported as a warning); being close to land costs extra,
+more the closer you get, so routes keep SEA_ROOM_M of sea room in open water.
+Sea room (Oct 23): straight lines between turn points keep up to SEA_ROOM_M (~0.25 NM) from land — never less room
+than the searched path itself had, so harbor channels and marina exits (where there isn't that much room) still work.
 
 It is a planning aid, not a safe route: it doesn't know about kelp, traffic, buoys, moorings, wrecks not drawn as
 land, or water shallower than the chart says. The app says so on every route.
@@ -25,6 +27,8 @@ R_NM = 3440.065
 SHALLOW_COST = 25.0
 SHORE_COST = 2.0          # next to land (fine map) or to a mixed cell (coarse map)
 MAX_NODES = 420_000       # ~160 MB peak: fits the free server (512 MB) next to everything else
+SEA_ROOM_M = 460.0        # ~0.25 NM: how far off land routes stay in open water
+ROOM_COST = 3.0           # extra cost right at the shore, fading to 0 at SEA_ROOM_M
 
 
 def dist_nm(a, b) -> float:
@@ -39,8 +43,8 @@ class NoRoute(Exception):
 
 # ------------------------------------------------------------------ grid search
 
-def _cost(win: Window, safety_ft: float, shore_ring: bool = True) -> np.ndarray:
-    """Cost multiplier per cell (inf = can't go)."""
+def _cost(win: Window, safety_ft: float, shore_ring: bool = True, sea_room_m: float = SEA_ROOM_M) -> np.ndarray:
+    """Cost multiplier per cell (inf = can't go). Cells near land cost more, the closer the more (sea room)."""
     from scipy import ndimage
     c = np.ones(win.shape, dtype=np.float64)
     d = win.depth
@@ -49,6 +53,10 @@ def _cost(win: Window, safety_ft: float, shore_ring: bool = True) -> np.ndarray:
     if shore_ring:
         near = ndimage.binary_dilation(~win.water, iterations=1) & win.water
         c[near & ~shallow] = SHORE_COST
+    if sea_room_m > 0 and (~win.water).any():
+        cell_m = win.res * 111_000.0 * 0.92                # average of north–south and east–west at SoCal latitudes
+        to_land = ndimage.distance_transform_edt(win.water) * cell_m
+        c *= 1.0 + ROOM_COST * np.clip((sea_room_m - to_land) / sea_room_m, 0.0, 1.0) ** 2
     c[~win.water] = np.inf
     return c
 
@@ -211,6 +219,7 @@ def _clear(nd: NavData, p, q, allow_shallow: bool, safety_ft: float, room_m: flo
         return False
     if not allow_shallow and ((depth != UNKNOWN) & (depth < safety_ft)).any():
         return False
+    end_m = min(end_m, max(15.0, room_m))
     if room_m > 0 and d_m > 2 * end_m:
         mid = (t * d_m > end_m) & ((1 - t) * d_m > end_m)
         if mid.any():
@@ -218,36 +227,72 @@ def _clear(nd: NavData, p, q, allow_shallow: bool, safety_ft: float, room_m: flo
             vy, vx = (q[0] - p[0]), (q[1] - p[1]) * cosl
             L = math.hypot(vx, vy) or 1.0
             ny, nx = vx / L, -vy / L                       # unit normal, in degrees-of-latitude units
-            off = room_m / 111_000.0
-            for sgn in (1, -1):
-                w2, _ = nd.sample(lats[mid] + sgn * ny * off, lons[mid] + sgn * nx * off / cosl)
-                if not w2.all():
-                    return False
+            for r in sorted({room_m, room_m / 2, min(room_m, 15.0)}):   # several distances, so a thin point of land can't slip between
+                off = r / 111_000.0
+                for sgn in (1, -1):
+                    w2, _ = nd.sample(lats[mid] + sgn * ny * off, lons[mid] + sgn * nx * off / cosl)
+                    if not w2.all():
+                        return False
     return True
 
 
-def straighten(nd: NavData, path: list, safety_ft: float) -> list:
+_RINGS_M = (15.0, 30.0, 60.0, 100.0, 150.0, 220.0, 320.0, 460.0, 650.0, 900.0)
+
+
+def clearance_m(nd: NavData, lats, lons, max_m: float = SEA_ROOM_M) -> np.ndarray:
+    """Roughly how far each point is from the nearest land (m), capped at max_m. 0 on land."""
+    lats = np.asarray(lats, np.float64); lons = np.asarray(lons, np.float64)
+    out = np.full(lats.shape, max_m)
+    w0, _ = nd.sample(lats, lons)
+    out[~w0] = 0.0
+    ang = np.linspace(0, 2 * math.pi, 16, endpoint=False)
+    cosl = np.cos(np.radians(lats))[:, None]
+    open_ = w0.copy()
+    for r in [x for x in _RINGS_M if x < max_m] + [max_m]:
+        if not open_.any():
+            break
+        idx = np.flatnonzero(open_)
+        off = r / 111_000.0
+        la = lats[idx, None] + off * np.cos(ang)[None, :]
+        lo = lons[idx, None] + off * np.sin(ang)[None, :] / cosl[idx]
+        w, _ = nd.sample(la.ravel(), lo.ravel())
+        hit = ~w.reshape(la.shape).all(axis=1)
+        out[idx[hit]] = r
+        open_[idx[hit]] = False
+    return out
+
+
+def straighten(nd: NavData, path: list, safety_ft: float, sea_room_m: float = SEA_ROOM_M) -> list:
+    """Fewest turn points. Each straight line keeps as much room from land as the searched path had along that
+    stretch (80% of it), up to sea_room_m, and at least 15 m."""
     if len(path) <= 2:
         return path
-    _, dep = nd.sample(np.array([p[0] for p in path]), np.array([p[1] for p in path]))
+    la = np.array([p[0] for p in path]); lo = np.array([p[1] for p in path])
+    _, dep = nd.sample(la, lo)
     shallow = (dep != UNKNOWN) & (dep < safety_ft)
+    clear = clearance_m(nd, la, lo, sea_room_m) if sea_room_m > 15 else np.full(la.shape, 15.0)
+
+    def ok(i, m):
+        room = float(min(sea_room_m, max(15.0, 0.8 * clear[i:m + 1].min())))
+        return _clear(nd, path[i], path[m], bool(shallow[i:m + 1].any()), safety_ft, room_m=room)
+
     out = [path[0]]
     i, n = 0, len(path)
     while i < n - 1:
-        if _clear(nd, path[i], path[n - 1], bool(shallow[i:].any()), safety_ft):   # straight to the end?
+        if ok(i, n - 1):                                  # straight to the end?
             out.append(path[n - 1]); break
         # furthest point still in plain sight (doubling, then halving)
-        lo, step = i + 1, 1
-        while lo + step < n and _clear(nd, path[i], path[lo + step], bool(shallow[i:lo + step + 1].any()), safety_ft):
-            lo += step; step *= 2
-        hi = min(n - 1, lo + step)
-        while hi - lo > 1:
-            m = (lo + hi) // 2
-            if _clear(nd, path[i], path[m], bool(shallow[i:m + 1].any()), safety_ft):
-                lo = m
+        lo_, step = i + 1, 1
+        while lo_ + step < n and ok(i, lo_ + step):
+            lo_ += step; step *= 2
+        hi = min(n - 1, lo_ + step)
+        while hi - lo_ > 1:
+            m = (lo_ + hi) // 2
+            if ok(i, m):
+                lo_ = m
             else:
                 hi = m
-        out.append(path[lo]); i = lo
+        out.append(path[lo_]); i = lo_
     return out
 
 

@@ -24,7 +24,7 @@ export type Guidance = {
   distNm: number;          // to the waypoint you're heading for
   nextBrg: number | null;  // course of the next leg (null on the last leg)
   turnDeg: number | null;  // + right / - left, at the coming waypoint
-  text: string;            // "Turn right to 155° in 0.30 NM", "Arrive in 0.45 NM"
+  text: string;            // "Next turn: right to 155°", "Heading for Berth 33" (no distance: the banner shows the trip total)
   final: boolean;
 };
 
@@ -35,11 +35,21 @@ export function guidance(nav: NavLeg, here: Pt): Guidance {
   const next = nav.points[nav.leg + 1];
   if (!next) {
     const name = tgt.name ?? 'the waypoint';
-    return { distNm, nextBrg: null, turnDeg: null, final: true, text: distNm < 1.5 ? `Arrive at ${name} in ${fmtDist(distNm)}` : `${fmtDist(distNm)} to ${name}` };
+    return { distNm, nextBrg: null, turnDeg: null, final: true, text: distNm < 0.05 ? `Arriving at ${name}` : `Heading for ${name}` };
   }
   const legBrg = bearingTrue(nav.legStart.lat, nav.legStart.lon, tgt.lat, tgt.lon);
   const nextBrg = bearingTrue(tgt.lat, tgt.lon, next.lat, next.lon);
   const turnDeg = ((nextBrg - legBrg + 540) % 360) - 180;
-  const how = Math.abs(turnDeg) < 10 ? `Continue on ${deg3(nextBrg)}` : `Turn ${turnDeg > 0 ? 'right' : 'left'} to ${deg3(nextBrg)}`;
-  return { distNm, nextBrg, turnDeg, final: false, text: `${how} in ${fmtDist(distNm)}` };
+  const how = Math.abs(turnDeg) < 10 ? `Next: continue on ${deg3(nextBrg)}` : `Next turn: ${turnDeg > 0 ? 'right' : 'left'} to ${deg3(nextBrg)}`;
+  return { distNm, nextBrg, turnDeg, final: false, text: how };
+}
+
+/** Distance still to go to the END of the route (this waypoint plus every leg after it), in NM. */
+export function remainingNm(nav: NavLeg, here: Pt): number {
+  const tgt = nav.points[nav.leg];
+  let rest = distanceNm(here.lat, here.lon, tgt.lat, tgt.lon);
+  for (let i = nav.leg; i < nav.points.length - 1; i++) {
+    rest += distanceNm(nav.points[i].lat, nav.points[i].lon, nav.points[i + 1].lat, nav.points[i + 1].lon);
+  }
+  return rest;
 }
