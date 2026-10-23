@@ -1,7 +1,7 @@
 // Harbors & marinas: marina outlines, individual docks and piers, fuel docks, pump-outs, launch ramps and bait.
 // Data: OpenStreetMap (weekly server job → R2), saved on the phone for offline use. © OpenStreetMap contributors.
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { Alert, Pressable, Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GeoJSONSource, Layer, Marker } from '@maplibre/maplibre-react-native';
 import { makeStyles } from '../theme';
@@ -108,7 +108,7 @@ export function HarborLayers({ fc, s, view, onPress }: { fc: any; s: LayerState;
   const pointFilter: any = ['all', ['==', ['geometry-type'], 'Point'], ['match', ['get', 'kind'], kinds.length ? kinds : ['none'], true, false]];
   return (
     <>
-      <GeoJSONSource id="harbors" data={fc} hitbox={{ top: 12, right: 12, bottom: 12, left: 12 }}
+      <GeoJSONSource id="harbors" data={fc} hitbox={{ top: 20, right: 20, bottom: 20, left: 20 }}
         onPress={(e: any) => {
           const f = e?.nativeEvent?.features?.find((x: any) => x?.geometry?.type === 'Point') ?? e?.nativeEvent?.features?.[0];
           if (!f) return;
@@ -135,9 +135,12 @@ export function HarborLayers({ fc, s, view, onPress }: { fc: any; s: LayerState;
         const k = HARBOR_KINDS[f.properties.kind];
         return (
           <Marker key={`h-${f.properties.id}`} lngLat={f.geometry.coordinates} anchor="left" offset={[8, 0]}>
-            <View pointerEvents="none" style={[st.lbl, { borderColor: k?.color ?? '#6B7C8C' }]}>
+            {/* The name opens the same card as the dot (people tap the words, not the 6-pt dot). */}
+            <Pressable onPress={() => onPress(f.properties ?? {}, [f.geometry.coordinates[0], f.geometry.coordinates[1]])}
+              hitSlop={8} style={[st.lbl, { borderColor: k?.color ?? '#6B7C8C' }]}
+              accessibilityRole="button" accessibilityLabel={`${f.properties.name || k?.label}: details and Go to`}>
               <Text style={st.lblT} numberOfLines={1}>{k?.icon} {f.properties.name || k?.label}</Text>
-            </View>
+            </Pressable>
           </Marker>
         );
       })}

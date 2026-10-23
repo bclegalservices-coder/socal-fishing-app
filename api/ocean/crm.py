@@ -17,11 +17,16 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
-from .erddap import describe, fetch_grid
+from .erddap import describe, fetch_grid, list_datasets
 from .grid import Grid
 from .registry import DATASETS, PFEG, REGIONS
 
-CRM_ID = "usgsCeCrm6"            # Topography, NOAA Coastal Relief Model, 3 arc second, Vol. 6 (Southern California)
+# Topography, NOAA Coastal Relief Model, 3 arc second, Vol. 6 (Southern California).
+# NOAA retired the plain "usgsCeCrm6" name in 2026; the same data now lives under "usgsCeCrm6_Lon0360", which writes
+# longitude as 0–360 (so -118° is 242°). Newest name first; if both vanish we search NOAA's catalog by title.
+CRM_IDS = ("usgsCeCrm6_Lon0360", "usgsCeCrm6")
+CRM_ID = CRM_IDS[0]
+CRM_TITLE = ".*Coastal Relief Model.*Southern California.*"
 CRM_BOX = (-124.0, 32.0, -114.0, 37.0)
 STEP = 1 / 1200.0                # 3 arc-seconds in degrees
 BLOCK = 0.5
@@ -44,12 +49,43 @@ def _read_nc(data: bytes, var_hint: str | None):
     return np.array(v[lat].data, np.float64), np.array(v[lon].data, np.float64), arr
 
 
+def lon_offset(dataset_id: str) -> float:
+    """360 for datasets that write longitude as 0–360 (ERDDAP names them …_Lon0360), else 0."""
+    return 360.0 if "lon0360" in dataset_id.lower() else 0.0
+
+
+def pick_crm(http, log=print) -> tuple[str, list, list]:
+    """The first relief-model dataset NOAA still answers for: (dataset id, dims, variables)."""
+    tried = []
+    for cid in CRM_IDS:
+        try:
+            dims, vars_ = describe(PFEG, cid, http)
+            return cid, dims, vars_
+        except Exception as e:  # noqa: BLE001  (404 = renamed/retired; try the next name)
+            tried.append(cid); log(f"crm: {cid} not available ({str(e)[:80]})")
+    try:
+        found = [d["id"] for d in list_datasets(PFEG, CRM_TITLE, http) if d["id"] not in tried]
+    except Exception as e:  # noqa: BLE001
+        found = []; log(f"crm: couldn't search NOAA's catalog ({str(e)[:80]})")
+    found.sort(key=lambda i: (lon_offset(i) == 0, i))    # same order as CRM_IDS: 0–360 copies first
+    for cid in found:
+        try:
+            dims, vars_ = describe(PFEG, cid, http)
+            log(f"crm: found the relief model under a new name: {cid}")
+            return cid, dims, vars_
+        except Exception:  # noqa: BLE001
+            tried.append(cid)
+    raise RuntimeError(f"NOAA's Southern California relief model isn't answering under any known name ({', '.join(tried)}). "
+                       "Nothing was changed; the current seafloor stays as it is.")
+
+
 def fetch_crm(bbox: tuple, http, log=print) -> Grid:
     """The relief model over bbox on a regular 3″ grid (meters, up positive); ETOPO fills what it doesn't cover."""
-    dims, vars_ = describe(PFEG, CRM_ID, http)
+    cid, dims, vars_ = pick_crm(http, log)
+    off = lon_offset(cid)
     var = "topo" if "topo" in vars_ else vars_[0]
     lat_d = next((d for d in dims if "lat" in d.lower()), "latitude")
-    log(f"crm: {CRM_ID} variable '{var}', dims {dims}")
+    log(f"crm: {cid} variable '{var}', dims {dims}{' (longitude 0–360)' if off else ''}")
     lon0, lat0, lon1, lat1 = bbox
     lats = lat0 + (np.arange(int(round((lat1 - lat0) / STEP))) + 0.5) * STEP
     lons = lon0 + (np.arange(int(round((lon1 - lon0) / STEP))) + 0.5) * STEP
@@ -62,9 +98,10 @@ def fetch_crm(bbox: tuple, http, log=print) -> Grid:
         data = None
         for asc in (True, False):                      # some datasets store latitude north → south
             q = f"[({a:.5f}):1:({la1:.5f})]" if asc else f"[({la1:.5f}):1:({a:.5f})]"
-            q = q + f"[({b:.5f}):1:({lo1:.5f})]" if dims.index(lat_d) == 0 else f"[({b:.5f}):1:({lo1:.5f})]" + q
+            qlon = f"[({b + off:.5f}):1:({lo1 + off:.5f})]"
+            q = q + qlon if dims.index(lat_d) == 0 else qlon + q
             for attempt in range(3):
-                r = http.get(f"{PFEG}/griddap/{CRM_ID}.nc?{var}{q}")
+                r = http.get(f"{PFEG}/griddap/{cid}.nc?{var}{q}")
                 if r.status_code == 200:
                     data = r.content; break
                 if r.status_code in (400, 404):
@@ -76,6 +113,7 @@ def fetch_crm(bbox: tuple, http, log=print) -> Grid:
             log(f"crm: block {a:.2f},{b:.2f} not available (HTTP {r.status_code}) — ETOPO will fill it")
             continue
         blat, blon, arr = _read_nc(data, var)
+        blon = np.where(blon > 180, blon - 360.0, blon)  # 0–360 datasets → the usual -180…180
         if dims.index(lat_d) != 0:
             arr = arr.T
         ii = np.clip(np.rint((blat - lat0) / STEP - 0.5).astype(int), 0, lats.size - 1)
@@ -91,7 +129,7 @@ def fetch_crm(bbox: tuple, http, log=print) -> Grid:
         ri, rj = np.nonzero(miss)
         out[miss] = g.sample(lats[ri], lons[rj]).astype(np.float32)
     return Grid(lats, lons, out, {"layer": "bathy", "units": "m", "source": "NOAA Coastal Relief Model (3″, Southern California) + ETOPO",
-                                  "dataset": CRM_ID, "resolution_m": 90, "kind": "static"})
+                                  "dataset": cid, "resolution_m": 90, "kind": "static"})
 
 
 def to_npz(g: Grid) -> bytes:
@@ -154,7 +192,7 @@ def run(store, region: str, http, log=print, budget_s: float = 48 * 60, force: b
         store.put(cache, to_npz(g), "application/octet-stream")
     base = f"tiles/contours/{region}"
     extra = {"contour_tiles": {d: store.url(f"{base}/{d}") + "/{z}/{x}/{y}.png" for d in DENSITIES},
-             "contour_zooms": [CONTOUR_TOP, CONTOUR_MAX], "relief_model": CRM_ID}
+             "contour_zooms": [CONTOUR_TOP, CONTOUR_MAX], "relief_model": g.meta.get("dataset", CRM_ID)}
     work_key = f"work/crm/{region}/done.json"
     done = set() if force else set(json.loads(store.get(work_key) or b"[]"))
     if "relief" not in done:

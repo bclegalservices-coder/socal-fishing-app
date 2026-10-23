@@ -44,3 +44,51 @@ def test_contour_pyramid_both_densities():
         contour_tree(g, lambda k, d: got.__setitem__(k, d), z, x, y, bbox, {"tiles": 0})
     assert {k.split("/")[0] for k in got} == {"std", "max"}
     assert {int(k.split("/")[1]) for k in got} == set(range(9, 14))
+
+
+def test_uses_new_noaa_name_and_converts_longitude():
+    """NOAA retired usgsCeCrm6; the job must use usgsCeCrm6_Lon0360 (longitude 0–360) and turn it back into -180…180."""
+    from scipy.io import netcdf_file
+    from ocean import crm
+
+    def nc(lats, lons):
+        buf = io.BytesIO(); f = netcdf_file(buf, "w")
+        f.createDimension("latitude", len(lats)); f.createDimension("longitude", len(lons))
+        f.createVariable("latitude", "d", ("latitude",))[:] = lats
+        f.createVariable("longitude", "d", ("longitude",))[:] = lons
+        f.createVariable("topo", "f", ("latitude", "longitude"))[:] = -50.0
+        f.flush(); return buf.getvalue()
+
+    class R:
+        def __init__(self, code, body=b"", js=None): self.status_code, self.content, self._js, self.text = code, body, js, ""
+        def json(self): return self._js
+        def raise_for_status(self):
+            if self.status_code >= 400: raise RuntimeError(f"HTTP {self.status_code}")
+
+    asked = []
+    info = {"table": {"columnNames": ["Row Type", "Variable Name"],
+                      "rows": [["dimension", "latitude"], ["dimension", "longitude"], ["variable", "topo"]]}}
+
+    class H:
+        def get(self, url, **k):
+            asked.append(url)
+            if "/info/usgsCeCrm6/" in url: return R(404)
+            if "/info/usgsCeCrm6_Lon0360/" in url: return R(200, js=info)
+            if "/griddap/usgsCeCrm6_Lon0360.nc" in url:
+                q = url.split("topo", 1)[1]
+                lo = [float(x) for x in q.split("][")[1].strip("[]").replace("(", "").replace(")", "").split(":1:")]
+                assert lo[0] > 180, "longitude must be asked for as 0–360"
+                return R(200, nc([33.0004], [lo[0] + 0.0004]))
+            return R(404)
+
+    bbox = (-118.30, 33.00, -118.29, 33.01)
+    real = crm.fetch_grid
+    crm.fetch_grid = lambda *a, **k: Grid(np.array([32.9, 33.1]), np.array([-118.4, -118.2]), np.full((2, 2), -99.0, np.float32), {})
+    try:
+        g = crm.fetch_crm(bbox, H(), log=lambda *a: None)
+    finally:
+        crm.fetch_grid = real
+    assert g.meta["dataset"] == "usgsCeCrm6_Lon0360"
+    assert any("/info/usgsCeCrm6_Lon0360/" in u for u in asked)
+    assert g.lons.min() < 0 and np.isfinite(g.values).any()      # data landed at -118°, not off the grid
+    assert crm.lon_offset("usgsCeCrm6_Lon0360") == 360 and crm.lon_offset("usgsCeCrm6") == 0
