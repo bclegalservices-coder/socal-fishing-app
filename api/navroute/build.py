@@ -27,7 +27,8 @@ import numpy as np
 from .grid import CRES, FINE, FRES, K, LAND, N, PREFIX, TILE, UNKNOWN, WATER, pack, unpack
 
 BLOCK = 5                      # tiles per side fetched together from NOAA (0.25°)
-SCALES = ["enc_berthing", ("enc_harbour", "enc_harbor"), "enc_approach", "enc_coastal"]   # most detailed first (either spelling)
+SCALES = ["enc_berthing", "enc_approach", "enc_coastal"]   # most detailed first (NOAA ENC Direct has no harbour-scale service)
+REQUIRED = "enc_coastal"     # without it most of the coast would fall back to the rough 100 m outline
 M_TO_FT = 3.28084
 
 
@@ -52,10 +53,16 @@ def discover(http, log=print) -> list[dict]:
         for svc in names:
             base = f"{root}/{svc}/MapServer"
             try:
-                r = http.get(f"{base}/layers", params={"f": "json"})
-                r.raise_for_status()
-                j = r.json()
-                if "error" in j:                         # ArcGIS answers 200 + {"error": …} for a wrong service name
+                j = {}
+                for attempt in range(4):                 # NOAA's services drop out for a minute now and then
+                    r = http.get(f"{base}/layers", params={"f": "json"})
+                    r.raise_for_status()
+                    j = r.json()
+                    if "error" not in j or str(j["error"].get("code")) == "404":
+                        break
+                    log(f"navmask: {svc}: NOAA busy ({str(j['error'].get('message'))[:80]}) — retrying in 30 s")
+                    time.sleep(30)
+                if "error" in j:                         # ArcGIS answers 200 + {"error": …}
                     log(f"navmask: {svc}: NOAA says {str(j['error'])[:150]}")
                     continue
                 layers = j.get("layers", [])
@@ -283,8 +290,9 @@ def run(store, bbox: tuple, region: str, http, log=print, budget_s: float = 42 *
     lm = landmask.get(region, bbox, store, http, log)
     kinds = tile_kinds(lm, bbox)
     charts = discover(http, log)
-    if not charts:
-        raise RuntimeError("no NOAA chart service answered")
+    if not any(c["scale"] == REQUIRED for c in charts):
+        # Don't replace a good water map with a rough one: stop before writing anything.
+        raise RuntimeError(f"NOAA {REQUIRED} charts aren't answering right now — kept the existing water map. Run navmask-rebuild again later.")
     tiles_done: dict = {}
     if not force:                                             # resume: keep what earlier runs built
         for i, j in zip(*np.nonzero(kinds == FINE)):
