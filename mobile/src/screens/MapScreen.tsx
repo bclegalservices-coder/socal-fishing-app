@@ -785,9 +785,9 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
 
       <SafeAreaView style={st.top} edges={['top']} pointerEvents="box-none">
         <View style={st.searchRow}>
-          <Pressable style={st.search} onPress={() => setPanel('search')} accessibilityRole="search" accessibilityLabel="Search fuel, bait, marinas and spots">
+          <Pressable style={st.search} onPress={() => setPanel('search')} accessibilityRole="search" accessibilityLabel="Search spots">
             <Ionicons name="search" size={19} color={colors.muted} />
-            <Text style={st.searchT} numberOfLines={1}>Search fuel, bait, marinas, spots…</Text>
+            <Text style={st.searchT} numberOfLines={1}>Search spots, numbers, my spots</Text>
           </Pressable>
           <IconButton icon={theme.mode === 'night' ? 'sunny' : 'moon'} size={48} label={theme.mode === 'night' ? 'Switch to day mode' : 'Switch to night mode'} onPress={() => { theme.toggle(); track('theme_changed', { setting: theme.mode === 'night' ? 'day' : 'night' }); }} />
         </View>

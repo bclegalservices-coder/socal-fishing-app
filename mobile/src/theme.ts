@@ -50,9 +50,9 @@ export const DAY: Palette = {
   text: '#0B1B2B',
   muted: '#4F6375',
   faint: '#7C8D9C',
-  accent: '#D97B00',
+  accent: '#1E6FD9',      // Harbor Blue (Oct 22): buttons, switches, chips, your data
   accentInk: '#FFFFFF',
-  live: '#0A6E94',
+  live: '#15803D',        // green: live readings (water temp, your boat, GPS) — deep enough to read in sun
   alert: '#C0362C',
   alertBg: '#FCEBE8',
   ok: '#1E7F48',

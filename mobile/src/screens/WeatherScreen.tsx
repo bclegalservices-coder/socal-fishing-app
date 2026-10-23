@@ -391,7 +391,7 @@ function History({ place }: { place: WeatherPlace }) {
           <Bars label="Dominant period" unit=" s" data={downsample(rows, 'period_s')} color="#8FA8FF" startLabel={span(first)} endLabel={span(last)} />
           <Bars label="Wind (gusts as dots)" unit=" kt" data={downsample(rows, 'wind_kt')} overlay={downsample(rows, 'gust_kt').map((p) => p.v)}
             colorFor={(v) => (v >= 21 ? '#E5484D' : v >= 15 ? '#F08A3C' : '#3FBF7F')} startLabel={span(first)} endLabel={span(last)} />
-          <Bars label="Water temp" unit="°F" data={downsample(rows, 'water_f')} color="#F5A524" zeroBased={false} startLabel={span(first)} endLabel={span(last)} />
+          <Bars label="Water temp" unit="°F" data={downsample(rows, 'water_f')} color="#16A34A" zeroBased={false} startLabel={span(first)} endLabel={span(last)} />
           <Bars label="Air temp" unit="°F" data={downsample(rows, 'air_f')} color="#C9A27A" zeroBased={false} startLabel={span(first)} endLabel={span(last)} />
           <Bars label="Pressure" unit=" mb" data={downsample(rows, 'pressure_mb')} color="#A3B4C1" zeroBased={false} startLabel={span(first)} endLabel={span(last)} />
         </View>

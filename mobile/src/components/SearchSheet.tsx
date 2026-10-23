@@ -18,7 +18,10 @@ export type SearchHit = { key: string; kind: 'spot' | 'saved' | 'place'; name: s
 
 type Cat = 'all' | 'fuel' | 'bait' | 'marina' | 'ramp' | 'pumpout' | 'mine' | 'spots';
 type Icon = keyof typeof MaterialCommunityIcons.glyphMap;
-const CATS: { key: Cat; label: string; icon: Icon; kinds?: string[] }[] = [
+// Harbor places (fuel, bait, marinas…) are switched off for now (Oct 22): the OpenStreetMap / state lists put too
+// many of them in the wrong place. Set HARBOR_SEARCH = true to bring them back once that data is cleaned up.
+const HARBOR_SEARCH = false;
+const ALL_CATS: { key: Cat; label: string; icon: Icon; kinds?: string[] }[] = [
   { key: 'all', label: 'All', icon: 'magnify' },
   { key: 'fuel', label: 'Fuel', icon: 'gas-station', kinds: ['fuel'] },
   { key: 'bait', label: 'Bait', icon: 'hook', kinds: ['bait', 'tackle'] },
@@ -28,6 +31,7 @@ const CATS: { key: Cat; label: string; icon: Icon; kinds?: string[] }[] = [
   { key: 'mine', label: 'My spots', icon: 'bookmark' },
   { key: 'spots', label: 'Fishing spots', icon: 'map-marker-star' },
 ];
+const CATS = ALL_CATS.filter((c) => HARBOR_SEARCH || !c.kinds);
 /** Which map switch shows each harbor kind (so picking a result turns its layer on). */
 const LAYER_OF: Record<string, LayerKey> = { fuel: 'fuel', bait: 'bait', tackle: 'bait', marina: 'marinas', harbor_office: 'marinas', service: 'marinas', ramp: 'ramps', pumpout: 'pumpout' };
 /** Words people type → kinds. "gas" finds fuel docks, "barge" or "receiver" finds bait, and so on. */
@@ -44,7 +48,7 @@ const ICON_OF: Record<string, { icon: Icon; tint: string }> = {
   fuel: { icon: 'gas-station', tint: '#E4572E' }, bait: { icon: 'hook', tint: '#0E9AA7' }, tackle: { icon: 'fishbowl-outline', tint: '#0E9AA7' },
   marina: { icon: 'anchor', tint: '#1F3A5F' }, harbor_office: { icon: 'office-building', tint: '#1F3A5F' }, service: { icon: 'wrench', tint: '#1F3A5F' },
   ramp: { icon: 'sail-boat', tint: '#2E8B57' }, pumpout: { icon: 'water-pump', tint: '#7B4FD6' },
-  saved: { icon: 'bookmark', tint: '#0A6E94' }, spot: { icon: 'map-marker-star', tint: '#D97B00' },
+  saved: { icon: 'bookmark', tint: '#16A34A' }, spot: { icon: 'map-marker-star', tint: '#1E6FD9' },
 };
 
 /** A single point for any harbor feature (marinas are outlines: use the middle of the outline). */
@@ -87,7 +91,7 @@ export function SearchSheet({ boat, center, mySpots, publicSpots, harbors, onPic
   // Harbor places saved on the phone
   const places = useMemo<SearchHit[]>(() => {
     const out: SearchHit[] = [];
-    for (const f of harbors?.features ?? []) {
+    for (const f of HARBOR_SEARCH ? harbors?.features ?? [] : []) {
       const k = f.properties?.kind;
       if (!HARBOR_KINDS[k]) continue;
       const c = pointOf(f); if (!c) continue;
@@ -133,14 +137,19 @@ export function SearchSheet({ boat, center, mySpots, publicSpots, harbors, onPic
       .sort((a, b) => (a.nm ?? 1e9) - (b.nm ?? 1e9)).slice(0, n);
     const mine = mySpots.map((s) => ({ key: `m${s.id}`, kind: 'saved' as const, id: s.id, name: s.name, sub: 'My spot · private', lat: s.lat, lon: s.lon, nm: dist(s.lat, s.lon) }))
       .sort((a, b) => (a.nm ?? 1e9) - (b.nm ?? 1e9)).slice(0, 5);
-    return [
+    const nearSpots: SearchHit[] = (publicSpots?.features ?? []).map((f: any) => ({ key: `c${f.properties.id}`, kind: 'spot' as const, id: f.properties.id, name: f.properties.name,
+      sub: f.properties.subtitle ?? 'Fishing spot', lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], nm: dist(f.geometry.coordinates[1], f.geometry.coordinates[0]) }))
+      .sort((a: SearchHit, b: SearchHit) => (a.nm ?? 1e9) - (b.nm ?? 1e9)).slice(0, 8);
+    const sections: { title: string; items: SearchHit[] }[] = [
       { title: 'My spots', items: mine },
+      { title: 'Nearby fishing spots', items: nearSpots },
       { title: 'Nearest fuel', items: nearest(['fuel'], 3) },
       { title: 'Nearest bait', items: nearest(['bait', 'tackle'], 3) },
       { title: 'Nearest marinas', items: nearest(['marina'], 3) },
       { title: 'Nearest launch ramps', items: nearest(['ramp'], 2) },
-    ].filter((s) => s.items.length);
-  }, [term, cat, places, mySpots, from?.lat, from?.lon]);
+    ];
+    return sections.filter((s) => s.items.length);
+  }, [term, cat, places, mySpots, publicSpots, from?.lat, from?.lon]);
 
   const pick = (h: SearchHit) => { track('search_pick', { kind: h.placeKind ?? h.kind, cat }); onPick(h); };
   const Item = ({ item }: { item: SearchHit }) => {
@@ -157,7 +166,7 @@ export function SearchSheet({ boat, center, mySpots, publicSpots, harbors, onPic
     );
   };
 
-  const placeholder = cat === 'all' ? 'Fuel, bait, marinas, spots, numbers…' : `Search ${CATS.find((c) => c.key === cat)!.label.toLowerCase()}…`;
+  const placeholder = cat === 'all' ? (HARBOR_SEARCH ? 'Fuel, bait, marinas, spots, numbers…' : 'Spot name, number or my spots') : `Search ${CATS.find((c) => c.key === cat)!.label.toLowerCase()}…`;
   return (
     <View style={st.sheet}>
       <View style={st.bar}>
@@ -186,13 +195,12 @@ export function SearchSheet({ boat, center, mySpots, publicSpots, harbors, onPic
               <Text style={st.secT}>{sec.title}</Text>
               {sec.items.map((h) => <Item key={h.key} item={h} />)}
             </View>
-          )) : <Text style={st.empty}>Type a spot name or number, or tap Fuel, Bait or Marinas above.</Text>}
-          {!places.length ? <Text style={st.empty}>Harbor places download once with signal, then work offline.</Text> : null}
+          )) : <Text style={st.empty}>Type a spot name or number, like "14", "209" or "Catalina".</Text>}
         </ScrollView>
       ) : (
-        <FlatList data={hits} keyExtractor={(h) => h.key} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 40 }}
+        <FlatList data={hits} keyExtractor={(h: SearchHit) => h.key} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 40 }}
           ListEmptyComponent={<Text style={st.empty}>{term ? `Nothing found for "${q.trim()}".` : 'Nothing here yet.'}</Text>}
-          renderItem={({ item }) => <Item item={item} />} />
+          renderItem={({ item }: { item: SearchHit }) => <Item item={item} />} />
       )}
     </View>
   );

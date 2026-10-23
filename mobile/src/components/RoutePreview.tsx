@@ -61,7 +61,7 @@ export function RoutePreview({ name, status, route, error, safetyFt, onSafety, o
       <View style={s.btns}>
         {status === 'ready' ? (
           <Pressable onPress={onStart} style={[s.btn, s.start]} accessibilityRole="button" accessibilityLabel="Start navigation">
-            <Ionicons name="navigate" size={18} color="#FFFFFF" /><Text style={s.startT}>Start</Text>
+            <Ionicons name="navigate" size={18} color={colors.accentInk} /><Text style={s.startT}>Start</Text>
           </Pressable>
         ) : status === 'failed' ? (
           <Pressable onPress={onRetry} style={[s.btn, s.retry]} accessibilityRole="button"><Text style={s.retryT}>Try again</Text></Pressable>
@@ -97,8 +97,8 @@ const useS = makeStyles((colors) => ({
   chipTOn: { color: colors.accentInk },
   btns: { flexDirection: 'row', gap: 10, marginTop: 2 },
   btn: { flex: 1, height: 50, borderRadius: 25, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 },
-  start: { backgroundColor: '#1E9E3A' },
-  startT: { color: '#FFFFFF', fontSize: 17, fontWeight: '800' },
+  start: { backgroundColor: colors.accent },
+  startT: { color: colors.accentInk, fontSize: 17, fontWeight: '800' },
   retry: { backgroundColor: colors.accent },
   retryT: { color: colors.accentInk, fontSize: 16, fontWeight: '800' },
   plain: { backgroundColor: colors.inset },

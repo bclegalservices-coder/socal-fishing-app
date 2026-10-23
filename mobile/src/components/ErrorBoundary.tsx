@@ -16,8 +16,8 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
         <Text style={{ fontSize: 44 }}>🎣</Text>
         <Text style={{ color: '#EAF0F4', fontSize: 22, fontWeight: '800', textAlign: 'center' }}>Something went wrong</Text>
         <Text style={{ color: '#A3B4C1', fontSize: 15, textAlign: 'center' }}>We've been sent a report automatically. Your spots, tracks and catches are safe on this phone.</Text>
-        <Pressable onPress={() => this.setState({ err: null })} style={{ backgroundColor: '#F5A524', borderRadius: 12, paddingHorizontal: 26, paddingVertical: 13, marginTop: 8 }}>
-          <Text style={{ color: '#10161B', fontWeight: '800', fontSize: 16 }}>Try again</Text>
+        <Pressable onPress={() => this.setState({ err: null })} style={{ backgroundColor: '#1E6FD9', borderRadius: 12, paddingHorizontal: 26, paddingVertical: 13, marginTop: 8 }}>
+          <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 16 }}>Try again</Text>
         </Pressable>
       </View>
     );
