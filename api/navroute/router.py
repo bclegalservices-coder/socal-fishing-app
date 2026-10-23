@@ -126,8 +126,10 @@ def _fine_direct(nd: NavData, a, b, safety_ft):
     win = nd.fine(lon0, lat0, lon1, lat1, step=_fine_step(lat1 - lat0, lon1 - lon0))
     cost = _cost(win, safety_ft)
     s = _snap(win, cost, win.cell(*a)); g = _snap(win, cost, win.cell(*b))
-    if s is None or g is None:
-        raise NoRoute("start or end isn't on the water")
+    if s is None:
+        raise NoRoute("the start isn't on or near the water")
+    if g is None:
+        raise NoRoute("the destination isn't on or near the water")
     goal = np.zeros(win.shape, dtype=bool); goal[g] = True
     p = _search(win, cost, s, goal)
     if p is None:
@@ -135,7 +137,7 @@ def _fine_direct(nd: NavData, a, b, safety_ft):
     return _to_lonlat(win, p)
 
 
-def _exit(nd: NavData, p, safety_ft):
+def _exit(nd: NavData, p, safety_ft, which: str = 'start'):
     """From a point (maybe deep inside a marina) to the nearest open water. Returns a path [(lat, lon), …]."""
     if nd.coarse_open(p[0], p[1], safety_ft):
         return [p]
@@ -144,6 +146,8 @@ def _exit(nd: NavData, p, safety_ft):
         cost = _cost(win, safety_ft)
         s = _snap(win, cost, win.cell(*p))
         if s is None:
+            if not win.water.any() or r == 0.025:
+                raise NoRoute(f"the {which} isn't on or near the water")
             continue
         # goal: cells that are open water on the coarse map
         h, w = win.shape
@@ -260,8 +264,8 @@ def route(nd: NavData, pts: list[tuple[float, float]], safety_ft: float = 8.0) -
         if d <= 2.0:
             leg = _fine_direct(nd, a, b, safety_ft)
         else:
-            ea = _exit(nd, a, safety_ft)
-            eb = _exit(nd, b, safety_ft)
+            ea = _exit(nd, a, safety_ft, 'start')
+            eb = _exit(nd, b, safety_ft, 'destination')
             mid = _coarse(nd, ea[-1], eb[-1], safety_ft)
             leg = ea + mid[1:-1] + eb[::-1]
         leg = [a] + leg[1:-1] + [b] if len(leg) >= 2 else [a, b]

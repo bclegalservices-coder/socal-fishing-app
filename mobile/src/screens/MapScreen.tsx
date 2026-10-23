@@ -484,6 +484,18 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       fitTo(r.points);
     } catch (e: any) {
       if (seq !== planSeq.current) return;
+      const msg = String(e?.message ?? '');
+      // On land (at home, in the parking lot): a planned route can start from its own first point on the water.
+      if (start && /start isn't on or near the water/.test(msg) && targets.length >= 2 && !autoStart) {
+        try {
+          const r = await fetchAutoRoute(targets, ft);
+          if (seq !== planSeq.current) return;
+          setPlan((p) => (p ? { ...p, status: 'ready', route: r } : p)); fitTo(r.points);
+          setToast("You're not on the water, so the route starts at its first point");
+          return;
+        } catch { /* fall through to the message below */ }
+      }
+      if (/start isn't on or near the water/.test(msg)) e = new Error("You're not on the water right now — auto route starts from your boat. To try it from land, plan a route (+ → Routes) that starts on the water.");
       if (autoStart) { setToast(`Couldn't re-route: ${e?.message ?? 'no route'}`); if (nav) setNav({ ...nav, legStart: here() ?? nav.legStart }); return; }
       setPlan((p) => (p ? { ...p, status: 'failed', error: e?.message ?? 'No route found.' } : p));
     }
