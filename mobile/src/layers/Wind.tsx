@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { GeoJSONSource, Layer, RasterSource } from '@maplibre/maplibre-react-native';
 import { okTile } from '../config';
+import { FEATURES_TOP, SHADING_TOP, below } from './order';
 
 type UV = { lats: number[]; lons: number[]; u: (number | null)[][]; v: (number | null)[][] };
 type View4 = { minLon: number; minLat: number; maxLon: number; maxLat: number; zoom: number } | null;
@@ -92,11 +93,11 @@ export function WindLayer({ hour, on, opacity, view }: { hour?: Hour; on: boolea
     <>
       {okTile(hour.tiles) ? (
         <RasterSource key={`wind-${hour.tiles}`} id="wind-speed" tiles={[hour.tiles]} tileSize={256} minzoom={5} maxzoom={8}>
-          <Layer key="wind-speed-layer" type="raster" id="wind-speed-layer" style={{ rasterOpacity: opacity, rasterFadeDuration: 0, rasterResampling: 'linear' }} />
+          <Layer beforeId={below(SHADING_TOP)} key="wind-speed-layer" type="raster" id="wind-speed-layer" style={{ rasterOpacity: opacity, rasterFadeDuration: 0, rasterResampling: 'linear' }} />
         </RasterSource>
       ) : null}
       <GeoJSONSource id="wind-streaks" data={fc}>
-        <Layer key="wind-streaks-line" type="line" id="wind-streaks-line"
+        <Layer beforeId={below(FEATURES_TOP)} key="wind-streaks-line" type="line" id="wind-streaks-line"
           style={{ lineColor: '#FFFFFF', lineWidth: 2.2, lineCap: 'round', lineOpacity: ['*', Math.min(1, Math.max(0.3, opacity * 1.7)), ['get', 'o']] as any }} />
       </GeoJSONSource>
     </>

@@ -30,6 +30,12 @@ export function RoutePreview({ name, status, route, error, safetyFt, onSafety, o
 
       {status === 'ready' && route ? (
         <>
+          {route.start_from ? (
+            <View style={[s.warn, { backgroundColor: colors.infoBg }]}>
+              <Ionicons name={route.start_from.kind === 'ramp' ? 'boat' : 'business'} size={16} color={colors.accent} />
+              <Text style={s.warnT}>You're not on the water, so the route starts at <Text style={{ fontWeight: '800' }}>{route.start_from.name}</Text> ({route.start_from.kind === 'ramp' ? 'launch ramp' : 'marina'}, {route.start_from.distance_nm} NM from you).</Text>
+            </View>
+          ) : null}
           <View style={s.stats}>
             <View style={s.stat}><Text style={s.statV}>{formatNm(route.distance_nm)}<Text style={s.statU}> NM</Text></Text><Text style={s.statK}>auto route</Text></View>
             <View style={s.stat}><Text style={s.statV}>{route.turns}</Text><Text style={s.statK}>{route.turns === 1 ? 'turn' : 'turns'}</Text></View>

@@ -6,6 +6,7 @@ import { colors, makeStyles } from '../theme';
 import { boundaryPoints, MPA_ALLOWED_SUMMARY_CHECKED, mpaDetails, type RulesData } from '../offline/rules';
 import { formatLatLon } from '../geo';
 import { Btn, Note, Sheet, Title } from './ui';
+import { FEATURES_TOP, SHADING_TOP, below } from '../layers/order';
 
 const MPA_RED = '#D7262B';
 
@@ -18,36 +19,36 @@ export function RulesLayers({ data, showProtected, showHazards, onPress }: { dat
       {showProtected ? ['mpa', 'mpa_mx', 'closures'].filter((k) => f[k]).map((k) => (
         <GeoJSONSource key={k} id={`rules-${k}`} data={f[k]} onPress={press}>
           {/* MPAs in red: no-take = stronger red fill and solid edge; limited take = lighter fill, dashed edge */}
-          <Layer type="fill" id={`rules-${k}-fill`} style={{
+          <Layer beforeId={below(SHADING_TOP)} type="fill" id={`rules-${k}-fill`} style={{
             fillColor: k === 'closures' ? '#b07fd1' : MPA_RED,
             fillOpacity: k === 'closures' ? 0.12 : (['match', ['get', 'take'], 'no_take', 0.3, 0.14] as any),
           }} />
-          <Layer type="line" id={`rules-${k}-line`} style={{
+          <Layer beforeId={below(FEATURES_TOP)} type="line" id={`rules-${k}-line`} style={{
             lineColor: k === 'closures' ? '#b07fd1' : MPA_RED,
             lineWidth: (['match', ['get', 'take'], 'no_take', 2.4, 1.8] as any),
           }} />
-          <Layer type="line" id={`rules-${k}-line-dash`} filter={['!=', ['get', 'take'], 'no_take'] as any} style={{ lineColor: '#FFFFFF', lineWidth: 1.8, lineDasharray: [2, 2] }} />
+          <Layer beforeId={below(FEATURES_TOP)} type="line" id={`rules-${k}-line-dash`} filter={['!=', ['get', 'take'], 'no_take'] as any} style={{ lineColor: '#FFFFFF', lineWidth: 1.8, lineDasharray: [2, 2] }} />
         </GeoJSONSource>
       )) : null}
       {showHazards && f.lanes ? (
         <GeoJSONSource id="rules-lanes" data={f.lanes} onPress={press}>
-          <Layer type="fill" id="rules-lanes-fill" filter={['==', ['geometry-type'], 'Polygon'] as any} style={{ fillColor: '#c058c0', fillOpacity: 0.1 }} />
-          <Layer type="line" id="rules-lanes-line" style={{ lineColor: '#c058c0', lineWidth: 1.4, lineDasharray: [4, 2] }} />
+          <Layer beforeId={below(SHADING_TOP)} type="fill" id="rules-lanes-fill" filter={['==', ['geometry-type'], 'Polygon'] as any} style={{ fillColor: '#c058c0', fillOpacity: 0.1 }} />
+          <Layer beforeId={below(FEATURES_TOP)} type="line" id="rules-lanes-line" style={{ lineColor: '#c058c0', lineWidth: 1.4, lineDasharray: [4, 2] }} />
         </GeoJSONSource>
       ) : null}
       {showHazards && f.anchorages ? (
         <GeoJSONSource id="rules-anch" data={f.anchorages} onPress={press}>
-          <Layer type="line" id="rules-anch-line" style={{ lineColor: '#8fb3c9', lineWidth: 1, lineDasharray: [2, 2] }} />
+          <Layer beforeId={below(FEATURES_TOP)} type="line" id="rules-anch-line" style={{ lineColor: '#8fb3c9', lineWidth: 1, lineDasharray: [2, 2] }} />
         </GeoJSONSource>
       ) : null}
       {showHazards && f.wrecks ? (
         <GeoJSONSource id="rules-wrecks" data={f.wrecks} onPress={press} hitbox={{ top: 12, right: 12, bottom: 12, left: 12 }}>
-          <Layer type="circle" id="rules-wrecks-dot" filter={['==', ['geometry-type'], 'Point'] as any} style={{ circleRadius: 5, circleColor: '#2b2b2b', circleStrokeColor: '#ffffff', circleStrokeWidth: 1.5 }} />
+          <Layer beforeId={below(FEATURES_TOP)} type="circle" id="rules-wrecks-dot" filter={['==', ['geometry-type'], 'Point'] as any} style={{ circleRadius: 5, circleColor: '#2b2b2b', circleStrokeColor: '#ffffff', circleStrokeWidth: 1.5 }} />
         </GeoJSONSource>
       ) : null}
       {showHazards && f.navaids ? (
         <GeoJSONSource id="rules-navaids" data={f.navaids} onPress={press} hitbox={{ top: 12, right: 12, bottom: 12, left: 12 }}>
-          <Layer type="circle" id="rules-navaids-dot" filter={['==', ['geometry-type'], 'Point'] as any} style={{ circleRadius: 4, circleColor: '#3fb950', circleStrokeColor: '#0a141c', circleStrokeWidth: 1 }} />
+          <Layer beforeId={below(FEATURES_TOP)} type="circle" id="rules-navaids-dot" filter={['==', ['geometry-type'], 'Point'] as any} style={{ circleRadius: 4, circleColor: '#3fb950', circleStrokeColor: '#0a141c', circleStrokeWidth: 1 }} />
         </GeoJSONSource>
       ) : null}
     </>

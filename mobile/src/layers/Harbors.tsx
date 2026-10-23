@@ -8,6 +8,7 @@ import { makeStyles } from '../theme';
 import type { LayerState } from './state';
 import { ctaText, getFeatured, impression, tapAd, type Featured } from '../ads/ads';
 import { useAdPreviewTick } from '../ads/Sponsor';
+import { FEATURES_TOP, SHADING_TOP, below } from './order';
 
 export type HarborManifest = { key: 'harbors'; url?: string; updated_at?: string; counts?: Record<string, number>; attribution?: string; note?: string };
 type View4 = { minLon: number; minLat: number; maxLon: number; maxLat: number; zoom: number } | null;
@@ -116,18 +117,18 @@ export function HarborLayers({ fc, s, view, onPress }: { fc: any; s: LayerState;
           onPress(f.properties ?? {}, [c[0], c[1]]);
         }}>
         {s.on.marinas ? (
-          <Layer key="harbor-marina-fill" type="fill" id="harbor-marina-fill" minzoom={11} filter={['all', ['==', ['get', 'kind'], 'marina'], ['==', ['geometry-type'], 'Polygon']] as any}
+          <Layer beforeId={below(SHADING_TOP)} key="harbor-marina-fill" type="fill" id="harbor-marina-fill" minzoom={11} filter={['all', ['==', ['get', 'kind'], 'marina'], ['==', ['geometry-type'], 'Polygon']] as any}
             style={{ fillColor: '#1F3A5F', fillOpacity: 0.08 }} />
         ) : null}
         {s.on.marinas ? (
-          <Layer key="harbor-marina-line" type="line" id="harbor-marina-line" minzoom={11} filter={['all', ['==', ['get', 'kind'], 'marina'], ['==', ['geometry-type'], 'Polygon']] as any}
+          <Layer beforeId={below(FEATURES_TOP)} key="harbor-marina-line" type="line" id="harbor-marina-line" minzoom={11} filter={['all', ['==', ['get', 'kind'], 'marina'], ['==', ['geometry-type'], 'Polygon']] as any}
             style={{ lineColor: '#1F3A5F', lineWidth: 1.2, lineOpacity: 0.6, lineDasharray: [3, 2] }} />
         ) : null}
         {s.on.docks ? (
-          <Layer key="harbor-docks" type="line" id="harbor-docks" minzoom={13} filter={['all', ['==', ['get', 'kind'], 'dock'], ['==', ['geometry-type'], 'LineString']] as any}
+          <Layer beforeId={below(FEATURES_TOP)} key="harbor-docks" type="line" id="harbor-docks" minzoom={13} filter={['all', ['==', ['get', 'kind'], 'dock'], ['==', ['geometry-type'], 'LineString']] as any}
             style={{ lineColor: '#3B4A5A', lineWidth: 2.5, lineOpacity: 0.9 }} />
         ) : null}
-        <Layer key="harbor-points" type="circle" id="harbor-points" minzoom={9.5} filter={pointFilter}
+        <Layer beforeId={below(FEATURES_TOP)} key="harbor-points" type="circle" id="harbor-points" minzoom={9.5} filter={pointFilter}
           style={{ circleRadius: 6, circleColor: kindColor, circleStrokeColor: '#FFFFFF', circleStrokeWidth: 1.5 }} />
       </GeoJSONSource>
       {labels.map((f: any) => {

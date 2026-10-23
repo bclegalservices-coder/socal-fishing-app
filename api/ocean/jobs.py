@@ -245,18 +245,29 @@ def run_surface(layer: str, region: str, days: list[int]):
     _save_manifest(store, layer, m)
 
 
-def run_bathy(region: str, file: str | None):
+def _thin(g: Grid, k: int) -> Grid:
+    """Every k-th row/column (for the stored lookup grid and the vector contours, which must stay small)."""
+    return g if k <= 1 else Grid(g.lats[::k].copy(), g.lons[::k].copy(), g.values[::k, ::k].copy(), dict(g.meta))
+
+
+def run_bathy(region: str, file: str | None, grid: Grid | None = None, extra: dict | None = None, zooms=None):
+    """Seafloor relief tiles + depth lookup grid + vector contours. `grid` (meters, up positive) = use this data
+    (e.g. the Coastal Relief Model from `crm`) instead of the coarse global grid. `extra` goes into the manifest."""
     store = get_store()
-    if file:
+    if grid is not None:
+        g = grid
+    elif file:
         g = _load_local_dem(file)
     else:
         g = fetch_grid(DATASETS["bathy"], REGIONS[region], None, http=httpx.Client(timeout=300, follow_redirects=True))
     depth = to_display_units(g)
     depth.meta.update({"layer": "bathy"})
     _, hs, slope = bathy_mod.shaded_grid(depth)
-    store.put(f"grids/bathy/{region}/depth.npz", depth.to_bytes())
+    # the stored lookup grid (tap-for-depth, catch snapshots) and the vector contours stay ~300 m / ~700 m
+    fine_m = float(depth.meta.get("resolution_m") or 1850)
+    store.put(f"grids/bathy/{region}/depth.npz", _thin(depth, max(1, int(round(270 / fine_m)))).to_bytes())
     n = 0
-    for z in TILE_ZOOMS["bathy"]:
+    for z in (zooms or TILE_ZOOMS["bathy"]):
         for zz, x, y in tiles_for_bbox(REGIONS[region], z):
             lon, lat = pixel_lonlat(zz, x, y)
             d = depth.sample(lat, lon)
@@ -267,7 +278,7 @@ def run_bathy(region: str, file: str | None):
             Image.fromarray(rgba, "RGBA").save(buf, "PNG", optimize=True)
             store.put(f"tiles/bathy/{region}/{zz}/{x}/{y}.png", buf.getvalue(), "image/png")
             n += 1
-    contours = bathy_mod.contour_geojson(depth)
+    contours = bathy_mod.contour_geojson(_thin(depth, max(1, int(round(700 / fine_m)))))
     store.put(f"vectors/bathy-contours/{region}.geojson", json.dumps(contours).encode(), "application/geo+json")
     _save_manifest(store, "bathy", {
         "layer": "bathy", "label": LABELS["bathy"], "note": NOTES["bathy"], "legend": LEGENDS["bathy"],
@@ -275,7 +286,7 @@ def run_bathy(region: str, file: str | None):
         "resolution_m": depth.meta.get("resolution_m"),
         "dates": [{"date": "static", "region": region, "tiles": store.url(f"tiles/bathy/{region}") + "/{z}/{x}/{y}.png",
                    "contours": store.url(f"vectors/bathy-contours/{region}.geojson"), "grid": f"grids/bathy/{region}/depth.npz",
-                   "tile_count": n}],
+                   "tile_count": n, **(extra or {})}],
     })
     log(f"bathy: {n} tiles, {len(contours['features'])} contour levels")
 
@@ -333,15 +344,24 @@ def verify():
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("job", choices=["sst", "chl", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "all", "discover", "verify"])
+    p.add_argument("job", choices=["sst", "chl", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "bottomhd", "bottomhd-rebuild", "crm", "crm-rebuild", "all", "discover", "verify"])
     p.add_argument("--region", default="socal")
     p.add_argument("--days", default="0,1,2,3,7")
     p.add_argument("--file", default=None, help="local seafloor file for `bathy`")
     p.add_argument("--force", action="store_true", help="navmask: rebuild every tile instead of continuing")
+    p.add_argument("--area", default="pilot", help="bottomhd: which area to draw (see ocean/bottomhd.py AREAS)")
     a = p.parse_args(argv)
     days = [int(x) for x in a.days.split(",") if x.strip()]
     if a.job == "discover":
         return discover()
+    if a.job in ("crm", "crm-rebuild"):   # sharper seafloor + Standard/Max contour layers for the whole region
+        from .crm import run as run_crm
+        http = httpx.Client(timeout=300, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})
+        return run_crm(get_store(), a.region, http, log, force=a.force or a.job == "crm-rebuild")
+    if a.job in ("bottomhd", "bottomhd-rebuild"):   # HD bottom: sharp relief + dense contours (resumable)
+        from .bottomhd import run as run_bottomhd
+        http = httpx.Client(timeout=300, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})
+        return run_bottomhd(get_store(), a.area, http, log, force=a.force or a.job == "bottomhd-rebuild")
     if a.job in ("navmask", "navmask-rebuild"):   # water map for auto routing (resumable; "-rebuild" starts over)
         from navroute.build import run as run_navmask
         http = httpx.Client(timeout=120, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})

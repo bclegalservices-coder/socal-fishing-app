@@ -9,6 +9,8 @@ export type RoutePt = Pt & { target?: boolean };
 export type AutoRoute = {
   points: RoutePt[]; distance_nm: number; straight_nm: number; turns: number; safety_ft: number;
   warnings: { kind: string; text: string; lat?: number; lon?: number; min_ft?: number }[]; note: string;
+  /** Set when you were on land: the route starts at this launch ramp / marina instead. */
+  start_from?: { name: string; kind: string; lat: number; lon: number; distance_nm: number };
 };
 
 const SAFETY_KEY = 'route-safety-ft:v1';

@@ -137,3 +137,19 @@ def test_via_points_are_kept_and_marked():
     assert pts[0].get("target") and pts[-1].get("target")
     assert any(p.get("target") and abs(p["lat"] - via[0]) < 1e-6 and abs(p["lon"] - via[1]) < 1e-6 for p in pts[1:-1])
     assert _all_water(n, [(p["lat"], p["lon"]) for p in pts])
+
+
+def test_start_on_land_uses_nearest_launch():
+    n = nd()
+    home = (33.79, -118.30)                                       # well inland on the fake mainland
+    launches = [{"name": "Far ramp", "kind": "ramp", "lat": 33.79, "lon": -118.10},           # on land, no water path
+                {"name": "Channel Marina", "kind": "marina", "lat": 33.750, "lon": -118.29}]   # in the marina basin
+    r = route(n, [home, (33.62, -118.30)], safety_ft=8, launches=launches)
+    assert r["start_from"]["name"] == "Channel Marina"
+    pts = [(p["lat"], p["lon"]) for p in r["points"]]
+    assert abs(pts[0][0] - 33.750) < 1e-6 and _all_water(n, pts) and _crosses_gap(pts)
+    try:
+        route(n, [home, (33.62, -118.30)], safety_ft=8)            # without launches: the clear "on land" message
+        assert False
+    except Exception as e:
+        assert "start isn't on or near the water" in str(e)

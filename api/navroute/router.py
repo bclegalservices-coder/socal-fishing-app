@@ -253,10 +253,42 @@ def straighten(nd: NavData, path: list, safety_ft: float) -> list:
 
 # ------------------------------------------------------------------ public
 
-def route(nd: NavData, pts: list[tuple[float, float]], safety_ft: float = 8.0) -> dict:
-    """pts: [(lat, lon), …] start, optional via points, end. Returns the turn points and notes."""
+def route(nd: NavData, pts: list[tuple[float, float]], safety_ft: float = 8.0, launches: list[dict] | None = None) -> dict:
+    """pts: [(lat, lon), …] start, optional via points, end. Returns the turn points and notes.
+    launches: launch ramps / marinas [{name, kind, lat, lon}]. If the start is on land (you're at home, planning),
+    the route starts from the nearest one that has a water path, and says so (`start_from`)."""
     if len(pts) < 2:
         raise NoRoute("need a start and an end")
+    try:
+        return _route(nd, pts, safety_ft)
+    except NoRoute as e:
+        if "start isn't on or near the water" not in str(e) or not launches:
+            raise
+    a = pts[0]
+    near = sorted((l for l in launches if dist_nm(a, (l["lat"], l["lon"])) < 40), key=lambda l: dist_nm(a, (l["lat"], l["lon"])))
+    for l in near[:8]:                     # closest first; skip any whose pin isn't really at the water
+        try:
+            r = _route(nd, [(l["lat"], l["lon"])] + list(pts[1:]), safety_ft)
+        except NoRoute:
+            continue
+        r["start_from"] = {"name": l.get("name") or ("Launch ramp" if l.get("kind") == "ramp" else "Marina"), "kind": l.get("kind"),
+                           "lat": l["lat"], "lon": l["lon"], "distance_nm": round(dist_nm(a, (l["lat"], l["lon"])), 1)}
+        return r
+    raise NoRoute("the start isn't on or near the water, and no launch ramp or marina nearby had a water path")
+
+
+def launch_points(fc: dict) -> list[dict]:
+    """Launch ramps and marinas from the harbors file (points only)."""
+    out = []
+    for f in (fc or {}).get("features", []):
+        p, g = f.get("properties") or {}, f.get("geometry") or {}
+        if p.get("kind") in ("ramp", "marina") and g.get("type") == "Point":
+            lon, lat = g["coordinates"][:2]
+            out.append({"name": p.get("name"), "kind": p.get("kind"), "lat": float(lat), "lon": float(lon)})
+    return out
+
+
+def _route(nd: NavData, pts: list[tuple[float, float]], safety_ft: float) -> dict:
     turns: list = []
     is_target: list = []
     for a, b in zip(pts[:-1], pts[1:]):

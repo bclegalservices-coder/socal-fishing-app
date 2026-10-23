@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getJSON } from '../api';
-import type { Catalog, ExternalLayer, GridLayer, LayerDate, WindLayer } from '../types';
+import type { Catalog, ExternalLayer, GridLayer, HdBottomLayer, LayerDate, WindLayer } from '../types';
 
 export const DAY_OFFSETS = [0, 1, 2, 3, 7];
 
@@ -31,6 +31,11 @@ export const grid = (c: Catalog | null, key: 'sst' | 'chl' | 'bathy'): GridLayer
   if (!l) return undefined;
   const dates = (l.dates ?? []).filter((d: any) => typeof d?.tiles === 'string' && d.tiles.startsWith('http'));
   return dates.length ? { ...l, dates } : { ...l, dates: [], available: false } as GridLayer;
+};
+/** HD bottom, only when its tile address is a real web address (same crash guard as the grid layers). */
+export const hdBottom = (c: Catalog | null): HdBottomLayer | undefined => {
+  const l = c?.layers.find((x) => x.key === 'bottomhd') as HdBottomLayer | undefined;
+  return l && typeof l.tiles === 'string' && l.tiles.startsWith('http') ? l : undefined;
 };
 export const harborsOf = (c: Catalog | null) => (c?.layers.find((l) => l.key === 'harbors') as any) ?? undefined;
 export const wind = (c: Catalog | null) => (c?.layers.find((l) => l.key === 'wind') as WindLayer | undefined) ?? undefined;

@@ -1,2 +1,3 @@
 eccodes>=2.38
 copernicusmarine>=2.3
+rasterio>=1.3       # HD bottom: reads NOAA BlueTopo GeoTIFFs

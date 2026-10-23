@@ -56,6 +56,7 @@ import { setArea, track } from '../analytics';
 import { friendly } from '../friendly';
 import { SHORT_WARNING } from '../legal';
 import { SafeLayer } from '../components/ErrorBoundary';
+import { FEATURES_TOP, SHADING_TOP, setLayerOrder } from '../layers/order';
 import { useWaterTemp } from '../waterTemp';
 import { autoZoom, guidance, offRouteLimit } from '../navMode';
 import { fetchAutoRoute, getSafetyFt, setSafetyFt, type AutoRoute } from '../autoRoute';
@@ -87,6 +88,10 @@ function buildMapStyle(chartUrl: string) {
     layers: [
       { id: 'water', type: 'background', paint: { 'background-color': colors.water } },
       { id: 'noaa-chart', type: 'raster', source: 'noaa', paint: { 'raster-fade-duration': 100 } },
+      // Invisible markers that fix the layer order (see layers/order.ts): shading goes below the first,
+      // lines and dots below the second, and the boat / route / waypoints are always added above both.
+      { id: SHADING_TOP, type: 'background', paint: { 'background-color': 'rgba(0,0,0,0)', 'background-opacity': 0 } },
+      { id: FEATURES_TOP, type: 'background', paint: { 'background-color': 'rgba(0,0,0,0)', 'background-opacity': 0 } },
     ],
   };
 }
@@ -137,6 +142,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const [arrived, setArrived] = useState<string | null>(null);
   const [layers, setLayers] = useState<LayerState>(DEFAULT_LAYERS);
   const [killed, setKilled] = useState<string[]>(config().features_off ?? []);
+  // Layer order (boat & route always on top). null = still checking the safety flag; overlays wait for it.
+  const [orderOn, setOrderOn] = useState<boolean | null>(null);
   useEffect(() => onConfig((c) => setKilled(c.features_off ?? [])), []);
   useEffect(() => { setLayers((p) => applyKillSwitch(p, killed)); }, [killed.join(','), layers.on, layers.overlay]);
   const chartUrl = useMemo(() => noaaChartTiles({ ...DEFAULT_LAYERS.chart, ...layers.chart }, theme.mode === 'night', killed.includes('chart_helper')), [layers.chart, theme.mode, killed.join(',')]);
@@ -186,6 +193,13 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       // Crash guard: if the last start never got past the first 30 seconds, start with default layers.
       let safeStart = false;
       try { safeStart = (await AsyncStorage.getItem('boot:v1')) === 'starting'; await AsyncStorage.setItem('boot:v1', 'starting'); } catch {}
+      // If the app closed during startup, stop using layer ordering from now on (it's the newest map change).
+      let orderOff = false;
+      try {
+        orderOff = (await AsyncStorage.getItem('layer-order-off:v1')) === '1' || (config().features_off ?? []).includes('layer_order');
+        if (safeStart && !orderOff) { orderOff = true; await AsyncStorage.setItem('layer-order-off:v1', '1'); }
+      } catch {}
+      setLayerOrder(!orderOff); setOrderOn(!orderOff);
       setTimeout(() => { AsyncStorage.setItem('boot:v1', 'ok').catch(() => {}); }, 30000);
       if (safeStart) {
         setToast('The map had a problem last time, so your map layers were reset.');
@@ -503,7 +517,10 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   };
   const beginRoute = (r: AutoRoute, name: string, targets: Pt[]) => {
     let k = 0;
-    const pts: NavPt[] = r.points.slice(1).map((p) => {
+    // Planned from land: the route begins at the launch ramp / marina, so that's the first point to go to.
+    const src = r.start_from ? r.points : r.points.slice(1);
+    const pts: NavPt[] = src.map((p, i) => {
+      if (r.start_from && i === 0) return { lat: p.lat, lon: p.lon, target: true, name: r.start_from.name };
       if (!p.target) return { lat: p.lat, lon: p.lon };
       const t0 = targets[Math.min(k++, targets.length - 1)];
       return { lat: p.lat, lon: p.lon, target: true, name: t0?.name };
@@ -730,12 +747,12 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         <Camera ref={camera} initialViewState={{ center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM }}
           trackUserLocation={nav && follow ? undefined : orient === 'heading' ? 'heading' : orient === 'course' ? 'course' : undefined}
           onTrackUserLocationChange={(e: any) => { if (e?.nativeEvent?.trackUserLocation == null && orient !== 'north') setOrient('north'); }} />
-        <SafeLayer name="ocean" resetKey={JSON.stringify(layers.on)}>
+        {orderOn !== null ? <SafeLayer name="ocean" resetKey={JSON.stringify(layers.on)}>
           <MapLayers catalog={catalog} s={layers} compareOffset={compareOffset} radarPlaying={radarPlaying} onRadarLabel={setRadarLabel} onBuoyPress={(p) => { featurePressAt.current = Date.now(); setSel(null); setBuoy(p); }} />
-        </SafeLayer>
+        </SafeLayer> : null}
         {/* MPAs on top of every overlay so they're never hidden under relief or satellite */}
-        <RulesLayers data={rules} showProtected={layers.on.rules} showHazards={layers.on.hazards}
-          onPress={(p, geom) => { featurePressAt.current = Date.now(); setSel(null); setClusterSel(null); setRuleSel({ ...p, geom }); }} />
+        {orderOn !== null ? <RulesLayers data={rules} showProtected={layers.on.rules} showHazards={layers.on.hazards}
+          onPress={(p, geom) => { featurePressAt.current = Date.now(); setSel(null); setClusterSel(null); setRuleSel({ ...p, geom }); }} /> : null}
         <UserLocation heading />
         {layers.on.catches ? <CatchMarkers clusters={clusters} windowHours={catchHours} onPress={(c) => { setSel(null); setBuoy(null); setClusterSel(c); track('cluster_open', { species: c.species_code }); }} /> : null}
         {layers.on.buddies ? <BuddyMarkers buddies={buddyList} rotation={view?.heading ?? 0}
@@ -770,12 +787,12 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
             <View pointerEvents="none" style={[st.wpNum, i === 0 && st.wpNumNext]}><Text style={st.wpNumT}>{nav.leg + i + 1}</Text></View>
           </Marker>
         )) : null}
-        <SafeLayer name="wind" resetKey={`${layers.on.wind}-${layers.windIndex}`}><WindLayer on={layers.on.wind} view={view} opacity={layers.opacity.wind ?? 0.55}
-          hour={windOf(catalog)?.hours?.[Math.min(layers.windIndex, (windOf(catalog)?.hours?.length ?? 1) - 1)]} /></SafeLayer>
-        <SafeLayer name="harbors" resetKey={JSON.stringify(layers.on)}><HarborLayers fc={harborFc} s={layers} view={view} onPress={(p, [lon, lat]) => {
+        {orderOn !== null ? <SafeLayer name="wind" resetKey={`${layers.on.wind}-${layers.windIndex}`}><WindLayer on={layers.on.wind} view={view} opacity={layers.opacity.wind ?? 0.55}
+          hour={windOf(catalog)?.hours?.[Math.min(layers.windIndex, (windOf(catalog)?.hours?.length ?? 1) - 1)]} /></SafeLayer> : null}
+        {orderOn !== null ? <SafeLayer name="harbors" resetKey={JSON.stringify(layers.on)}><HarborLayers fc={harborFc} s={layers} view={view} onPress={(p, [lon, lat]) => {
           featurePressAt.current = Date.now(); setBuoy(null); setPanel('none');
           const c = harborCard(p); setSel({ kind: 'spot', pt: { lat, lon, name: c.name, subtitle: c.subtitle, sponsor: 'Harbors', sponsorTags: [String(p.kind ?? '')] } });
-        }} /></SafeLayer>
+        }} /></SafeLayer> : null}
         <SafeLayer name="featured"><FeaturedPins fc={harborFc} s={layers} view={view} hidden={!!nav} /></SafeLayer>
         {layers.on.spots ? <GeoJSONSource id="public-spots" data={publicSpots} onPress={(e: any) => onSpotPress(e, 'spot')} hitbox={{ top: 15, right: 15, bottom: 15, left: 15 }}>
           <Layer type="circle" id="public-spots-dots" style={{ circleRadius: 5, circleColor: colors.accent, circleStrokeColor: colors.bg, circleStrokeWidth: 1.5 }} />

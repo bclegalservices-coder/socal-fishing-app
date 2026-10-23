@@ -288,7 +288,7 @@ async function settings() {
   const KILL = [['wind', 'Wind map'], ['radar', 'Radar'], ['sst', 'Water temperature'], ['chl', 'Chlorophyll / water color'], ['breaks', 'Temperature breaks'],
     ['bathy', 'Seafloor shading'], ['contours', 'Depth contours'], ['buoys', 'Buoys'], ['catches', 'Catch map'], ['buddies', 'Crew / buddy boats'],
     ['spots', 'Preloaded spots'], ['marinas', 'Marinas'], ['docks', 'Docks & piers'], ['fuel', 'Fuel docks'], ['pumpout', 'Pump-outs'], ['ramps', 'Launch ramps'], ['bait', 'Bait'],
-    ['rules', 'MPAs & rules'], ['hazards', 'Hazards'], ['relief', 'Relief map style'], ['satellite', 'Satellite map style'], ['chart_helper', 'Chart helper (falls back to the plain NOAA chart)']];
+    ['rules', 'MPAs & rules'], ['hazards', 'Hazards'], ['relief', 'Relief map style'], ['satellite', 'Satellite map style'], ['chart_helper', 'Chart helper (falls back to the plain NOAA chart)'], ['layer_order', 'Map layer order (boat always on top) — takes effect next app start'], ['bathyHd', 'HD bottom']];
   $('#main').innerHTML = `<h2>Settings</h2>
   <div class="card"><h3>🚨 Emergency off-switches</h3><p class="muted">If one feature starts crashing or showing bad data after launch, tick it here: it switches off on every phone within ~10 minutes (when the app is next opened or brought back to the screen) — no app update needed. Users see "Temporarily off while we fix it". Untick when fixed.</p>
   <div class="grid">${KILL.map(([k, l]) => `<label style="display:flex;gap:8px;align-items:center;color:var(--text);font-size:14px;margin:2px 0"><input type="checkbox" data-kill="${k}" style="width:auto" ${off.includes(k) ? 'checked' : ''}>${esc(l)}</label>`).join('')}</div>

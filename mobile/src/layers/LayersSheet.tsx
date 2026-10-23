@@ -14,7 +14,7 @@ import { ageText } from '../api';
 import { colors, makeStyles, useTheme } from '../theme';
 import { CHART_SETTINGS_AVAILABLE } from '../config';
 import type { Catalog } from '../types';
-import { external, grid, harborsOf, wind } from './catalog';
+import { external, grid, harborsOf, hdBottom, wind } from './catalog';
 import { CHART_LOOKS, DEFAULT_LAYERS, PRESETS, type ChartLook, type LayerKey, type LayerState, type MapOverlay } from './state';
 import { track } from '../analytics';
 import { PresentedBy } from '../ads/Sponsor';
@@ -51,9 +51,9 @@ const C = { blue: '#0A84FF', teal: '#30B0C7', green: '#34C759', mint: '#00C7BE',
 const LABELS: Record<LayerKey, string> = {
   sst: 'Water temp', breaks: 'Temp breaks', chl: 'Chlorophyll', chlEdges: 'Color edges', radar: 'Radar', wind: 'Wind', buoys: 'Buoys',
   spots: 'Fishing spots', catches: 'Catch reports', buddies: 'My groups', marinas: 'Marinas', docks: 'Docks', fuel: 'Fuel', bait: 'Bait',
-  pumpout: 'Pump-outs', ramps: 'Ramps', bathy: 'Relief', contours: 'Contours', rules: 'MPAs', hazards: 'Hazards',
+  pumpout: 'Pump-outs', ramps: 'Ramps', bathy: 'Relief', bathyHd: 'HD bottom', contours: 'Contours', rules: 'MPAs', hazards: 'Hazards',
 };
-const CHIP_ORDER: LayerKey[] = ['sst', 'breaks', 'chl', 'chlEdges', 'bathy', 'contours', 'radar', 'wind', 'buoys', 'spots', 'catches', 'buddies',
+const CHIP_ORDER: LayerKey[] = ['sst', 'breaks', 'chl', 'chlEdges', 'bathyHd', 'bathy', 'contours', 'radar', 'wind', 'buoys', 'spots', 'catches', 'buddies',
   'marinas', 'docks', 'fuel', 'bait', 'pumpout', 'ramps', 'rules', 'hazards'];
 
 // ---------------------------------------------------------------- building blocks (top level = stable)
@@ -154,6 +154,7 @@ function LayersSheetInner({ catalog, cached, s, set, radarPlaying, setRadarPlayi
   const opacity = (k: keyof LayerState['opacity'], v: number) => set((p) => ({ ...p, opacity: { ...p.opacity, [k]: v } }));
   const hc: Record<string, number> | undefined = harborsOf(catalog)?.counts;
   const sst = grid(catalog, 'sst'), chl = grid(catalog, 'chl'), bathy = grid(catalog, 'bathy'), w = wind(catalog), radar = external(catalog, 'radar');
+  const hd = hdBottom(catalog);
   const latest = (l?: { dates?: { observed_at?: string | null }[]; available?: boolean }) =>
     !l || l.available === false || !l.dates?.length ? 'Not available yet' : `Satellite · ${ageText(l.dates[0].observed_at ?? null)}`;
 
@@ -261,9 +262,27 @@ function LayersSheetInner({ catalog, cached, s, set, radarPlaying, setRadarPlayi
         </Section>
 
         <Section title="Seafloor" foot="For fishing, not navigation.">
+          {Row({ k: "bathyHd", icon: "terrain", tint: '#0E7C86', title: "HD bottom", sub: hd ? `Sharp rocks, ledges and dense contours · ${hd.complete === false ? 'still being drawn · ' : ''}Catalina, Palos Verdes, LA–Long Beach for now` : 'Coming soon — being built', disabled: !hd })}
+          {s.on.bathyHd ? <Strength value={s.opacity.bathyHd ?? 0.95} onPick={(v) => opacity('bathyHd', v)} /> : null}
           {Row({ k: "bathy", icon: "image-filter-hdr", tint: C.brown, title: "Relief & structure", sub: "Drop-offs and canyon walls", disabled: !bathy?.dates?.length })}
           {s.on.bathy ? <Strength value={s.opacity.bathy} onPick={(v) => opacity('bathy', v)} /> : null}
-          {Row({ k: "contours", icon: "chart-bell-curve", tint: C.blue, title: "Depth contours", sub: "Depth lines in feet", disabled: !bathy?.dates?.[0]?.contours, last: true })}
+          {Row({ k: "contours", icon: "chart-bell-curve", tint: C.blue, title: "Depth contours", sub: bathy?.dates?.[0]?.contour_tiles ? 'Depth lines in feet, labeled every 100 ft' : 'Depth lines in feet', disabled: !bathy?.dates?.[0]?.contours, last: !(s.on.contours && bathy?.dates?.[0]?.contour_tiles) })}
+          {s.on.contours && bathy?.dates?.[0]?.contour_tiles ? (
+            <View style={st.strength}>
+              <Text style={st.strengthL}>Detail</Text>
+              <View style={st.seg}>
+                {([['std', 'Standard'], ['max', 'Max · lots of lines']] as const).map(([k, label]) => {
+                  const on = (s.contourDetail ?? 'std') === k;
+                  return (
+                    <Pressable key={k} onPress={() => { set((p) => ({ ...p, contourDetail: k })); track('contour_detail', { detail: k }); }} style={[st.segI, on && st.segOn]} hitSlop={4}
+                      accessibilityRole="button" accessibilityState={{ selected: on }}>
+                      <Text style={[st.segT, on && st.segTOn]}>{label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
         </Section>
 
         <Section title="Weather" foot="Wind and forecast radar are model forecasts. Buoys are real measurements.">

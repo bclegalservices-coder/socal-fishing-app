@@ -46,6 +46,9 @@ async def layers():
             out.append({"key": key, **m})
         else:
             out.append({"key": key, "available": False, "note": "Not processed yet — run the ocean job."})
+    hd = store.get("manifests/bottomhd.json")             # HD bottom (sharp relief + dense contours), where built
+    if hd:
+        out.append(json.loads(hd))
     harbors = store.get("manifests/harbors.json")
     if harbors:
         out.append({"key": "harbors", **json.loads(harbors)})
@@ -237,13 +240,29 @@ def _navdata():
     return _nav_state["nd"]
 
 
+_launch_state = {"pts": None, "at": 0.0}
+
+
+def _launches():
+    """Launch ramps and marinas (for routes planned from land), re-read every 6 hours."""
+    if _launch_state["pts"] is None or _time.time() - _launch_state["at"] > 6 * 3600:
+        from navroute.router import launch_points
+        try:
+            raw = get_store().get("vectors/harbors/socal.geojson")
+            _launch_state["pts"] = launch_points(json.loads(raw)) if raw else []
+        except Exception:
+            _launch_state["pts"] = []
+        _launch_state["at"] = _time.time()
+    return _launch_state["pts"]
+
+
 def _route_sync(points, safety_ft):
     from navroute.router import route as find_route
     with _nav_lock:                     # one route at a time: keeps the free server's memory in check
         nd = _navdata()
         if nd is None:
             return None
-        return find_route(nd, points, safety_ft)
+        return find_route(nd, points, safety_ft, launches=_launches())
 
 
 @router.get("/route")
