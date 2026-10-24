@@ -22,6 +22,9 @@ import { TripsScreen } from '../components/TripsScreen';
 import { autoRate, ReplayBar, ReplayHud } from '../components/TripReplay';
 import { analyze, at as tripAt, autoName, placesFromHarbors, speedLines, type TripAnalysis } from '../trips';
 import { exportTrackGPX } from '../io/transfer';
+import { MeasureCard } from '../components/MeasureCard';
+import { deg3 as mDeg3, legs as mLegs, measureFC, type MPt } from '../measure';
+import { fmtDist as uDist, useUnits } from '../units';
 import { SearchSheet, type SearchHit } from '../components/SearchSheet';
 import { BuoyCard } from '../components/BuoyCard';
 import { Btn, IconButton, Row, Sheet, Title } from '../components/ui';
@@ -142,6 +145,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const { height: screenH } = useWindowDimensions();
   const [panel, setPanel] = useState<Panel>('none');
   const [shownLine, setShownLine] = useState<(Pt | TrackPoint)[] | null>(null);
+  const [measure, setMeasure] = useState<MPt[] | null>(null);   // measure tool: null = off; points tapped so far
+  const units = useUnits();
   // Trip playback: the boat moves along a recorded trip; ms = time into the trip, rate = how many times faster than real time.
   const [replay, setReplay] = useState<{ meta: store.TrackMeta; a: TripAnalysis; ms: number; playing: boolean; rate: number; follow: boolean } | null>(null);
   const [arrived, setArrived] = useState<string | null>(null);
@@ -643,11 +648,13 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   // MapLibre v11 press events carry the tapped position in nativeEvent.lngLat ([lon, lat]).
   const lngLatOf = (e: any): Pt => ({ lon: e.nativeEvent.lngLat[0], lat: e.nativeEvent.lngLat[1] });
   const onMapPress = (e: any) => {
+    if (measure) { setMeasure([...measure, lngLatOf(e)]); return; }
     if (Date.now() - featurePressAt.current < 350) return;
     if (draft) { setDraft([...draft, lngLatOf(e)]); return; }
     setSel(null); setBuoy(null); setClusterSel(null); setRuleSel(null);
   };
   const onLongPress = (e: any) => {
+    if (measure) { setMeasure([...measure, lngLatOf(e)]); return; }
     if (draft) { setDraft([...draft, lngLatOf(e)]); return; }
     setPanel('none'); setBuoy(null); setSel({ kind: 'pin', pt: lngLatOf(e) }); track('pin_dropped');
   };
@@ -690,6 +697,9 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       onSeek={(f) => setReplay((r) => r && ({ ...r, ms: f * dur }))}
       onRate={(rate) => setReplay((r) => r && ({ ...r, rate }))}
       onFollow={() => setReplay((r) => r && ({ ...r, follow: !r.follow }))} />;
+  } else if (measure) {
+    bottom = <MeasureCard pts={measure} canUseBoat={!!fix} onFromBoat={() => { const h = here(); if (h) setMeasure([{ lat: h.lat, lon: h.lon }]); }}
+      onUndo={() => setMeasure(measure.slice(0, -1))} onClear={() => setMeasure([])} onDone={() => { setMeasure(null); setSel(null); }} />;
   } else if (plan) {
     bottom = <RoutePreview name={plan.name} status={plan.status} route={plan.route} error={plan.error} safetyFt={safetyFt}
       onSafety={(ft) => { setSafety(ft); setSafetyFt(ft); runPlan(plan.targets, plan.name, ft); }}
@@ -708,6 +718,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       { key: 'crew', label: 'Send to my crew', sub: 'Come to me / my position', icon: 'megaphone', tint: colors.buddy, hidden: !supabaseReady, onPress: () => { setSel(null); setCrew({ mode: 'me', pt: null }); } },
       { key: 'route', label: 'Routes', sub: `${routes.length} saved · plan a new one`, icon: 'git-commit', onPress: () => setPanel('routes') },
       { key: 'track', label: active ? 'Recording…' : 'Trips', sub: active ? 'Tap to stop and save' : `Record, play back and compare · ${tracks.length} saved`, icon: active ? 'stop-circle' : 'radio-button-on', tint: colors.alert, active: !!active, onPress: () => setPanel('tracks') },
+      { key: 'measure', label: 'Measure distance', sub: 'Distance and bearing between points', icon: 'resize', onPress: () => { setPanel('none'); setSel(null); setMeasure([]); track('measure_used'); } },
       { key: 'probe', label: probe ? 'Stop reading' : 'Read conditions', sub: 'Water temp & depth under the crosshair', icon: 'scan', onPress: () => { if (!probe) track('probe_used'); setProbe(!probe); setProbeData(null); } },
       { key: 'today', label: "Today's report", sub: "What's biting, water, warnings", icon: 'newspaper', tint: colors.ok, onPress: () => { setToday(true); track('screen_view', { screen: 'today' }); } },
       { key: 'wx', label: 'Weather here', sub: '5-day forecast for your boat', icon: 'partly-sunny', tint: colors.warn, hidden: !onWeather, onPress: () => { const p = here(); if (p && onWeather) onWeather(p.lat, p.lon, 'My position'); else if (onWeather) onWeather(33.585, -117.885, 'Off Newport'); } },
@@ -824,6 +835,22 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         }} /> : null}
         <GeoJSONSource id="shown" data={shownFC}><Layer type="line" id="shown-line" style={{ lineColor: colors.live, lineWidth: 3, lineOpacity: 0.7 }} /></GeoJSONSource>
         <GeoJSONSource id="active-track" data={activeFC}><Layer type="line" id="active-track-line" style={{ lineColor: colors.live, lineWidth: 3.5 }} /></GeoJSONSource>
+        {measure ? (
+          <GeoJSONSource id="measure" data={measureFC(measure)}>
+            <Layer type="line" id="measure-casing" filter={['==', ['geometry-type'], 'LineString'] as any} style={{ lineColor: '#FFFFFF', lineWidth: 6, lineOpacity: 0.9 }} />
+            <Layer type="line" id="measure-line" filter={['==', ['geometry-type'], 'LineString'] as any} style={{ lineColor: '#111827', lineWidth: 2.5, lineDasharray: [2, 1.5] }} />
+            <Layer type="circle" id="measure-pts" filter={['==', ['geometry-type'], 'Point'] as any}
+              style={{ circleRadius: ['case', ['get', 'end'], 8, 5] as any, circleColor: ['case', ['==', ['get', 'i'], 0], '#7C3AED', '#E11D48'] as any, circleStrokeColor: '#FFFFFF', circleStrokeWidth: 2.5 }} />
+          </GeoJSONSource>
+        ) : null}
+        {measure ? mLegs(measure).map((l, i) => (
+          <Marker key={`mleg-${i}`} lngLat={[l.mid.lon, l.mid.lat]} anchor="bottom" offset={[0, -6]}>
+            <View pointerEvents="none" style={st.mLabel}>
+              <View style={{ alignItems: 'center' }}><Text style={st.mLabelV}>{uDist(l.nm, units)}</Text><Text style={st.mLabelK}>Distance</Text></View>
+              <View style={{ alignItems: 'center' }}><Text style={st.mLabelV}>{mDeg3(l.brg)}</Text><Text style={st.mLabelK}>Bearing</Text></View>
+            </View>
+          </Marker>
+        )) : null}
         <GeoJSONSource id="draft" data={draftFC}>
           <Layer type="line" id="draft-line" style={{ lineColor: colors.accent, lineWidth: 3, lineDasharray: [2, 1.5] }} />
           <Layer type="circle" id="draft-pts" style={{ circleRadius: 7, circleColor: colors.accent, circleStrokeColor: colors.bg, circleStrokeWidth: 2 }} />
@@ -1048,6 +1075,9 @@ const useSt = makeStyles((colors) => ({
   wpNum: { minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, backgroundColor: '#FFFFFF', borderWidth: 2, borderColor: '#FF1CF0', alignItems: 'center', justifyContent: 'center' },
   wpNumNext: { borderWidth: 2.5 },
   wpNumT: { color: '#7A0F7A', fontSize: 10, fontWeight: '900' },
+  mLabel: { flexDirection: 'row', gap: 14, backgroundColor: 'rgba(31,41,55,0.9)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6 },
+  mLabelV: { color: '#FFFFFF', fontSize: 16, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  mLabelK: { color: '#D1D5DB', fontSize: 10.5, fontWeight: '700' },
   boatHalo: { width: 54, height: 54, borderRadius: 27, backgroundColor: 'rgba(0,163,255,0.22)', alignItems: 'center', justifyContent: 'center' },
   boat: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#00A3FF', borderWidth: 3, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000000', shadowOpacity: 0.45, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 6 },

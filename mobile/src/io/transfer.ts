@@ -60,3 +60,11 @@ export async function exportTrackGPX(meta: { id: string; name: string }) {
   if (!(await Sharing.isAvailableAsync())) throw new Error('Sharing is not available on this device');
   await Sharing.shareAsync(uri, { mimeType: 'application/gpx+xml', UTI: 'com.topografix.gpx', dialogTitle: `Share ${meta.name}` });
 }
+
+/** Chosen spots as one GPX file in the share sheet (works with Navionics, Garmin, Lowrance, Simrad and most plotters). */
+export async function exportSpotsGPX(spots: { name: string; lat: number; lon: number; notes?: string }[]) {
+  const gpx = buildGPX({ points: spots.map((s) => ({ name: s.name, lat: s.lat, lon: s.lon, desc: s.notes })), routes: [], tracks: [] });
+  const uri = await writeText(`spots-${spots.length}-${new Date().toISOString().slice(0, 10)}.gpx`, gpx);
+  if (!(await Sharing.isAvailableAsync())) throw new Error('Sharing is not available on this device');
+  await Sharing.shareAsync(uri, { mimeType: 'application/gpx+xml', UTI: 'com.topografix.gpx', dialogTitle: `Share ${spots.length} spot${spots.length === 1 ? '' : 's'}` });
+}
