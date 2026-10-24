@@ -1,9 +1,18 @@
-// Me → Display: pick a day theme and a night theme. Each row shows a tiny preview in that theme's own colors
-// (background, a panel, the accent button and the live-reading color) so you can see it before choosing.
-import { Pressable, Text, View } from 'react-native';
+// Me → Appearance: a page of its own (like iPhone Settings), reached from one row near the bottom of Me.
+//   • Mode: Auto / Day / Night
+//   • Day theme and Night theme: grouped lists, each row with a small preview in that theme's own colors
+//     (background, a panel, the button color and the route line), the name, one line about it, and a checkmark.
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { DAY_THEMES, NIGHT_THEMES, colors, makeStyles, routeColor, touch, useTheme, type ThemeInfo } from '../theme';
+import { DAY_THEMES, NIGHT_THEMES, colors, findTheme, makeStyles, routeColor, touch, useTheme, type ThemeInfo, type ThemeSetting } from '../theme';
+import { Card, ListGroup, Note, ScreenHeader, SectionLabel, Segmented } from './ui';
 import { track } from '../analytics';
+
+/** One line for the Appearance row on the Me page, e.g. "Auto · Harbor Blue / Red Light". */
+export function appearanceSummary(setting: ThemeSetting, dayTheme: string, nightTheme: string): string {
+  const mode = setting === 'auto' ? 'Auto' : setting === 'day' ? 'Day' : 'Night';
+  return `${mode} · ${findTheme(DAY_THEMES, dayTheme).name} / ${findTheme(NIGHT_THEMES, nightTheme).name}`;
+}
 
 function Swatch({ t }: { t: ThemeInfo }) {
   const p = t.palette;
@@ -21,58 +30,75 @@ function Swatch({ t }: { t: ThemeInfo }) {
   );
 }
 
-function Group({ title, list, value, onPick }: { title: string; list: ThemeInfo[]; value: string; onPick: (id: string) => void }) {
+function ThemeList({ list, value, onPick }: { list: ThemeInfo[]; value: string; onPick: (id: string) => void }) {
   const st = useSt();
   return (
-    <View style={st.group}>
-      <Text style={st.head}>{title}</Text>
+    <ListGroup>
       {list.map((t, i) => {
         const on = t.id === value;
         return (
-          <Pressable key={t.id} onPress={() => onPick(t.id)} style={({ pressed }) => [st.row, i < list.length - 1 && st.rowLine, pressed && { opacity: 0.7 }]}
+          <Pressable key={t.id} onPress={() => onPick(t.id)} style={({ pressed }) => pressed && { opacity: 0.6 }}
             accessibilityRole="radio" accessibilityState={{ selected: on }} accessibilityLabel={`${t.name}: ${t.note}`}>
-            <Swatch t={t} />
-            <View style={st.txt}>
-              <Text style={[st.name, on && st.nameOn]}>{t.name}</Text>
-              <Text style={st.note} numberOfLines={1}>{t.note}</Text>
+            <View style={[st.row, i < list.length - 1 && st.rowLine]}>
+              <Swatch t={t} />
+              <View style={st.txt}>
+                <Text style={st.name}>{t.name}</Text>
+                <Text style={st.note} numberOfLines={1}>{t.note}</Text>
+              </View>
+              {on ? <Ionicons name="checkmark" size={22} color={colors.accent} /> : <View style={st.checkSpace} />}
             </View>
-            <Ionicons name={on ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={on ? colors.accent : colors.faint} />
           </Pressable>
         );
       })}
-    </View>
+    </ListGroup>
   );
 }
 
-export function ThemePicker() {
+export function AppearanceScreen({ onBack }: { onBack: () => void }) {
+  const st = useSt();
   const theme = useTheme();
+  const modeNote = theme.setting === 'auto'
+    ? `Switches to your night theme 20 minutes after sunset and back before sunrise. Now: ${theme.mode === 'night' ? 'Night' : 'Day'}.`
+    : theme.setting === 'night' ? 'Always uses your night theme.' : 'Always uses your day theme.';
   return (
-    <View>
-      <Group title="Day theme" list={DAY_THEMES} value={theme.dayTheme}
-        onPick={(id) => { theme.setDayTheme(id); track('theme_picked', { day: id }); }} />
-      <Group title="Night theme" list={NIGHT_THEMES} value={theme.nightTheme}
-        onPick={(id) => { theme.setNightTheme(id); track('theme_picked', { night: id }); }} />
+    <View style={st.page}>
+      <ScreenHeader title="Appearance" onBack={onBack} backLabel="Me" />
+      <ScrollView contentContainerStyle={st.body}>
+        <SectionLabel>Mode</SectionLabel>
+        <Card>
+          <Segmented<ThemeSetting> value={theme.setting} onChange={(v) => { theme.setSetting(v); track('theme_changed', { setting: v }); }}
+            options={[{ key: 'auto', label: 'Auto', icon: 'contrast-outline' }, { key: 'day', label: 'Day', icon: 'sunny-outline' }, { key: 'night', label: 'Night', icon: 'moon-outline' }]} />
+          <Note>{modeNote} The sun/moon button on the map switches instantly.</Note>
+        </Card>
+
+        <SectionLabel>Day theme</SectionLabel>
+        <ThemeList list={DAY_THEMES} value={theme.dayTheme} onPick={(id) => { theme.setDayTheme(id); track('theme_picked', { day: id }); }} />
+
+        <SectionLabel>Night theme</SectionLabel>
+        <ThemeList list={NIGHT_THEMES} value={theme.nightTheme} onPick={(id) => { theme.setNightTheme(id); track('theme_picked', { night: id }); }} />
+        <Note>Red Light and Amber keep the screen dim and warm to protect your night vision at the helm. Your route, boat and safety colors stay easy to spot in every theme.</Note>
+      </ScrollView>
     </View>
   );
 }
 
 const sw = {
-  box: { width: 52, height: 40, borderRadius: 8, borderWidth: 1, padding: 4, justifyContent: 'space-between' as const },
-  panel: { height: 14, borderRadius: 4, borderWidth: 0.5, flexDirection: 'row' as const, alignItems: 'center' as const, paddingHorizontal: 3, gap: 3 },
-  textBar: { flex: 1, height: 3, borderRadius: 2 },
-  liveDot: { width: 5, height: 5, borderRadius: 3 },
+  box: { width: 46, height: 34, borderRadius: 8, borderWidth: 1, padding: 4, justifyContent: 'space-between' as const },
+  panel: { height: 11, borderRadius: 3, borderWidth: 0.5, flexDirection: 'row' as const, alignItems: 'center' as const, paddingHorizontal: 3, gap: 3 },
+  textBar: { flex: 1, height: 2.5, borderRadius: 2 },
+  liveDot: { width: 4, height: 4, borderRadius: 2 },
   bottom: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 4 },
-  pill: { width: 18, height: 8, borderRadius: 4 },
-  route: { flex: 1, height: 3, borderRadius: 2 },
+  pill: { width: 14, height: 7, borderRadius: 4 },
+  route: { flex: 1, height: 2.5, borderRadius: 2 },
 };
 
 const useSt = makeStyles((colors) => ({
-  group: { marginTop: 14 },
-  head: { color: colors.muted, fontSize: 13, fontWeight: '800', marginBottom: 4 },
-  row: { minHeight: touch.min, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
-  rowLine: { borderBottomWidth: 1, borderBottomColor: colors.line },
+  page: { flex: 1, backgroundColor: colors.bg },
+  body: { padding: 16, gap: 8, paddingBottom: 48 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: touch.min, paddingHorizontal: 14, paddingVertical: 10 },
+  rowLine: { borderBottomWidth: 1, borderColor: colors.line },
   txt: { flex: 1 },
-  name: { color: colors.text, fontSize: 15.5, fontWeight: '700' },
-  nameOn: { color: colors.accent },
-  note: { color: colors.muted, fontSize: 12.5, marginTop: 1 },
+  name: { color: colors.text, fontSize: 16, fontWeight: '600' },
+  note: { color: colors.muted, fontSize: 13, marginTop: 1 },
+  checkSpace: { width: 22 },
 }));

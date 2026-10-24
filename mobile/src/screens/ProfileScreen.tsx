@@ -6,9 +6,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
 import { ageText, getJSON } from '../api';
 import { supabase, supabaseReady } from '../supabase';
-import { cardStyle, colors, makeStyles, touch, useTheme, type ThemeSetting } from '../theme';
+import { cardStyle, colors, makeStyles, touch, useTheme } from '../theme';
 import { COORD_EXAMPLES, chooseCoordFormat, useCoordFormat } from '../coordPref';
-import { Btn, Card, ListGroup, ListRow, Note, ScreenHeader, SectionLabel, Segmented } from '../components/ui';
+import { Btn, Card, ListGroup, ListRow, Note, ScreenHeader, SectionLabel } from '../components/ui';
 import { MyFishingScreen } from './MyFishingScreen';
 import { DEMO_EMAIL, PRIVACY_URL, STUDIO_URL, SUPPORT_EMAIL, TERMS_URL } from '../config';
 import { AlertsScreen } from './AlertsScreen';
@@ -18,14 +18,14 @@ import { AD_SPACES, adPreviewOn, setAdPreview } from '../ads/ads';
 import { getOptOut, setOptOut, track } from '../analytics';
 import { friendly } from '../friendly';
 import { FeedbackForm } from '../components/Feedback';
-import { ThemePicker } from '../components/ThemePicker';
+import { AppearanceScreen, appearanceSummary } from '../components/ThemePicker';
 import { FULL_TEXT } from '../legal';
 
 export function ProfileScreen({ onShowOnMap }: { onShowOnMap: (lat: number, lon: number, name: string) => void }) {
   const st = useSt();
   const theme = useTheme();
   const [session, setSession] = useState<Session | null>(null);
-  const [page, setPage] = useState<'main' | 'sources' | 'alerts' | 'offline' | 'fishing' | 'account' | 'coupons' | 'feedback' | 'legal'>('main');
+  const [page, setPage] = useState<'main' | 'sources' | 'alerts' | 'offline' | 'fishing' | 'account' | 'coupons' | 'feedback' | 'legal' | 'appearance'>('main');
   useEffect(() => {
     if (!supabaseReady) return;
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -37,6 +37,7 @@ export function ProfileScreen({ onShowOnMap }: { onShowOnMap: (lat: number, lon:
   if (page === 'sources') return <DataSources onBack={back} />;
   if (page === 'alerts') return <AlertsScreen onBack={back} />;
   if (page === 'offline') return <OfflineScreen onBack={back} />;
+  if (page === 'appearance') return <AppearanceScreen onBack={back} />;
   if (page === 'fishing') return <MyFishingScreen onShowOnMap={onShowOnMap} onBack={back} />;
   if (page === 'legal') return (
     <View style={st.page}><ScreenHeader title="Safety & legal" onBack={back} backLabel="Me" />
@@ -72,15 +73,6 @@ export function ProfileScreen({ onShowOnMap }: { onShowOnMap: (lat: number, lon:
         {!supabaseReady ? <Card tone="warn"><Note>Sign-in isn't configured yet: add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY to mobile/.env.</Note></Card>
           : !session ? <SignIn /> : null}
 
-        <SectionLabel>Display</SectionLabel>
-        <Card>
-          <Segmented<ThemeSetting> value={theme.setting} onChange={(v) => { theme.setSetting(v); track('theme_changed', { setting: v }); }}
-            options={[{ key: 'auto', label: 'Auto', icon: 'contrast-outline' }, { key: 'day', label: 'Day', icon: 'sunny-outline' }, { key: 'night', label: 'Night', icon: 'moon-outline' }]} />
-          <Note>{theme.setting === 'auto' ? `Switches to Night 20 minutes after sunset and back before sunrise. Now: ${theme.mode === 'night' ? 'Night' : 'Day'}.` : theme.setting === 'night'
-            ? 'Night keeps the screen dim so it doesn\'t glare at the helm. Red Light and Amber also protect your night vision.' : 'Day uses your day theme, made for sunlight.'} Tip: the sun/moon button on the map switches instantly.</Note>
-          <ThemePicker />
-        </Card>
-
         <SectionLabel>My fishing</SectionLabel>
         <ListGroup>
           <ListRow icon="fish-outline" iconColor={colors.accent} title="Catch log & trips" subtitle="Your private log, patterns and recorded trips" onPress={() => setPage('fishing')} />
@@ -105,6 +97,12 @@ export function ProfileScreen({ onShowOnMap }: { onShowOnMap: (lat: number, lon:
             </ListGroup>
           </>
         ) : <ListGroup><UsageStatsRow last /></ListGroup>}
+
+        <SectionLabel>App settings</SectionLabel>
+        <ListGroup>
+          <ListRow icon="color-palette-outline" iconColor={colors.accent} title="Appearance"
+            subtitle={appearanceSummary(theme.setting, theme.dayTheme, theme.nightTheme)} onPress={() => setPage('appearance')} last />
+        </ListGroup>
 
         <SectionLabel>About</SectionLabel>
         <ListGroup>
