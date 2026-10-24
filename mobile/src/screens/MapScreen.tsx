@@ -6,7 +6,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { Camera, GeoJSONSource, Layer, LogManager, Map as MapView, Marker, UserLocation } from '@maplibre/maplibre-react-native';
 import type { CameraRef } from '@maplibre/maplibre-react-native';
 import { API_URL, CHART_ATTRIBUTION, DEFAULT_CENTER, DEFAULT_ZOOM, CHART_TILE_SIZE, NOAA_CHART_MAXZOOM, NOAA_CHART_MINZOOM, noaaChartTiles } from '../config';
-import { cardStyle, colors, makeStyles, setThemePosition, touch, useTheme } from '../theme';
+import { boatColor, cardStyle, colors, makeStyles, routeColor, setThemePosition, touch, useTheme } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { bearingTrue, distanceNm, formatLatLon } from '../geo';
 import { crossTrackNm, etaMinutes, SpeedEstimator, steerDelta, type Pt, type TrackPoint } from '../nav';
@@ -619,7 +619,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const mySpotsFC = useMemo(() => fc(mySpots.map((s) => pointF(s, { id: s.id, name: s.name, subtitle: 'Private — only you' }))), [mySpots]);
   const pinFC = useMemo(() => fc(sel?.kind === 'pin' ? [pointF(sel.pt)] : []), [sel]);
   const draftFC = useMemo(() => fc(draft && draft.length ? [...(draft.length > 1 ? [lineF(draft)] : []), ...draft.map((p) => pointF(p))] : []), [draft]);
-  const navColor = theme.mode === 'night' ? colors.accent : '#FF1CF0';   // bright magenta, like a plotter (was #D61FD6)
+  const navColor = routeColor(theme.palette, theme.mode);   // bright magenta like a plotter by day; the theme's own color at night
+  const boatFill = boatColor(theme.palette, theme.mode);
   const planFC = useMemo(() => fc(plan?.route ? [lineF(plan.route.points), ...plan.route.points.slice(1).map((p) => pointF(p))] : []), [plan?.route]);
   const navFC = useMemo(() => (!nav || !fix ? fc([]) : fc([lineF([{ lat: fix.lat, lon: fix.lon }, ...nav.points.slice(nav.leg)]), ...nav.points.slice(nav.leg).map((p, i) => pointF(p, { n: i + 1 }))])), [nav, fix]);
   const activeFC = useMemo(() => fc(active && active.points.length > 1 ? [lineF(active.points)] : []), [active]);
@@ -786,7 +787,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         </GeoJSONSource>
         {nav && nav.points.length > 1 ? nav.points.slice(nav.leg).map((p, i, rest) => (i === 0 || i === rest.length - 1 ? (
           <Marker key={`wp-${nav.leg + i}`} lngLat={[p.lon, p.lat]} anchor="bottom" offset={[0, -8]}>
-            <View pointerEvents="none" style={[st.wpNum, i === 0 && st.wpNumNext]}><Text style={st.wpNumT}>{i === rest.length - 1 && i !== 0 ? '🏁' : nav.leg + i + 1}</Text></View>
+            <View pointerEvents="none" style={[st.wpNum, { borderColor: navColor }, i === 0 && st.wpNumNext]}><Text style={st.wpNumT}>{i === rest.length - 1 && i !== 0 ? '🏁' : nav.leg + i + 1}</Text></View>
           </Marker>
         ) : null)) : null}
         {orderOn !== null ? <SafeLayer name="wind" resetKey={`${layers.on.wind}-${layers.windIndex}`}><WindLayer on={layers.on.wind} view={view} opacity={layers.opacity.wind ?? 0.55}
@@ -814,8 +815,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
             where the boat is going (course when moving, the compass when stopped). Last child = drawn last = on top. */}
         {nav && fix ? (
           <Marker key="nav-boat" lngLat={[fix.lon, fix.lat]} anchor="center">
-            <View pointerEvents="none" style={st.boatHalo}>
-              <View style={st.boat}>
+            <View pointerEvents="none" style={[st.boatHalo, { backgroundColor: `${boatFill}38` }]}>
+              <View style={[st.boat, { backgroundColor: boatFill }]}>
                 <Ionicons name="navigate" size={20} color="#FFFFFF"
                   style={{ transform: [{ rotate: `${(((motion.sogKt ?? 0) >= 1 && motion.cogT != null ? motion.cogT : heading ?? 0) - (view?.heading ?? 0) - 45)}deg` }] }} />
               </View>
@@ -824,7 +825,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         ) : null}
       </MapView>
       {/* NOAA draws a real night chart now, so only a light red wash is needed to protect night vision */}
-      {theme.mode === 'night' ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(28,0,0,0.3)' }]} /> : null}
+      {theme.palette.wash ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: theme.palette.wash }]} /> : null}
 
       {probe ? (
         <View pointerEvents="none" style={st.crossWrap}>

@@ -18,6 +18,7 @@ import { AD_SPACES, adPreviewOn, setAdPreview } from '../ads/ads';
 import { getOptOut, setOptOut, track } from '../analytics';
 import { friendly } from '../friendly';
 import { FeedbackForm } from '../components/Feedback';
+import { ThemePicker } from '../components/ThemePicker';
 import { FULL_TEXT } from '../legal';
 
 export function ProfileScreen({ onShowOnMap }: { onShowOnMap: (lat: number, lon: number, name: string) => void }) {
@@ -76,7 +77,8 @@ export function ProfileScreen({ onShowOnMap }: { onShowOnMap: (lat: number, lon:
           <Segmented<ThemeSetting> value={theme.setting} onChange={(v) => { theme.setSetting(v); track('theme_changed', { setting: v }); }}
             options={[{ key: 'auto', label: 'Auto', icon: 'contrast-outline' }, { key: 'day', label: 'Day', icon: 'sunny-outline' }, { key: 'night', label: 'Night', icon: 'moon-outline' }]} />
           <Note>{theme.setting === 'auto' ? `Switches to Night 20 minutes after sunset and back before sunrise. Now: ${theme.mode === 'night' ? 'Night' : 'Day'}.` : theme.setting === 'night'
-            ? 'Night keeps the screen dim and red so it doesn\'t glare at the helm or ruin your night vision.' : 'Day is bright and high-contrast for sunlight.'} Tip: the sun/moon button on the map switches instantly.</Note>
+            ? 'Night keeps the screen dim so it doesn\'t glare at the helm. Red Light and Amber also protect your night vision.' : 'Day uses your day theme, made for sunlight.'} Tip: the sun/moon button on the map switches instantly.</Note>
+          <ThemePicker />
         </Card>
 
         <SectionLabel>My fishing</SectionLabel>
