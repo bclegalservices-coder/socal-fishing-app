@@ -125,7 +125,7 @@ function AppInner() {
           {wxMounted ? <View style={[StyleSheet.absoluteFill, tab !== 'weather' && st.gone]} pointerEvents={tab === 'weather' ? 'auto' : 'none'}><WeatherScreen at={weatherAt} mySpots={mySpots} /></View> : null}
           {tab === 'spots' ? <View style={StyleSheet.absoluteFill}><SpotsScreen mySpots={mySpots} onPick={(p) => { setPick(p); setTab('map'); }} onImported={() => setReloadKey((k) => k + 1)} /></View> : null}
           {tab === 'community' ? <View style={StyleSheet.absoluteFill}><CommunityScreen onShowOnMap={showOnMap} groupNav={groupNav} openGroup={openGroup} /></View> : null}
-          {tab === 'me' ? <View style={StyleSheet.absoluteFill}><ProfileScreen onShowOnMap={showOnMap} /></View> : null}
+          {tab === 'me' ? <View style={StyleSheet.absoluteFill}><ProfileScreen onShowOnMap={showOnMap} onOpenSpots={() => goTab('spots')} spotCount={mySpots.length} /></View> : null}
         </View>
         <TabBar tab={tab} setTab={goTab} />
         <SafetyNotice onAccepted={() => setLegalOk(true)} />

@@ -8,7 +8,7 @@ import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { distanceNm } from '../geo';
 import { fmtDist, useUnits } from '../units';
-import { findDuplicates, type Imported } from '../io/gpx';
+import { findDuplicates, mergeRepeats, type Imported } from '../io/gpx';
 import { trackStats } from '../nav';
 import { ScreenHeader, Btn } from '../components/ui';
 import { track } from '../analytics';
@@ -153,16 +153,20 @@ export function SpotsScreen({ mySpots, onPick, onImported }: { mySpots: SavedSpo
 
 function ImportPreview({ p, mySpots, onDone }: { p: { fileName: string; data: Imported }; mySpots: SavedSpot[]; onDone: (msg?: string) => void }) {
   const st = useSt();
-  const [folder, setFolder] = useState(p.fileName);
+  const [folder, setFolder] = useState(p.fileName.replace(/_/g, ' '));
   const [skipDupes, setSkipDupes] = useState(true);
-  const dupes = useMemo(() => findDuplicates(p.data.points, mySpots), [p, mySpots]);
+  const [merge, setMerge] = useState(true);
+  const merged = useMemo(() => mergeRepeats(p.data.points), [p]);
+  const points = merge ? merged : p.data.points;
+  const repeats = p.data.points.length - merged.length;
+  const dupes = useMemo(() => findDuplicates(points, mySpots), [points, mySpots]);
   const nDupes = dupes.filter(Boolean).length;
   const routes = p.data.lines.filter((l) => l.kind === 'route');
   const tracks = p.data.lines.filter((l) => l.kind === 'track');
   const go = async () => {
     const now = Date.now();
-    const add = p.data.points.filter((_, i) => !(skipDupes && dupes[i]))
-      .map((x) => ({ id: newId(), name: x.name, lat: x.lat, lon: x.lon, createdAt: now, folder: folder.trim() || undefined, notes: x.desc }));
+    const add = points.filter((_, i) => !(skipDupes && dupes[i]))
+      .map((x) => ({ id: newId(), name: x.name, lat: x.lat, lon: x.lon, createdAt: x.time ?? now, folder: folder.trim() || undefined, notes: x.desc }));
     await saveSpots([...(await loadSpots()), ...add]);       // never overwrites: only adds
     if (routes.length) await saveRoutes([...routes.map((r) => ({ id: newId(), name: r.name, points: r.points, createdAt: now })), ...(await loadRoutes())]);
     if (tracks.length) {
@@ -176,7 +180,7 @@ function ImportPreview({ p, mySpots, onDone }: { p: { fileName: string; data: Im
       }
       await saveTracks(metas);
     }
-    track('import_done', { spots: add.length, routes: routes.length, tracks: tracks.length });
+    track('import_done', { spots: add.length, routes: routes.length, tracks: tracks.length, merged: merge ? repeats : 0 });
     onDone(`${add.length} spot${add.length === 1 ? '' : 's'}${routes.length ? `, ${routes.length} route${routes.length === 1 ? '' : 's'}` : ''}${tracks.length ? `, ${tracks.length} track${tracks.length === 1 ? '' : 's'}` : ''} added to "${folder}". Private to you.`);
   };
   return (
@@ -184,6 +188,15 @@ function ImportPreview({ p, mySpots, onDone }: { p: { fileName: string; data: Im
       <Text style={st.h1}>Import preview</Text>
       <ScrollView contentContainerStyle={{ gap: 10, paddingBottom: 40 }}>
         <Text style={st.sub}>{p.data.points.length} spots · {routes.length} routes · {tracks.length} tracks{p.data.warnings.length ? ` · ${p.data.warnings.length} skipped` : ''}</Text>
+        {repeats ? (
+          <View style={{ gap: 6 }}>
+            <Text style={[st.sub, { color: colors.accent }]}>{repeats} are repeats of the same place in this file (saved twice by a double tap). Merging keeps one per place, with its real name and original date.</Text>
+            <View style={st.seg}>
+              <Pressable onPress={() => setMerge(true)} style={[st.segB, merge && st.segOn]}><Text style={[st.segT, merge && { color: colors.accentInk }]}>Merge ({merged.length})</Text></Pressable>
+              <Pressable onPress={() => setMerge(false)} style={[st.segB, !merge && st.segOn]}><Text style={[st.segT, !merge && { color: colors.accentInk }]}>Keep all ({p.data.points.length})</Text></Pressable>
+            </View>
+          </View>
+        ) : null}
         <Text style={st.sub}>Folder</Text>
         <TextInput value={folder} onChangeText={setFolder} style={st.input} placeholderTextColor={colors.muted} />
         {nDupes ? (
@@ -195,13 +208,13 @@ function ImportPreview({ p, mySpots, onDone }: { p: { fileName: string; data: Im
             </View>
           </View>
         ) : null}
-        {p.data.points.slice(0, 60).map((x, i) => (
+        {points.slice(0, 60).map((x, i) => (
           <View key={i} style={st.row}>
             <Text style={[st.dot, { color: dupes[i] ? colors.accent : colors.live }]}>●</Text>
             <View style={{ flex: 1 }}><Text style={st.name}>{x.name}</Text><Text style={st.sub}>{x.lat.toFixed(5)}, {x.lon.toFixed(5)}{dupes[i] ? ` · matches "${dupes[i]!.name}"` : ''}</Text></View>
           </View>
         ))}
-        {p.data.points.length > 60 ? <Text style={st.sub}>…and {p.data.points.length - 60} more</Text> : null}
+        {points.length > 60 ? <Text style={st.sub}>…and {points.length - 60} more</Text> : null}
         <Text style={st.sub}>Imported spots are private. Existing spots are never changed or overwritten.</Text>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <Btn label="Cancel" onPress={() => onDone()} />

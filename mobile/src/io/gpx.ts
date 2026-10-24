@@ -1,5 +1,5 @@
 // GPX / KML import and GPX export (spec §29–30). Plain-text parsing: works offline, no XML library needed.
-export type ImportedPoint = { name: string; lat: number; lon: number; desc?: string };
+export type ImportedPoint = { name: string; lat: number; lon: number; desc?: string; time?: number };
 export type ImportedLine = { name: string; points: { lat: number; lon: number; name?: string }[]; kind: 'route' | 'track' };
 export type Imported = { points: ImportedPoint[]; lines: ImportedLine[]; warnings: string[] };
 
@@ -16,13 +16,34 @@ function blocks(xml: string, name: string): { open: string; body: string }[] {
   return out;
 }
 
+/** Trim spaces and the curly quotes some apps put around names (Navionics: “43” → 43). */
+export function cleanName(s?: string): string {
+  return (s ?? '').trim().replace(/^[“"'‘]+|[”"'’]+$/g, '').trim();
+}
+
+/** Repeats inside one file: points within `m` metres of an earlier one (apps save the same spot again on a double tap).
+ *  Keeps one per place: a real name beats "Marker 12" / "Waypoint 3", then the oldest. Returns the kept points. */
+export function mergeRepeats(points: ImportedPoint[], m = 10): ImportedPoint[] {
+  const generic = (n: string) => /^(marker|waypoint|wpt|mark|placemark)\s*\d+$/i.test(n.trim());
+  const keep: ImportedPoint[] = [];
+  for (const p of points) {
+    const i = keep.findIndex((k) => metres(k, p) < m);
+    if (i < 0) { keep.push(p); continue; }
+    const k = keep[i];
+    const better = (generic(k.name) && !generic(p.name)) || (generic(k.name) === generic(p.name) && (p.time ?? Infinity) < (k.time ?? Infinity));
+    if (better) keep[i] = { ...p, desc: p.desc ?? k.desc };
+  }
+  return keep;
+}
+
 export function parseGPX(xml: string): Imported {
   const res: Imported = { points: [], lines: [], warnings: [] };
   let n = 0;
   for (const b of blocks(xml, 'wpt')) {
     const lat = Number(attr(b.open, 'lat')), lon = Number(attr(b.open, 'lon'));
     if (!valid(lat, lon)) { res.warnings.push('Skipped a waypoint with bad coordinates'); continue; }
-    res.points.push({ name: tag(b.body, 'name') || `Waypoint ${++n}`, lat, lon, desc: tag(b.body, 'desc') || tag(b.body, 'cmt') });
+    const t = Date.parse(tag(b.body, 'time') ?? '');
+    res.points.push({ name: cleanName(tag(b.body, 'name')) || `Waypoint ${++n}`, lat, lon, desc: tag(b.body, 'desc') || tag(b.body, 'cmt'), time: Number.isFinite(t) ? t : undefined });
   }
   for (const [kind, outer, inner] of [['route', 'rte', 'rtept'], ['track', 'trk', 'trkpt']] as const) {
     blocks(xml, outer).forEach((r, i) => {

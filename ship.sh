@@ -47,7 +47,7 @@ if ! npx eas-cli@latest env:list --environment production 2>/dev/null | grep -q 
   echo "       Then run ship.sh again."
   exit 1
 fi
-npx eas-cli@latest update --channel production --environment production --message "$MSG" --non-interactive
+CI=1 npx eas-cli@latest update --channel production --environment production --message "$MSG" --non-interactive
 
 echo "4/4  Done."
 echo ""

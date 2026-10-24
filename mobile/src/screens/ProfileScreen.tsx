@@ -21,7 +21,7 @@ import { FeedbackForm } from '../components/Feedback';
 import { AppearanceScreen, appearanceSummary } from '../components/ThemePicker';
 import { FULL_TEXT } from '../legal';
 
-export function ProfileScreen({ onShowOnMap }: { onShowOnMap: (lat: number, lon: number, name: string) => void }) {
+export function ProfileScreen({ onShowOnMap, onOpenSpots, spotCount }: { onShowOnMap: (lat: number, lon: number, name: string) => void; onOpenSpots?: () => void; spotCount?: number }) {
   const st = useSt();
   const theme = useTheme();
   const [session, setSession] = useState<Session | null>(null);
@@ -75,6 +75,7 @@ export function ProfileScreen({ onShowOnMap }: { onShowOnMap: (lat: number, lon:
 
         <SectionLabel>My fishing</SectionLabel>
         <ListGroup>
+          {onOpenSpots ? <ListRow icon="location-outline" iconColor={colors.live} title="My spots" subtitle={`${spotCount ?? 0} private spots · import from Navionics, share, export`} onPress={onOpenSpots} /> : null}
           <ListRow icon="fish-outline" iconColor={colors.accent} title="Catch log & trips" subtitle="Your private log, patterns and recorded trips" onPress={() => setPage('fishing')} />
           <ListRow icon="pricetag-outline" iconColor={colors.ok} title="Saved coupons" subtitle="Deals you saved from sponsors" onPress={() => setPage('coupons')} last />
         </ListGroup>
