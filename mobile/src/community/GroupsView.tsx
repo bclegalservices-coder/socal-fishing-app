@@ -5,7 +5,8 @@ import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, Share,
 import * as Location from 'expo-location';
 import { colors, touch, makeStyles } from '../theme';
 import { bearingTrue, distanceNm, formatLatLon, formatNm } from '../geo';
-import { Btn } from '../components/ui';
+import { Ionicons } from '@expo/vector-icons';
+import { Btn, BackLink, Card, Note, SectionLabel, SmallBtn } from '../components/ui';
 import { track } from '../analytics';
 import { supabase } from '../supabase';
 import { registerPush } from '../screens/AlertsScreen';
@@ -63,36 +64,43 @@ export function GroupsView({ nav, openGroupId }: { nav: GroupNav; openGroupId?: 
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor={colors.live} />}>
       {invites.map((i) => <InviteCard key={i.id} inv={i} onDone={load} />)}
       {plan ? <FloatPlanBar plan={plan} onChanged={load} /> : null}
+      <SectionLabel>Your groups</SectionLabel>
       {rows === null ? <ActivityIndicator color={colors.live} /> : null}
+      {rows && !rows.length ? <Card><Text style={st.sub}>You're not in a group yet. Start one for your crew below, or join with a code a friend sent you.</Text></Card> : null}
       {rows?.map((g) => {
         const mine = g.group_members.find((m) => m.user_id === me);
         const sharing = !!mine?.sharing_until && new Date(mine.sharing_until).getTime() > Date.now() && !mine.hidden;
         const live = g.group_members.filter((m) => m.user_id !== me && m.sharing_until && new Date(m.sharing_until).getTime() > Date.now() && !m.hidden).length;
         return (
-          <Pressable key={g.id} style={st.card} onPress={() => { setOpen(g.id); track('screen_view', { screen: 'group_detail' }); }} accessibilityRole="button">
-            <View style={st.rowBetween}>
-              <Text style={st.h2}>{g.name}</Text>
-              <Text style={st.chev}>›</Text>
+          <Pressable key={g.id} style={({ pressed }) => [st.groupRow, pressed && { opacity: 0.7 }]} onPress={() => { setOpen(g.id); track('screen_view', { screen: 'group_detail' }); }} accessibilityRole="button">
+            <View style={st.groupIcon}><Ionicons name="people" size={22} color={colors.live} /></View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={st.h2} numberOfLines={1}>{g.name}</Text>
+              <Text style={st.sub}>{g.group_members.length} member{g.group_members.length === 1 ? '' : 's'}{live ? ` · ${live} on the water now` : ''}</Text>
+              <View style={st.statusRow}>
+                <View style={[st.statusDot, { backgroundColor: sharing ? colors.ok : colors.faint }]} />
+                <Text style={[st.sub, sharing && { color: colors.ok, fontWeight: '700' }]}>{sharing ? `Sharing until ${timeOf(mine!.sharing_until!)}` : 'Not sharing'}</Text>
+              </View>
             </View>
-            <Text style={st.sub}>{g.group_members.length} member{g.group_members.length === 1 ? '' : 's'}{live ? ` · ${live} on the water now 📡` : ''}</Text>
-            <Text style={[st.sub, sharing && { color: colors.live }]}>{sharing ? `You're sharing until ${timeOf(mine!.sharing_until!)}` : 'You are not sharing'}</Text>
+            <Ionicons name="chevron-forward" size={20} color={colors.faint} />
           </Pressable>
         );
       })}
+      <SectionLabel>Start or join a group</SectionLabel>
       <View style={st.card}>
-        <Text style={st.h2}>Create a group</Text>
-        <TextInput style={st.input} value={name} onChangeText={setName} placeholder='e.g. "Saturday tuna crew"' placeholderTextColor={colors.muted} maxLength={60} />
+        <View style={st.cardHead}><Ionicons name="add-circle-outline" size={20} color={colors.live} /><Text style={st.h2}>Create a group</Text></View>
+        <TextInput style={st.input} value={name} onChangeText={setName} placeholder="Saturday tuna crew" placeholderTextColor={colors.muted} maxLength={60} />
         <TextInput style={st.input} value={boat} onChangeText={setBoat} placeholder="Your boat name (shown to members)" placeholderTextColor={colors.muted} maxLength={40} />
         <Btn label="Create" kind="primary" disabled={!name.trim()} onPress={() => G.createGroup(name.trim(), boat.trim() || undefined)
           .then((r: any) => { setName(''); track('group_created'); load(); const id = Array.isArray(r) ? r[0]?.id : r?.id; if (id) setOpen(id); }).catch(fail)} />
       </View>
       <View style={st.card}>
-        <Text style={st.h2}>Join with a code</Text>
+        <View style={st.cardHead}><Ionicons name="key-outline" size={20} color={colors.live} /><Text style={st.h2}>Join with a code</Text></View>
         <TextInput style={st.input} value={code} onChangeText={setCode} placeholder="6-character code" autoCapitalize="characters" maxLength={6} placeholderTextColor={colors.muted} />
         <Btn label="Join" kind="primary" disabled={code.trim().length < 6} onPress={() => G.joinGroup(code, boat.trim() || undefined)
           .then(() => { setCode(''); track('group_joined', { via: 'code' }); load(); Alert.alert('Joined!'); }).catch(fail)} />
       </View>
-      <Text style={st.sub}>Groups are invite-only. Nothing about your location is shared until you turn sharing on, send a position, or start a float plan. Positions need cell signal (or Starlink); a boat out of range shows where it was last seen, with the time.</Text>
+      <Note>Groups are invite-only. Nothing about your location is shared until you turn sharing on, send a position, or start a float plan. Positions need cell signal (or Starlink); a boat out of range shows where it was last seen, with the time.</Note>
     </ScrollView>
   );
 }
@@ -103,7 +111,7 @@ function InviteCard({ inv, onDone }: { inv: G.Invite; onDone: () => void }) {
   const [boat, setBoat] = useState('');
   return (
     <View style={[st.card, { borderColor: colors.accent }]}>
-      <Text style={st.h2}>📨 {inv.group_name}</Text>
+      <View style={st.cardHead}><Ionicons name="mail-unread-outline" size={20} color={colors.accent} /><Text style={st.h2}>Invite: {inv.group_name}</Text></View>
       <Text style={st.sub}>{inv.invited_by} invited you · {inv.members} member{inv.members === 1 ? '' : 's'}</Text>
       <TextInput style={st.input} value={boat} onChangeText={setBoat} placeholder="Your boat name (optional)" placeholderTextColor={colors.muted} maxLength={40} />
       <View style={st.row}>
@@ -124,7 +132,7 @@ function FloatPlanBar({ plan, onChanged }: { plan: G.MyFloatPlan; onChanged: () 
   };
   return (
     <View style={[st.card, { borderColor: late ? colors.alert : colors.live }]}>
-      <Text style={st.h2}>🚤 You're out — back by {timeOf(plan.back_by)}</Text>
+      <View style={st.cardHead}><Ionicons name="boat-outline" size={20} color={late ? colors.alert : colors.live} /><Text style={st.h2}>You're out · back by {timeOf(plan.back_by)}</Text></View>
       {late ? <Text style={[st.body, { color: colors.alert }]}>You're past your back-by time. Check in so your group doesn't worry{plan.overdue_sent_at ? ' — they were alerted' : ''}.</Text> : null}
       {plan.note ? <Text style={st.sub}>{plan.note}</Text> : null}
       <View style={st.row}>
@@ -197,10 +205,12 @@ function GroupDetailView({ groupId, me, nav, plan, onPlanChanged, onBack }: {
   return (
     <ScrollView contentContainerStyle={{ gap: 12, paddingBottom: 60 }} keyboardShouldPersistTaps="handled"
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor={colors.live} />}>
-      <Pressable onPress={onBack} style={st.back}><Text style={st.link}>‹ My groups</Text></Pressable>
+      <BackLink label="My groups" onPress={onBack} />
       <Text style={st.h1}>{d.name}</Text>
+      <Text style={[st.sub, { marginTop: -8 }]}>{d.members.length} member{d.members.length === 1 ? '' : 's'} · invite code {d.invite_code}</Text>
 
       {/* --- the two buttons that matter on the water --- */}
+      <SectionLabel>On the water</SectionLabel>
       <View style={st.card}>
         <TextInput style={st.input} value={text} onChangeText={setText} placeholder="Note or message (optional for positions)" placeholderTextColor={colors.muted} maxLength={500} />
         <Btn label={busy ? 'Sending…' : 'Come to me'} icon="megaphone" kind="primary" disabled={busy} onPress={() => sendPos('ping')} />
@@ -212,8 +222,8 @@ function GroupDetailView({ groupId, me, nav, plan, onPlanChanged, onBack }: {
       </View>
 
       {/* --- boats --- */}
+      <SectionLabel>Boats in this group</SectionLabel>
       <View style={st.card}>
-        <Text style={st.h2}>Boats</Text>
         {others.length === 0 ? <Text style={st.sub}>No one else yet — invite your buddies below.</Text> : null}
         {others.map((m) => {
           const dist = here && m.position ? distanceNm(here.lat, here.lon, m.position.lat, m.position.lon) : null;
@@ -230,7 +240,7 @@ function GroupDetailView({ groupId, me, nav, plan, onPlanChanged, onBack }: {
                   {dist != null ? ` · ${formatNm(dist)} NM @ ${Math.round(brg!)}°T` : ''}
                   {m.position?.sog_kt != null && m.status === 'live' && m.position.sog_kt > 0.5 ? ` · ${m.position.sog_kt.toFixed(0)} kt` : ''}
                 </Text>
-                {fp ? <Text style={[st.sub, fp.overdue && { color: colors.alert, fontWeight: '700' }]}>{fp.overdue ? '⚠ OVERDUE — ' : '🚤 Out — '}back by {timeOf(fp.back_by)}{fp.note ? ` · ${fp.note}` : ''}</Text> : null}
+                {fp ? <Text style={[st.sub, fp.overdue && { color: colors.alert, fontWeight: '700' }]}>{fp.overdue ? 'OVERDUE · ' : 'Out · '}back by {timeOf(fp.back_by)}{fp.note ? ` · ${fp.note}` : ''}</Text> : null}
               </View>
               {m.position ? (
                 <View style={{ gap: 6 }}>
@@ -239,10 +249,10 @@ function GroupDetailView({ groupId, me, nav, plan, onPlanChanged, onBack }: {
                 </View>
               ) : null}
               {d.is_owner ? (
-                <Pressable onPress={() => Alert.alert(`Remove ${m.label}?`, 'They lose access to the group and its feed.', [
+                <Pressable style={st.iconBtn} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Remove ${m.label}`} onPress={() => Alert.alert(`Remove ${m.label}?`, 'They lose access to the group and its feed.', [
                   { text: 'Cancel', style: 'cancel' },
                   { text: 'Remove', style: 'destructive', onPress: () => G.removeMember(groupId, m.user_id).then(load).catch(fail) }])}>
-                  <Text style={[st.sub, { color: colors.alert, paddingLeft: 6 }]}>✕</Text>
+                  <Ionicons name="person-remove-outline" size={18} color={colors.alert} />
                 </Pressable>
               ) : null}
             </View>
@@ -251,8 +261,8 @@ function GroupDetailView({ groupId, me, nav, plan, onPlanChanged, onBack }: {
       </View>
 
       {/* --- my boat --- */}
+      <SectionLabel>My boat</SectionLabel>
       <View style={st.card}>
-        <Text style={st.h2}>My boat</Text>
         <Text style={[st.body, sharing && { color: colors.live }]}>
           {sharing ? `Sharing until ${timeOf(mine!.sharing_until!)}` : mine?.status === 'last_known' ? 'Not sharing — your last position is still visible (gray)' : 'Not sharing'}
         </Text>
@@ -269,7 +279,7 @@ function GroupDetailView({ groupId, me, nav, plan, onPlanChanged, onBack }: {
           </View>
         )}
         {mine?.status === 'last_known' ? <Btn label="Remove my last position" onPress={() => G.stopSharing(groupId, true).then(load).catch(fail)} /> : null}
-        <Pressable onPress={() => setPanel(panel === 'settings' ? 'none' : 'settings')}><Text style={st.link}>{panel === 'settings' ? '▾' : '▸'} Settings for this group</Text></Pressable>
+        <SmallBtn icon={panel === 'settings' ? 'chevron-up' : 'settings-outline'} label={panel === 'settings' ? 'Hide group settings' : 'Settings for this group'} onPress={() => setPanel(panel === 'settings' ? 'none' : 'settings')} />
         {panel === 'settings' ? (
           <View style={{ gap: 8 }}>
             <View style={st.switchRow}><Text style={st.body}>Notifications from this group</Text>
@@ -284,10 +294,11 @@ function GroupDetailView({ groupId, me, nav, plan, onPlanChanged, onBack }: {
       </View>
 
       {/* --- float plan --- */}
+      <SectionLabel>Safety</SectionLabel>
       {plan ? <FloatPlanBar plan={plan} onChanged={() => { onPlanChanged(); load(); }} /> : (
         <View style={st.card}>
-          <Pressable onPress={() => setPanel(panel === 'float' ? 'none' : 'float')}>
-            <Text style={st.h2}>🚤 Heading out? Leave a float plan</Text>
+          <Pressable onPress={() => setPanel(panel === 'float' ? 'none' : 'float')} accessibilityRole="button">
+            <View style={st.cardHead}><Ionicons name="boat-outline" size={20} color={colors.live} /><Text style={[st.h2, { flex: 1 }]}>Heading out? Leave a float plan</Text><Ionicons name={panel === 'float' ? 'chevron-up' : 'chevron-down'} size={18} color={colors.muted} /></View>
             <Text style={st.sub}>Tell the group when you'll be back. If you don't check in by 30 min after that, they get an alert with your last position.</Text>
           </Pressable>
           {panel === 'float' ? <FloatPlanForm groupId={groupId} onStarted={() => { setPanel('none'); onPlanChanged(); load(); }} /> : null}
@@ -295,6 +306,7 @@ function GroupDetailView({ groupId, me, nav, plan, onPlanChanged, onBack }: {
       )}
 
       {/* --- share spots / routes --- */}
+      <SectionLabel>Share with the group</SectionLabel>
       <View style={st.row}>
         <Btn label="Share a spot" icon="bookmark-outline" onPress={() => setPanel(panel === 'spot' ? 'none' : 'spot')} />
         <Btn label="Share a route" icon="git-commit-outline" onPress={() => setPanel(panel === 'route' ? 'none' : 'route')} />
@@ -302,15 +314,18 @@ function GroupDetailView({ groupId, me, nav, plan, onPlanChanged, onBack }: {
       {panel === 'spot' || panel === 'route' ? <SharePicker kind={panel} groupId={groupId} onDone={() => { setPanel('none'); load(); }} /> : null}
 
       {/* --- feed --- */}
-      <Text style={st.h2}>Group feed</Text>
-      {items.length === 0 ? <Text style={st.sub}>Nothing yet. Pings, positions, catches, spots and messages show up here.</Text> : null}
+      <SectionLabel>Group feed</SectionLabel>
+      {items.length === 0 ? <Card><Text style={st.sub}>Nothing yet. Pings, positions, catches, spots and messages show up here.</Text></Card> : null}
       {items.map((i) => <FeedRow key={i.id} i={i} nav={nav} here={here} onDelete={() => G.deleteShare(i.id).then(load).catch(fail)} canDelete={i.mine || d.is_owner} />)}
       {items.length >= 60 ? <Btn label="Older" onPress={() => G.feed(groupId, items[items.length - 1].created_at).then((more) => setItems([...items, ...more])).catch(fail)} /> : null}
 
       {/* --- invite --- */}
+      <SectionLabel>Invite buddies</SectionLabel>
       <View style={st.card}>
-        <Pressable onPress={() => setPanel(panel === 'invite' ? 'none' : 'invite')}><Text style={st.h2}>➕ Invite buddies</Text></Pressable>
-        <Text style={st.sub}>Code: <Text style={{ color: colors.accent, fontWeight: '800', fontSize: 16 }}>{d.invite_code}</Text></Text>
+        <Pressable onPress={() => setPanel(panel === 'invite' ? 'none' : 'invite')} accessibilityRole="button">
+          <View style={st.cardHead}><Ionicons name="person-add-outline" size={20} color={colors.live} /><Text style={[st.h2, { flex: 1 }]}>Invite by email</Text><Ionicons name={panel === 'invite' ? 'chevron-up' : 'chevron-down'} size={18} color={colors.muted} /></View>
+        </Pressable>
+        <View style={st.codeBox}><Text style={st.sub}>Invite code</Text><Text style={st.codeT} selectable>{d.invite_code}</Text></View>
         {panel === 'invite' ? <InviteForm d={d} myLabel={mine?.label ?? null} onDone={load} /> : null}
         {!panel || panel !== 'invite' ? (
           <Btn label="Share the code" onPress={() => Share.share({ message: G.inviteMessage(d.name, d.invite_code, mine?.label ?? null) }).catch(() => {})} />
@@ -321,18 +336,17 @@ function GroupDetailView({ groupId, me, nav, plan, onPlanChanged, onBack }: {
             {d.invites.map((iv) => (
               <View key={iv.id} style={st.rowBetween}>
                 <Text style={st.body}>{iv.email}</Text>
-                {iv.mine || d.is_owner ? <Pressable onPress={() => G.revokeInvite(iv.id).then(load).catch(fail)}><Text style={[st.sub, { color: colors.alert }]}>Withdraw</Text></Pressable> : null}
+                {iv.mine || d.is_owner ? <SmallBtn label="Withdraw" tone="danger" onPress={() => G.revokeInvite(iv.id).then(load).catch(fail)} /> : null}
               </View>
             ))}
           </View>
         ) : null}
       </View>
 
-      <Pressable onPress={() => Alert.alert(d.is_owner ? `Delete ${d.name}?` : `Leave ${d.name}?`, d.is_owner ? 'Removes the group, its feed and invites for everyone.' : undefined, [
+      <View style={{ height: 8 }} />
+      <Btn kind="danger" icon={d.is_owner ? 'trash-outline' : 'exit-outline'} label={d.is_owner ? 'Delete group' : 'Leave group'} onPress={() => Alert.alert(d.is_owner ? `Delete ${d.name}?` : `Leave ${d.name}?`, d.is_owner ? 'Removes the group, its feed and invites for everyone.' : undefined, [
         { text: 'Cancel', style: 'cancel' },
-        { text: d.is_owner ? 'Delete group' : 'Leave', style: 'destructive', onPress: () => (d.is_owner ? G.deleteGroup(groupId) : G.leaveGroup(groupId)).then(onBack).catch(fail) }])}>
-        <Text style={[st.link, { color: colors.alert, textAlign: 'center' }]}>{d.is_owner ? 'Delete group' : 'Leave group'}</Text>
-      </Pressable>
+        { text: d.is_owner ? 'Delete group' : 'Leave', style: 'destructive', onPress: () => (d.is_owner ? G.deleteGroup(groupId) : G.leaveGroup(groupId)).then(onBack).catch(fail) }])} />
     </ScrollView>
   );
 }
@@ -402,11 +416,11 @@ function SharePicker({ kind, groupId, onDone }: { kind: 'spot' | 'route'; groupI
       {list.length === 0 ? <Text style={st.sub}>{kind === 'spot' ? 'No saved spots yet (long-press the map to save one).' : 'No saved routes yet.'}</Text> : null}
       {kind === 'spot' ? spots.map((s) => (
         <Pressable key={s.id} style={st.pick} onPress={() => send('spot', { lat: s.lat, lon: s.lon, body: s.notes ?? null, payload: { name: s.name } })}>
-          <Text style={st.name}>📌 {s.name}</Text><Text style={st.sub}>{formatLatLon(s.lat, s.lon)}</Text>
+          <Ionicons name="star" size={18} color="#FF8A00" /><View style={{ flex: 1 }}><Text style={st.name}>{s.name}</Text><Text style={st.sub}>{formatLatLon(s.lat, s.lon)}</Text></View><Ionicons name="send-outline" size={18} color={colors.live} />
         </Pressable>
       )) : routes.map((r) => (
         <Pressable key={r.id} style={st.pick} onPress={() => send('route', { payload: { name: r.name, points: r.points.slice(0, 100).map((p) => ({ lat: p.lat, lon: p.lon, name: p.name ?? null })) } })}>
-          <Text style={st.name}>🧭 {r.name}</Text><Text style={st.sub}>{r.points.length} points</Text>
+          <Ionicons name="git-commit-outline" size={18} color={colors.live} /><View style={{ flex: 1 }}><Text style={st.name}>{r.name}</Text><Text style={st.sub}>{r.points.length} points</Text></View><Ionicons name="send-outline" size={18} color={colors.live} />
         </Pressable>
       ))}
     </View>
@@ -445,7 +459,7 @@ function FeedRow({ i, nav, here, onDelete, canDelete }: { i: G.FeedItem; nav: Gr
       {i.kind === 'checkin' && p.back_by ? <Text style={st.sub}>Back by {timeOf(p.back_by)}</Text> : null}
       {hasPt ? <Text style={st.sub}>{formatLatLon(i.lat!, i.lon!)}{dist != null ? ` · ${formatNm(dist)} NM from you` : ''}</Text> : null}
       {hasPt || i.kind === 'route' ? (
-        <View style={st.row}>
+        <View style={[st.row, { flexWrap: 'wrap', gap: 8 }]}>
           {hasPt ? <Pressable style={st.mini} onPress={() => nav.onGoTo(i.lat!, i.lon!, label)}><Text style={st.miniT}>Go to</Text></Pressable> : null}
           {hasPt ? <Pressable style={st.mini} onPress={() => nav.onShowOnMap(i.lat!, i.lon!, label)}><Text style={st.miniT}>Map</Text></Pressable> : null}
           {(i.kind === 'spot' || i.kind === 'catch' || i.kind === 'ping') && hasPt && !i.mine ? <Pressable style={st.mini} onPress={saveSpot}><Text style={st.miniT}>Save spot</Text></Pressable> : null}
@@ -497,21 +511,29 @@ const useSt = makeStyles((colors) => ({
   name: { color: colors.text, fontSize: 15.5, fontWeight: '700' },
   link: { color: colors.live, fontSize: 15, fontWeight: '600' },
   empty: { color: colors.muted, fontSize: 14, textAlign: 'center', paddingVertical: 30, lineHeight: 20 },
-  card: { borderWidth: 1, borderColor: colors.line, borderRadius: 14, padding: 12, gap: 8, backgroundColor: colors.panelSolid },
+  card: { borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 12, gap: 8, backgroundColor: colors.panelSolid },
   row: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chev: { color: colors.muted, fontSize: 24 },
+  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  groupRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panelSolid },
+  groupIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: colors.inset, alignItems: 'center', justifyContent: 'center' },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  iconBtn: { width: 38, height: 38, borderRadius: 19, borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', marginLeft: 6 },
+  codeBox: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderRadius: 12, backgroundColor: colors.inset, borderWidth: 1, borderColor: colors.border },
+  codeT: { color: colors.text, fontSize: 22, fontWeight: '800', letterSpacing: 4, fontVariant: ['tabular-nums'] },
   back: { paddingVertical: 6 },
-  input: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: colors.line, color: colors.text, paddingHorizontal: 12, fontSize: 16 },
+  input: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.inset, color: colors.text, paddingHorizontal: 12, fontSize: 16 },
   member: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderColor: colors.line },
   dot: { width: 12, height: 12, borderRadius: 6, borderWidth: 1 },
-  mini: { borderWidth: 1, borderColor: colors.live, borderRadius: 10, paddingHorizontal: 10, minHeight: 34, justifyContent: 'center' },
-  miniT: { color: colors.live, fontWeight: '700', fontSize: 13 },
+  mini: { borderWidth: 1.5, borderColor: colors.live, backgroundColor: colors.panelSolid, borderRadius: 18, paddingHorizontal: 14, minHeight: 36, justifyContent: 'center', alignItems: 'center' },
+  miniT: { color: colors.live, fontWeight: '700', fontSize: 14 },
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, minHeight: touch.min - 8 },
-  chip: { borderWidth: 1, borderColor: colors.line, borderRadius: 16, paddingHorizontal: 10, minHeight: 36, justifyContent: 'center' },
+  chip: { borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, borderRadius: 16, paddingHorizontal: 10, minHeight: 40, justifyContent: 'center' },
   chipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  chipT: { color: colors.text, fontWeight: '600', fontSize: 13 },
-  pick: { paddingVertical: 10, borderTopWidth: 1, borderColor: colors.line, gap: 2 },
-  feed: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 10, gap: 4, backgroundColor: colors.panelSolid },
+  chipT: { color: colors.text, fontWeight: '700', fontSize: 14 },
+  pick: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 52, paddingVertical: 10, borderTopWidth: 1, borderColor: colors.line },
+  feed: { borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 12, gap: 6, backgroundColor: colors.panelSolid },
 }));

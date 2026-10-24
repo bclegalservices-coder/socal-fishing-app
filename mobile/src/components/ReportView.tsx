@@ -6,7 +6,7 @@ import { colors, makeStyles } from '../theme';
 import { flagCatch, publicPhotoUrl, reportsIn, summarize, type PublicReport } from '../community/catchApi';
 import { speciesColor, speciesName } from '../community/species';
 import type { Cluster } from './CatchMap';
-import { Btn, Note, Sheet, Title } from './ui';
+import { Btn, Note, Sheet, SmallBtn, Title } from './ui';
 import { friendly } from '../friendly';
 
 export function ReportCard({ r, onGo }: { r: PublicReport; onGo?: () => void }) {
@@ -38,8 +38,8 @@ export function ReportCard({ r, onGo }: { r: PublicReport; onGo?: () => void }) 
         </ScrollView>
       ) : null}
       <View style={st.row}>
-        {onGo ? <Pressable onPress={onGo} style={st.link}><Text style={st.linkT}>Show on map</Text></Pressable> : null}
-        <Pressable onPress={flag} style={st.link}><Text style={[st.linkT, { color: colors.muted }]}>Report</Text></Pressable>
+        {onGo ? <SmallBtn tone="accent" icon="map-outline" label="Show on map" onPress={onGo} /> : null}
+        <SmallBtn icon="flag-outline" label="Report" onPress={flag} />
       </View>
     </View>
   );
@@ -77,7 +77,7 @@ export function ClusterSheet({ c, hours, onClose }: { c: Cluster; hours: number;
 }
 
 const useSt = makeStyles((colors) => ({
-  card: { borderWidth: 1, borderColor: colors.line, borderRadius: 14, padding: 12, gap: 6, backgroundColor: colors.panelSolid },
+  card: { borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 12, gap: 6, backgroundColor: colors.panelSolid },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   badge: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   badgeT: { color: colors.accentInk, fontWeight: '800', fontSize: 13 },

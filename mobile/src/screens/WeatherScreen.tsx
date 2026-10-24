@@ -1,5 +1,6 @@
 // Weather page: your location or any spot — 5-day hourly marine forecast rated for YOUR boat,
 // the official NWS marine zone text, buoy history (up to 45 days) and tides for any date.
+import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -8,7 +9,7 @@ import * as Location from 'expo-location';
 import { colors, makeStyles, touch, useTheme } from '../theme';
 import { ageText, getJSON } from '../api';
 import { track } from '../analytics';
-import { Btn, IconButton, Note } from '../components/ui';
+import { Btn, IconButton, Note, SectionLabel } from '../components/ui';
 import { SearchSheet } from '../components/SearchSheet';
 import { PresentedBy, SponsorBanner } from '../ads/Sponsor';
 import { MoonView } from '../weather/MoonView';
@@ -199,10 +200,10 @@ function Forecast({ place, boat, boatIsSet, course, setCourse, onEditBoat }: {
       <Pressable onPress={onEditBoat} style={st.boat} accessibilityLabel="Change my boat">
         <Text style={st.boatK}>Rated for</Text>
         <Text style={st.boatV}>{boatLabel(boat)}{boatIsSet ? '' : ' (default — tap to set yours)'}</Text>
-        <Text style={st.boatEdit}>Change ›</Text>
+        <Text style={st.boatEdit}>Change</Text><Ionicons name="chevron-forward" size={16} color={colors.live} />
       </Pressable>
       <View>
-        <Text style={st.smallH}>Heading toward (optional — rates beam vs. head seas)</Text>
+        <Text style={st.smallH}>Heading toward</Text><Text style={st.sub}>Optional. Rates seas on your bow, beam or stern.</Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingVertical: 4 }}>
           {COURSES.map((c) => (
             <Pressable key={c.label} onPress={() => setCourse(c.deg)} style={[st.pill, { minWidth: 44, alignItems: 'center' }, course === c.deg && st.pillOn]}>
@@ -214,7 +215,7 @@ function Forecast({ place, boat, boatIsSet, course, setCourse, onEditBoat }: {
 
       {alerts.map((a, i) => (
         <View key={i} style={st.alert}>
-          <Text style={st.alertT}>⚠ {a.event}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Ionicons name="warning" size={18} color={colors.alert} /><Text style={[st.alertT, { flex: 1 }]}>{a.event}</Text></View>
           {a.headline ? <Text style={st.alertS}>{a.headline}</Text> : null}
         </View>
       ))}
@@ -227,6 +228,7 @@ function Forecast({ place, boat, boatIsSet, course, setCourse, onEditBoat }: {
         <Text style={st.warn}>No sea forecast for this exact point (it's on land or inside a harbor). Wind and weather are shown; pick a harbor above for seas.</Text>
       ) : null}
 
+      {days.length ? <SectionLabel>Next {days.length} days</SectionLabel> : null}
       {days.length ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
           {days.map((d) => (
@@ -261,6 +263,7 @@ function Forecast({ place, boat, boatIsSet, course, setCourse, onEditBoat }: {
         ) : null;
       })() : null}
 
+      {hours.length ? <SectionLabel>Hour by hour</SectionLabel> : null}
       {hours.length ? (
         <View style={st.card}>
           <View style={st.hRow}>
@@ -274,12 +277,13 @@ function Forecast({ place, boat, boatIsSet, course, setCourse, onEditBoat }: {
 
       {f?.available ? <SponsorBanner placement="banner_weather" /> : null}
 
+      {res?.data.buoy_now || res?.data.zone ? <SectionLabel>Measured now and official forecast</SectionLabel> : null}
       {res?.data.buoy_now ? <BuoyNow b={res.data.buoy_now} /> : null}
 
       {res?.data.zone ? (
         <View style={st.card}>
           <Pressable onPress={() => setShowZone(!showZone)}>
-            <Text style={st.cardH}>Official NWS marine forecast {showZone ? '▾' : '▸'}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={st.cardH}>Official NWS marine forecast</Text><Ionicons name={showZone ? 'chevron-up' : 'chevron-down'} size={18} color={colors.muted} /></View>
             <Text style={st.sub}>{res.data.zone.zone} · {res.data.zone.name}</Text>
           </Pressable>
           {res.data.zone.headlines.map((h, i) => <Text key={i} style={st.alertS}>⚠ {h}</Text>)}
@@ -475,37 +479,37 @@ const useSt = makeStyles((colors) => ({
   header: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10, backgroundColor: colors.panelSolid, borderBottomWidth: 1, borderColor: colors.border },
   title: { color: colors.text, fontSize: 28, fontWeight: '800', letterSpacing: -0.3 },
   coords: { color: colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] },
-  hBtn: { width: touch.min, height: touch.min, borderRadius: 14, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  hBtn: { width: touch.min, height: touch.min, borderRadius: 14, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   hBtnT: { fontSize: 20 },
   harbors: { gap: 6, paddingHorizontal: 16, paddingVertical: 8 },
-  pill: { borderWidth: 1, borderColor: colors.line, borderRadius: 18, paddingHorizontal: 12, minHeight: 36, justifyContent: 'center' },
+  pill: { borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, borderRadius: 18, paddingHorizontal: 12, minHeight: 40, justifyContent: 'center' },
   pillOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  pillT: { color: colors.text, fontSize: 13.5, fontWeight: '600' },
+  pillT: { color: colors.text, fontSize: 14, fontWeight: '700' },
   pillOnT: { color: colors.accentInk },
-  seg: { flexDirection: 'row', marginHorizontal: 16, borderWidth: 1, borderColor: colors.line, borderRadius: 12, overflow: 'hidden' },
+  seg: { flexDirection: 'row', marginHorizontal: 16, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, borderRadius: 12, overflow: 'hidden' },
   segSmall: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   segI: { flex: 1, minHeight: 42, alignItems: 'center', justifyContent: 'center' },
   segOn: { backgroundColor: colors.panelSolid },
   segT: { color: colors.muted, fontWeight: '700', fontSize: 14 },
   segOnT: { color: colors.text },
   body: { padding: 16, gap: 12, paddingBottom: 40 },
-  boat: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.panelSolid, borderRadius: 12, borderWidth: 1, borderColor: colors.line, padding: 12 },
+  boat: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.panelSolid, borderRadius: 12, borderWidth: 1.5, borderColor: colors.border, padding: 12, minHeight: 50 },
   boatK: { color: colors.muted, fontSize: 12 },
   boatV: { color: colors.text, fontSize: 15, fontWeight: '700', flex: 1 },
   boatEdit: { color: colors.live, fontWeight: '700' },
-  smallH: { color: colors.muted, fontSize: 12 },
+  smallH: { color: colors.muted, fontSize: 12.5, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 4 },
   alert: { backgroundColor: colors.alertBg, borderColor: colors.alert, borderWidth: 1, borderRadius: 10, padding: 10, gap: 2 },
   alertT: { color: colors.alert, fontWeight: '800', fontSize: 15 },
   alertS: { color: colors.alert, fontSize: 13 },
   warn: { color: colors.warn, fontSize: 13, paddingHorizontal: 16 },
-  dayCard: { width: 128, backgroundColor: colors.panelSolid, borderRadius: 12, borderWidth: 1.5, borderColor: colors.line, padding: 10, gap: 2, overflow: 'hidden' },
+  dayCard: { width: 128, backgroundColor: colors.panelSolid, borderRadius: 12, borderWidth: 1.5, borderColor: colors.border, padding: 10, gap: 2, overflow: 'hidden' },
   dayBar: { position: 'absolute', left: 0, right: 0, top: 0, height: 5 },
   dayName: { color: colors.text, fontWeight: '800', fontSize: 15, marginTop: 4 },
   dayVerdict: { fontWeight: '800', fontSize: 15 },
   dayRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   dayLine: { color: colors.text, fontSize: 13, fontVariant: ['tabular-nums'] },
   dayWin: { color: colors.muted, fontSize: 12, marginTop: 2 },
-  card: { backgroundColor: colors.panelSolid, borderRadius: 12, borderWidth: 1, borderColor: colors.line, padding: 12, gap: 6 },
+  card: { backgroundColor: colors.panelSolid, borderRadius: 12, borderWidth: 1, borderColor: colors.border, padding: 12, gap: 6 },
   cardH: { color: colors.text, fontSize: 16, fontWeight: '800' },
   line: { color: colors.text, fontSize: 14, lineHeight: 20 },
   reason: { color: colors.text, fontSize: 13.5, lineHeight: 19 },
@@ -519,6 +523,6 @@ const useSt = makeStyles((colors) => ({
   detail: { paddingBottom: 10, paddingLeft: 40, gap: 3 },
   disclaimer: { color: colors.muted, fontSize: 12, lineHeight: 17, borderTopWidth: 1, borderColor: colors.line, paddingTop: 10 },
   dateRow: { flexDirection: 'row', gap: 6, alignItems: 'center' },
-  input: { flex: 2, height: touch.min, borderRadius: 12, borderWidth: 1.5, borderColor: colors.line, color: colors.text, paddingHorizontal: 12, fontSize: 16, backgroundColor: colors.panelSolid },
+  input: { flex: 2, height: touch.min, borderRadius: 12, borderWidth: 1.5, borderColor: colors.border, color: colors.text, paddingHorizontal: 12, fontSize: 16, backgroundColor: colors.panelSolid },
   tideHL: { color: colors.text, fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
 }));

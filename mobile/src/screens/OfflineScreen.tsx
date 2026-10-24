@@ -1,12 +1,12 @@
 // Offline maps (plan: 'Offline architecture'). Home waters is automatic; this screen shows what's on
 // the phone and lets you update now or add extra detail for an area.
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, ScrollView, Switch, Text, View } from 'react-native';
 import { getJSON } from '../api';
 import { colors, makeStyles } from '../theme';
 import { autoRefresh, deletePack, getSettings, getStatus, HOME, listPacks, setSettings, type OfflineSettings, type OfflineStatus } from '../offline/packs';
-import { Btn } from '../components/ui';
+import { Btn, Card, ListGroup, ListRow, Note, ScreenHeader, SectionLabel, SmallBtn } from '../components/ui';
+import { Ionicons } from '@expo/vector-icons';
 import { track } from '../analytics';
 import { friendly } from '../friendly';
 
@@ -31,52 +31,62 @@ export function OfflineScreen({ onBack }: { onBack: () => void }) {
     finally { setBusy(false); load(); }
   };
   const total = packs.reduce((a, p) => a + p.bytes, 0);
+  const chartOk = !!s.chart?.done;
   return (
-    <SafeAreaView style={st.root} edges={['top']}>
-      <Pressable onPress={onBack} style={{ paddingVertical: 10 }}><Text style={st.link}>‹ Profile</Text></Pressable>
-      <ScrollView contentContainerStyle={{ gap: 12, paddingBottom: 40 }}>
-        <Text style={st.h1}>Offline maps</Text>
-        <Text style={st.p}>Home waters ({HOME.label}) stays on this phone and updates itself whenever you have signal. Offshore, the app shows the last data with its age.</Text>
-        <View style={st.card}>
-          <Row k="Chart + seafloor" v={s.chart?.done ? `Ready · ${mb(s.chart.bytes)} · ${when(s.chart.at)}` : s.chart?.error ? `Not ready: ${s.chart.error}` : s.chart ? `Downloading ${s.chart.percent}%` : 'Not downloaded yet'} />
-          <Row k="Water temp & chlorophyll" v={s.ocean?.done ? `Image ${s.ocean.date} · saved ${when(s.ocean.at)}` : s.ocean ? `Downloading ${s.ocean.percent}%` : 'Not downloaded yet'} />
-          <Row k="MPAs, closures, wrecks, lanes" v={s.rules ? `Saved ${when(s.rules.at)} · boundaries checked ${s.rules.checked_at ? new Date(s.rules.checked_at).toLocaleDateString() : '?'}` : 'Not downloaded yet'} />
-          <Row k="Tides" v={s.tides ? `Predictions through ${s.tides.through}` : 'Not downloaded yet'} />
-          <Row k="Fishing spots" v={s.spots ? `${s.spots.count} spots · ${when(s.spots.at)}` : 'Not downloaded yet'} />
-          <Row k="Your spots, routes, tracks, catches" v="Always on this phone" />
-          <Text style={st.sub}>Map downloads on this phone: {mb(total)}</Text>
-          <Btn label={busy ? 'Updating…' : 'Update now'} kind="primary" onPress={updateNow} disabled={busy} />
-        </View>
-        <View style={st.card}>
-          <View style={st.rowB}><Text style={st.p}>Update automatically</Text><Switch value={set.auto} onValueChange={async (v) => { const n = { ...set, auto: v }; setSet(n); await setSettings(n); }} /></View>
-          <View style={st.rowB}><Text style={st.p}>Big chart download on Wi-Fi only</Text><Switch value={set.wifiOnly} onValueChange={async (v) => { const n = { ...set, wifiOnly: v }; setSet(n); await setSettings(n); }} /></View>
-          <Text style={st.sub}>Daily water and weather updates are small and use cell data when needed.</Text>
-        </View>
-        {packs.filter((p) => p.name.startsWith('area-')).map((p) => (
-          <View key={p.name} style={st.card}>
-            <Text style={st.p}>Extra detail: {p.name.slice(5)}</Text>
-            <Text style={st.sub}>{mb(p.bytes)} · {p.percent}%</Text>
-            <Pressable onPress={async () => { await deletePack(p.name); load(); }}><Text style={[st.link, { color: colors.alert }]}>Delete</Text></Pressable>
+    <View style={st.root}>
+      <ScreenHeader title="Offline maps" subtitle={`Home waters: ${HOME.label}`} onBack={onBack} backLabel="Me" />
+      <ScrollView contentContainerStyle={st.body}>
+        <Card tone={chartOk ? 'ok' : 'info'}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Ionicons name={chartOk ? 'checkmark-circle' : 'cloud-download-outline'} size={26} color={chartOk ? colors.ok : colors.live} />
+            <View style={{ flex: 1 }}>
+              <Text style={st.big}>{chartOk ? 'Ready for offshore' : 'Not fully downloaded'}</Text>
+              <Text style={st.sub}>{mb(total)} saved on this phone · updates itself when you have signal</Text>
+            </View>
           </View>
-        ))}
-        <Text style={st.sub}>Fishing farther out? On the map, zoom to the area and use Layers → "Save this area offline" for extra chart detail.</Text>
+          <Btn label={busy ? 'Updating…' : 'Update now'} icon="refresh" kind="primary" onPress={updateNow} disabled={busy} />
+        </Card>
+
+        <SectionLabel>What's saved</SectionLabel>
+        <ListGroup>
+          <Item icon="map-outline" k="Chart and seafloor" ok={!!s.chart?.done} v={s.chart?.done ? `${mb(s.chart.bytes)} · ${when(s.chart.at)}` : s.chart?.error ? `Not ready: ${s.chart.error}` : s.chart ? `Downloading ${s.chart.percent}%` : 'Not downloaded yet'} />
+          <Item icon="thermometer-outline" k="Water temp and chlorophyll" ok={!!s.ocean?.done} v={s.ocean?.done ? `Image ${s.ocean.date} · saved ${when(s.ocean.at)}` : s.ocean ? `Downloading ${s.ocean.percent}%` : 'Not downloaded yet'} />
+          <Item icon="shield-outline" k="MPAs, closures, wrecks, lanes" ok={!!s.rules} v={s.rules ? `Saved ${when(s.rules.at)}` : 'Not downloaded yet'} />
+          <Item icon="water-outline" k="Tides" ok={!!s.tides} v={s.tides ? `Predictions through ${s.tides.through}` : 'Not downloaded yet'} />
+          <Item icon="location-outline" k="Fishing spots" ok={!!s.spots} v={s.spots ? `${s.spots.count} spots · ${when(s.spots.at)}` : 'Not downloaded yet'} />
+          <Item icon="star-outline" k="Your spots, routes, trips, catches" ok v="Always on this phone" last />
+        </ListGroup>
+
+        <SectionLabel>Settings</SectionLabel>
+        <ListGroup>
+          <ListRow icon="sync-outline" title="Update automatically" right={<Switch value={set.auto} onValueChange={async (v) => { const n = { ...set, auto: v }; setSet(n); await setSettings(n); }} />} />
+          <ListRow icon="wifi-outline" title="Big chart download on Wi-Fi only" subtitle="Daily water and weather updates are small and use cell data" last
+            right={<Switch value={set.wifiOnly} onValueChange={async (v) => { const n = { ...set, wifiOnly: v }; setSet(n); await setSettings(n); }} />} />
+        </ListGroup>
+
+        <SectionLabel>Extra detail areas</SectionLabel>
+        {packs.filter((p) => p.name.startsWith('area-')).length ? (
+          <ListGroup>
+            {packs.filter((p) => p.name.startsWith('area-')).map((p, i, arr) => (
+              <ListRow key={p.name} icon="layers-outline" title={p.name.slice(5)} subtitle={`${mb(p.bytes)} · ${p.percent}%`} last={i === arr.length - 1}
+                right={<SmallBtn label="Delete" tone="danger" icon="trash-outline" onPress={async () => { await deletePack(p.name); load(); }} />} />
+            ))}
+          </ListGroup>
+        ) : null}
+        <Note>Fishing farther out? On the map, zoom to the area and use Layers → "Save this area offline" for extra chart detail.</Note>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
-function Row({ k, v }: { k: string; v: string }) {
-  const st = useSt();
-  return <View style={{ gap: 2 }}><Text style={st.k}>{k}</Text><Text style={st.p}>{v}</Text></View>;
+function Item({ icon, k, v, ok, last }: { icon: string; k: string; v: string; ok?: boolean; last?: boolean }) {
+  return <ListRow icon={icon} iconColor={ok ? colors.ok : colors.muted} title={k} subtitle={v} last={last}
+    right={<Ionicons name={ok ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={ok ? colors.ok : colors.faint} />} />;
 }
 
 const useSt = makeStyles((colors) => ({
-  root: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 14 },
-  h1: { color: colors.text, fontSize: 28, fontWeight: '700' },
-  p: { color: colors.text, fontSize: 14.5, lineHeight: 20 },
-  k: { color: colors.muted, fontSize: 12, fontWeight: '700' },
-  sub: { color: colors.muted, fontSize: 12.5, lineHeight: 18 },
-  link: { color: colors.live, fontSize: 15 },
-  card: { borderWidth: 1, borderColor: colors.line, borderRadius: 14, padding: 12, gap: 10, backgroundColor: colors.panelSolid },
-  rowB: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  root: { flex: 1, backgroundColor: colors.bg },
+  body: { padding: 16, paddingBottom: 48, gap: 10 },
+  big: { color: colors.text, fontSize: 17, fontWeight: '800' },
+  sub: { color: colors.muted, fontSize: 13, lineHeight: 18 },
 }));

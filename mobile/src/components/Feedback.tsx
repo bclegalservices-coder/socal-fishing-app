@@ -59,7 +59,7 @@ export function FeedbackForm({ email: start, onSent }: { email: string; onSent: 
 
 const useSt = makeStyles((colors) => ({
   h: { color: colors.muted, fontSize: 13, fontWeight: '600', marginTop: 10, marginBottom: 6 },
-  box: { minHeight: 130, textAlignVertical: 'top', color: colors.text, fontSize: 16, borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 12, backgroundColor: colors.bg },
-  input: { color: colors.text, fontSize: 16, borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 12, backgroundColor: colors.bg },
+  box: { minHeight: 130, textAlignVertical: 'top', color: colors.text, fontSize: 16, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, backgroundColor: colors.bg },
+  input: { color: colors.text, fontSize: 16, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, backgroundColor: colors.bg },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 8 },
 }));

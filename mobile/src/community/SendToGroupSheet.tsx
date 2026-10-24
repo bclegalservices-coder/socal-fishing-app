@@ -88,11 +88,11 @@ export function SendToGroupSheet({ mode, pt, onClose, onDone }: Props) {
 const useSt = makeStyles((colors) => ({
   coord: { color: colors.text, fontSize: 17, fontWeight: '600', fontVariant: ['tabular-nums'] },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { borderWidth: 1, borderColor: colors.line, borderRadius: 18, paddingHorizontal: 12, minHeight: 40, justifyContent: 'center' },
+  chip: { borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, borderRadius: 18, paddingHorizontal: 12, minHeight: 40, justifyContent: 'center' },
   on: { backgroundColor: colors.accent, borderColor: colors.accent },
-  chipT: { color: colors.text, fontWeight: '700' },
+  chipT: { color: colors.text, fontWeight: '700', fontSize: 14 },
   onT: { color: colors.accentInk },
-  quick: { borderWidth: 1, borderColor: colors.line, borderRadius: 14, paddingHorizontal: 10, minHeight: 32, justifyContent: 'center' },
+  quick: { borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, borderRadius: 14, paddingHorizontal: 10, minHeight: 40, justifyContent: 'center' },
   quickT: { color: colors.muted, fontSize: 13 },
-  input: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: colors.line, color: colors.text, paddingHorizontal: 12, fontSize: 16 },
+  input: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.inset, color: colors.text, paddingHorizontal: 12, fontSize: 16 },
 }));

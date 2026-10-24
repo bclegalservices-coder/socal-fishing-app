@@ -5,7 +5,7 @@ import { GeoJSONSource, Layer } from '@maplibre/maplibre-react-native';
 import { colors, makeStyles } from '../theme';
 import { boundaryPoints, MPA_ALLOWED_SUMMARY_CHECKED, mpaDetails, type RulesData } from '../offline/rules';
 import { formatLatLon } from '../geo';
-import { Btn, Note, Sheet, Title } from './ui';
+import { Btn, Note, Sheet, SmallBtn, Title } from './ui';
 import { FEATURES_TOP, SHADING_TOP, below } from '../layers/order';
 
 const MPA_RED = '#D7262B';
@@ -100,7 +100,7 @@ export function RuleCard({ p, checkedAt, onClose }: { p: any; checkedAt: string 
             Boundaries checked {checkedAt ? new Date(checkedAt).toLocaleDateString() : 'unknown'}{ageDays != null && ageDays > 60 ? ' — over 60 days ago, rules may have changed' : ''}
           </Text>
           <Note>Summary from CDFW's regulation language (reviewed {new Date(MPA_ALLOWED_SUMMARY_CHECKED).toLocaleDateString()}). Boundaries shown for reference; the official regulations govern.</Note>
-          {p.regs ? <Pressable onPress={() => Linking.openURL(p.regs)}><Text style={st.link}>Official regulations ›</Text></Pressable> : null}
+          {p.regs ? <SmallBtn tone="accent" icon="open-outline" label="Official regulations" onPress={() => Linking.openURL(p.regs)} /> : null}
         </>
       ) : <Note>From NOAA charts — not for navigation.</Note>}
             <Btn label="Close" onPress={onClose} />

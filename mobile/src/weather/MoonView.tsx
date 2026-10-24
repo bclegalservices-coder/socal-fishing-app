@@ -124,7 +124,7 @@ const useSt = makeStyles((colors) => ({
   stat: { width: '50%', alignItems: 'center', paddingVertical: 8 },
   statV: { color: '#FFFFFF', fontSize: 20, fontWeight: '700', fontVariant: ['tabular-nums'] },
   statL: { color: 'rgba(255,255,255,0.65)', fontSize: 12, fontWeight: '600', marginTop: 1 },
-  card: { backgroundColor: colors.panelSolid, borderRadius: 16, borderWidth: 1, borderColor: colors.line, padding: 14, gap: 10 },
+  card: { backgroundColor: colors.panelSolid, borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 14, gap: 10 },
   cardH: { color: colors.text, fontSize: 16, fontWeight: '800' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 12 },
   cell: { width: '25%', alignItems: 'center', gap: 4 },

@@ -1,5 +1,6 @@
 // "SoCal Fishing Today" (plan: 'Daily dashboard and alerts'). Community numbers come only from public
 // reports; hot areas and activity need 3+ different anglers, so nobody's spot is given away.
+import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,7 +32,7 @@ export function TodaySheet({ onClose, onOpenCatchMap }: { onClose: () => void; o
           <Text style={st.h1}>SoCal Fishing Today</Text>
           <PresentedBy section="Today" />
         </View>
-        <Pressable onPress={onClose} style={st.x} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close"><Text style={st.xT}>✕</Text></Pressable>
+        <Pressable onPress={onClose} style={st.x} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close"><Ionicons name="close" size={22} color={colors.text} /></Pressable>
       </View>
       {meta?.cached ? <Text style={[st.sub, { color: colors.accent }]}>Offline · saved {new Date(meta.savedAt).toLocaleString()}</Text> : null}
       {err && !d ? <Text style={st.sub}>Today's summary needs signal ({err}).</Text> : null}
@@ -112,9 +113,9 @@ const useSt = makeStyles((colors) => ({
   p: { color: colors.text, fontSize: 14.5, lineHeight: 20 },
   sub: { color: colors.muted, fontSize: 12 },
   num: { color: colors.text, fontSize: 15, fontWeight: '700', marginLeft: 'auto' },
-  x: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  x: { width: 44, height: 44, borderRadius: 22, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   xT: { color: colors.text, fontSize: 18 },
-  card: { borderWidth: 1, borderColor: colors.line, borderRadius: 14, padding: 12, gap: 6 },
+  card: { borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 12, gap: 6 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   dot: { width: 10, height: 10, borderRadius: 5 },
   warn: { color: colors.alert, backgroundColor: colors.alertBg, borderColor: colors.alert, borderWidth: 1, borderRadius: 10, padding: 8, fontWeight: '700' },

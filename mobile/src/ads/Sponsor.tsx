@@ -1,5 +1,7 @@
 // Sponsor placements. Never on the map during navigation; never full-screen while the boat is moving.
 // Every format from the Ad Studio: images, animated GIFs, muted videos, PDF flyers, HTML5 animations and "quick ads".
+import { Ionicons } from '@expo/vector-icons';
+import { SmallBtn } from '../components/ui';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Linking, Modal, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
@@ -144,7 +146,7 @@ export function SponsorIntro({ ad, onDone }: { ad: Ad; onDone: () => void }) {
         {c.kind === 'native' ? <NativeCard ad={ad} big /> : <AdMedia ad={ad} style={st.introMedia} fit="contain" />}
         <Text style={st.introName}>{ad.advertiser}</Text>
       </Pressable>
-      <Pressable onPress={onDone} hitSlop={12}><Text style={st.tag}>SPONSORED · {left}  ✕</Text></Pressable>
+      <Pressable onPress={onDone} hitSlop={12} style={st.introClose} accessibilityRole="button" accessibilityLabel="Close ad"><Text style={st.tag}>Sponsored · {left}</Text><Ionicons name="close" size={18} color={colors.text} /></Pressable>
     </View>
   );
 }
@@ -190,8 +192,8 @@ export function SavedCoupons() {
             {c.headline ? <Text style={st.introS} numberOfLines={1}>{c.headline}</Text> : null}
             {c.code ? <Text style={[st.codeT, { fontSize: 18 }]} selectable>{c.code}</Text> : null}
           </View>
-          {c.pdf_url ? <Pressable onPress={() => Linking.openURL(c.pdf_url!).catch(() => {})}><Text style={st.link}>Flyer</Text></Pressable> : null}
-          <Pressable onPress={async () => { await removeCoupon(c.id); setList(await savedCoupons()); }}><Text style={[st.link, { color: colors.alert }]}>Remove</Text></Pressable>
+          {c.pdf_url ? <SmallBtn tone="accent" icon="document-outline" label="Flyer" onPress={() => Linking.openURL(c.pdf_url!).catch(() => {})} /> : null}
+          <SmallBtn label="Remove" tone="danger" icon="trash-outline" onPress={async () => { await removeCoupon(c.id); setList(await savedCoupons()); }} />
         </View>
       ))}
     </View>
@@ -209,7 +211,7 @@ const useSt = makeStyles((colors) => ({
   pbT: { color: colors.muted, fontSize: 11 },
   pbLogo: { width: 20, height: 20 },
   pbName: { color: colors.text, fontSize: 11.5, fontWeight: '700' },
-  banner: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, overflow: 'hidden', backgroundColor: colors.panelSolid },
+  banner: { borderWidth: 1, borderColor: colors.border, borderRadius: 12, overflow: 'hidden', backgroundColor: colors.panelSolid },
   bannerMedia: { width: '100%', aspectRatio: 16 / 5, backgroundColor: colors.water },
   tag: { color: colors.muted, fontSize: 10.5, fontWeight: '700', letterSpacing: 0.4, paddingHorizontal: 10, paddingTop: 6, paddingBottom: 4 },
   cap: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 6 },
@@ -232,10 +234,11 @@ const useSt = makeStyles((colors) => ({
   sheetH: { color: colors.text, fontSize: 20, fontWeight: '800' },
   code: { borderWidth: 2, borderStyle: 'dashed', borderColor: colors.accent, borderRadius: 14, padding: 14, alignItems: 'center' },
   codeT: { color: colors.accent, fontSize: 28, fontWeight: '900', letterSpacing: 2 },
-  btn: { flex: 1, minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  introClose: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 40, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.panelSolid },
+  btn: { flex: 1, minHeight: 48, borderRadius: 12, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   btnOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   btnT: { color: colors.text, fontWeight: '700', fontSize: 15 },
-  saved: { borderWidth: 1, borderColor: colors.line, borderRadius: 14, padding: 12, gap: 8, backgroundColor: colors.panelSolid },
+  saved: { borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 12, gap: 8, backgroundColor: colors.panelSolid },
   savedRow: { flexDirection: 'row', alignItems: 'center', gap: 12, borderTopWidth: 1, borderColor: colors.line, paddingTop: 8 },
   link: { color: colors.live, fontWeight: '700' },
 }));

@@ -214,7 +214,7 @@ const useSt = makeStyles((colors) => ({
   cancel: { height: touch.min, justifyContent: 'center', paddingHorizontal: 4 },
   cancelT: { color: colors.accent, fontSize: 16, fontWeight: '700' },
   chips: { gap: 8, paddingBottom: 10 },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 34, paddingHorizontal: 13, borderRadius: 17, backgroundColor: colors.panelSolid, borderWidth: 1, borderColor: colors.line },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 40, paddingHorizontal: 13, borderRadius: 17, backgroundColor: colors.panelSolid, borderWidth: 1.5, borderColor: colors.border },
   chipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   chipT: { color: colors.text, fontSize: 14, fontWeight: '700' },
   chipTOn: { color: colors.accentInk },

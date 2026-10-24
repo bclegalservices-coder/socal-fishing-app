@@ -1,7 +1,7 @@
 // Community (spec §36–40): latest catch reports, the forum with moderation tools, and fishing groups.
+import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { ageText } from '../api';
 import { colors, touch, makeStyles } from '../theme';
 import { latestReports, type PublicReport } from '../community/catchApi';
@@ -9,7 +9,7 @@ import * as forum from '../community/forumApi';
 import { GroupsView, type GroupNav } from '../community/GroupsView';
 import { SPECIES, TIME_WINDOWS } from '../community/species';
 import { ReportCard } from '../components/ReportView';
-import { Btn, ScreenHeader, Segmented } from '../components/ui';
+import { Btn, ScreenHeader, Segmented, BackLink, SmallBtn, Chip } from '../components/ui';
 import { SponsorBanner } from '../ads/Sponsor';
 import { track } from '../analytics';
 import { supabase } from '../supabase';
@@ -49,11 +49,15 @@ function Reports({ onShowOnMap }: { onShowOnMap: (lat: number, lon: number, name
   return (
     <FlatList data={rows ?? []} keyExtractor={(r) => r.id} onRefresh={load} refreshing={false} contentContainerStyle={{ gap: 10, paddingBottom: 30 }}
       ListHeaderComponent={
-        <View style={{ gap: 8 }}>
-          <View style={st.wrap}>{TIME_WINDOWS.map((w) => <Chip key={w.h} label={w.label} on={hours === w.h} onPress={() => setHours(w.h)} />)}</View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+        <View style={{ gap: 8, paddingBottom: 4 }}>
+          <Text style={st.lbl}>Reported in the last</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            {TIME_WINDOWS.map((w) => <Chip key={w.h} label={w.label} icon="time-outline" on={hours === w.h} onPress={() => setHours(w.h)} />)}
+          </ScrollView>
+          <Text style={st.lbl}>Species</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
             <Chip label="All fish" on={!species} onPress={() => setSpecies(null)} />
-            {SPECIES.slice(0, 14).map((s) => <Chip key={s.code} label={s.code} on={species === s.code} color={s.color} onPress={() => setSpecies(species === s.code ? null : s.code)} />)}
+            {SPECIES.slice(0, 14).map((s) => <Chip key={s.code} label={s.name} on={species === s.code} dot={s.color} onPress={() => setSpecies(species === s.code ? null : s.code)} />)}
           </ScrollView>
           {err ? <Text style={st.sub}>Couldn't load ({err}).</Text> : null}
           <SponsorBanner placement="banner_reports" tags={species ? [species.toLowerCase()] : []} />
@@ -76,12 +80,14 @@ function Forum() {
   if (composing && cat) return <Compose cat={cat} onDone={() => setComposing(false)} />;
   if (cat) return <PostList cat={cat} onBack={() => setCat(null)} onOpen={setPost} onNew={() => setComposing(true)} />;
   return (
-    <FlatList data={cats ?? []} keyExtractor={(c) => String(c.id)} ListHeaderComponent={<SponsorBanner placement="banner_community" />}
+    <FlatList data={cats ?? []} keyExtractor={(c) => String(c.id)} contentContainerStyle={st.list}
+      ListHeaderComponent={<View style={{ gap: 8 }}><SponsorBanner placement="banner_community" /><Text style={st.lbl}>Topics</Text></View>}
       ListEmptyComponent={cats === null ? <ActivityIndicator color={colors.live} /> : <Text style={st.empty}>Forum unavailable offline.</Text>}
       renderItem={({ item }) => (
-        <Pressable style={st.row} onPress={() => setCat(item)}>
-          <View style={{ flex: 1 }}><Text style={st.name}>{item.name}</Text>{item.description ? <Text style={st.sub}>{item.description}</Text> : null}</View>
-          <Text style={st.link}>›</Text>
+        <Pressable style={({ pressed }) => [st.cardRow, pressed && { opacity: 0.7 }]} onPress={() => setCat(item)} accessibilityRole="button">
+          <View style={st.catIcon}><Ionicons name="chatbubbles-outline" size={20} color={colors.live} /></View>
+          <View style={{ flex: 1 }}><Text style={st.name}>{item.name}</Text>{item.description ? <Text style={st.sub} numberOfLines={2}>{item.description}</Text> : null}</View>
+          <Ionicons name="chevron-forward" size={18} color={colors.faint} />
         </Pressable>
       )} />
   );
@@ -96,20 +102,30 @@ function PostList({ cat, onBack, onOpen, onNew }: { cat: forum.Category; onBack:
   }, [cat.id]);
   useEffect(() => { load(); }, [load]);
   return (
-    <FlatList data={rows ?? []} keyExtractor={(p) => p.id} onRefresh={load} refreshing={false}
+    <FlatList data={rows ?? []} keyExtractor={(p) => p.id} onRefresh={load} refreshing={false} contentContainerStyle={st.list}
       ListHeaderComponent={
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 }}>
-          <Pressable onPress={onBack}><Text style={st.link}>‹ Categories</Text></Pressable>
-          <Pressable onPress={onNew} style={st.newBtn}><Text style={st.newT}>+ New post</Text></Pressable>
+        <View style={{ gap: 4 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <BackLink label="Topics" onPress={onBack} />
+            <Pressable onPress={onNew} style={({ pressed }) => [st.newBtn, pressed && { opacity: 0.8 }]} accessibilityRole="button">
+              <Ionicons name="create-outline" size={17} color={colors.accentInk} /><Text style={st.newT}>New post</Text>
+            </Pressable>
+          </View>
+          <Text style={st.h2}>{cat.name}</Text>
         </View>
       }
       ListEmptyComponent={rows === null ? <ActivityIndicator color={colors.live} /> : <Text style={st.empty}>No posts in {cat.name} yet.</Text>}
       renderItem={({ item }) => (
-        <Pressable style={st.row} onPress={() => onOpen(item)}>
-          <View style={{ flex: 1 }}>
-            <Text style={st.name}>{item.title}</Text>
-            <Text style={st.sub}>{names[item.author_id]?.display_name ?? 'Angler'}{names[item.author_id]?.verified_reporter ? ' ✓' : ''} · {ageText(item.last_activity_at).replace(' old', ' ago')} · 💬 {item.comment_count} · 👍 {item.like_count}</Text>
+        <Pressable style={({ pressed }) => [st.cardRow, pressed && { opacity: 0.7 }]} onPress={() => onOpen(item)} accessibilityRole="button">
+          <View style={{ flex: 1, gap: 4 }}>
+            <Text style={st.name} numberOfLines={2}>{item.title}</Text>
+            <Text style={st.sub}>{names[item.author_id]?.display_name ?? 'Angler'}{names[item.author_id]?.verified_reporter ? ' ✓' : ''} · {ageText(item.last_activity_at).replace(' old', ' ago')}</Text>
+            <View style={st.counts}>
+              <Ionicons name="chatbubble-outline" size={14} color={colors.muted} /><Text style={st.sub}>{item.comment_count}</Text>
+              <Ionicons name="thumbs-up-outline" size={14} color={colors.muted} style={{ marginLeft: 10 }} /><Text style={st.sub}>{item.like_count}</Text>
+            </View>
           </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.faint} />
         </Pressable>
       )} />
   );
@@ -126,10 +142,12 @@ function Compose({ cat, onDone }: { cat: forum.Category; onDone: () => void }) {
     catch (e: any) { Alert.alert('Not posted', friendly(e)); } finally { setBusy(false); }
   };
   return (
-    <ScrollView contentContainerStyle={{ gap: 10, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-      <Pressable onPress={onDone}><Text style={st.link}>‹ Cancel</Text></Pressable>
+    <ScrollView contentContainerStyle={[st.list, { gap: 10 }]} keyboardShouldPersistTaps="handled">
+      <BackLink label="Cancel" onPress={onDone} />
       <Text style={st.h2}>New post in {cat.name}</Text>
-      <TextInput style={st.input} value={title} onChangeText={setTitle} placeholder="Title" placeholderTextColor={colors.muted} maxLength={140} />
+      <Text style={st.lbl}>Title</Text>
+      <TextInput style={st.input} value={title} onChangeText={setTitle} placeholder="Bluefin on the 43 this morning" placeholderTextColor={colors.faint} maxLength={140} />
+      <Text style={st.lbl}>Post</Text>
       <TextInput style={[st.input, { minHeight: 160, textAlignVertical: 'top', paddingTop: 10 }]} value={body} onChangeText={setBody} multiline placeholder="What's going on?" placeholderTextColor={colors.muted} />
       <Text style={st.sub}>Keep it about fishing and be decent. Don't post other people's private numbers. Posts can be reported and removed under the Community Guidelines.</Text>
       <Btn label={busy ? 'Posting…' : 'Post'} kind="primary" onPress={post} disabled={busy || title.trim().length < 3} />
@@ -167,21 +185,21 @@ function Thread({ post, onBack }: { post: forum.Post; onBack: () => void }) {
     try { await forum.addComment(post.id, text.trim()); track('forum_comment'); setText(''); load(); } catch (e: any) { Alert.alert('Not sent', friendly(e)); }
   };
   return (
-    <FlatList data={cs ?? []} keyExtractor={(c) => c.id} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 30 }}
+    <FlatList data={cs ?? []} keyExtractor={(c) => c.id} keyboardShouldPersistTaps="handled" contentContainerStyle={st.list}
       ListHeaderComponent={
-        <View style={{ gap: 8, paddingBottom: 10 }}>
-          <Pressable onPress={onBack}><Text style={st.link}>‹ Back</Text></Pressable>
+        <View style={[st.card, { marginBottom: 6 }]}>
+          <BackLink label="Posts" onPress={onBack} />
           <Text style={st.h2}>{post.title}</Text>
           <Text style={st.sub}>{names[post.author_id]?.display_name ?? 'Angler'}{names[post.author_id]?.verified_reporter ? ' ✓' : ''} · {new Date(post.created_at).toLocaleString()}{post.edited_at ? ' · edited' : ''}</Text>
           <Text style={st.body}>{post.body}</Text>
-          <View style={{ flexDirection: 'row', gap: 18 }}>
-            <Pressable onPress={async () => { try { await forum.toggleLike(post.id, liked); if (!liked) track('forum_like'); setLiked(!liked); setLikes(likes + (liked ? -1 : 1)); } catch (e: any) { Alert.alert(friendly(e)); } }}>
-              <Text style={st.link}>{liked ? '👍 Liked' : '👍 Like'} ({likes})</Text>
-            </Pressable>
-            <Pressable onPress={() => moreMenu('post', post.id, post.author_id)}><Text style={[st.link, { color: colors.muted }]}>•••</Text></Pressable>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <SmallBtn tone={liked ? 'accent' : 'plain'} icon={liked ? 'thumbs-up' : 'thumbs-up-outline'} label={`${liked ? 'Liked' : 'Like'} (${likes})`}
+              onPress={async () => { try { await forum.toggleLike(post.id, liked); if (!liked) track('forum_like'); setLiked(!liked); setLikes(likes + (liked ? -1 : 1)); } catch (e: any) { Alert.alert(friendly(e)); } }} />
+            <SmallBtn icon="ellipsis-horizontal" label="More" onPress={() => moreMenu('post', post.id, post.author_id)} />
           </View>
         </View>
       }
+      ListEmptyComponent={cs === null ? <ActivityIndicator color={colors.live} /> : <Text style={st.empty}>No comments yet.</Text>}
       renderItem={({ item }) => (
         <Pressable style={st.comment} onLongPress={() => moreMenu('comment', item.id, item.author_id)}>
           <Text style={st.sub}>{names[item.author_id]?.display_name ?? 'Angler'} · {ageText(item.created_at).replace(' old', ' ago')}{item.edited_at ? ' · edited' : ''}</Text>
@@ -191,42 +209,42 @@ function Thread({ post, onBack }: { post: forum.Post; onBack: () => void }) {
       ListFooterComponent={
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
           <TextInput style={[st.input, { flex: 1 }]} value={text} onChangeText={setText} placeholder="Add a comment" placeholderTextColor={colors.muted} multiline />
-          <Pressable onPress={send} disabled={!text.trim()} style={[st.newBtn, !text.trim() && { opacity: 0.4 }]}><Text style={st.newT}>Send</Text></Pressable>
+          <Pressable onPress={send} disabled={!text.trim()} style={[st.sendBtn, !text.trim() && { opacity: 0.4 }]} accessibilityRole="button" accessibilityLabel="Send comment">
+            <Ionicons name="send" size={18} color={colors.accentInk} />
+          </Pressable>
         </View>
       } />
   );
 }
 
-function Chip({ label, on, onPress, color }: { label: string; on: boolean; onPress: () => void; color?: string }) {
-  const st = useSt();
-  return (
-    <Pressable onPress={onPress} style={[st.chip, on && { backgroundColor: color ?? colors.accent, borderColor: color ?? colors.accent }]}>
-      <Text style={[st.chipT, on && { color: colors.accentInk }]}>{label}</Text>
-    </Pressable>
-  );
-}
 
 const useSt = makeStyles((colors) => ({
-  root: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 14 },
+  root: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 16 },
+  list: { gap: 8, paddingBottom: 40 },
+  lbl: { color: colors.muted, fontSize: 12.5, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 4 },
+  cardRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panelSolid, minHeight: touch.min },
+  catIcon: { width: 38, height: 38, borderRadius: 10, backgroundColor: colors.inset, alignItems: 'center', justifyContent: 'center' },
+  counts: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  sendBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-end' },
   h1: { color: colors.text, fontSize: 28, fontWeight: '700', marginVertical: 6 },
   h2: { color: colors.text, fontSize: 18, fontWeight: '700' },
   seg: { flexDirection: 'row', gap: 8, marginBottom: 10 },
-  segB: { flex: 1, height: 40, borderRadius: 10, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  segB: { flex: 1, height: 40, borderRadius: 10, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   segOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  segT: { color: colors.text, fontWeight: '600', fontSize: 13 },
+  segT: { color: colors.text, fontWeight: '700', fontSize: 14 },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: { height: 34, paddingHorizontal: 10, borderRadius: 17, borderWidth: 1, borderColor: colors.line, justifyContent: 'center' },
-  chipT: { color: colors.text, fontSize: 12.5, fontWeight: '600' },
+  chip: { minHeight: 40, paddingHorizontal: 10, borderRadius: 17, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, justifyContent: 'center' },
+  chipT: { color: colors.text, fontSize: 14, fontWeight: '700' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderColor: colors.line, minHeight: touch.min },
   name: { color: colors.text, fontSize: 16, fontWeight: '600' },
   sub: { color: colors.muted, fontSize: 12.5, lineHeight: 18 },
   body: { color: colors.text, fontSize: 15, lineHeight: 21 },
   link: { color: colors.live, fontSize: 15 },
   empty: { color: colors.muted, fontSize: 14, textAlign: 'center', paddingVertical: 30, lineHeight: 20 },
-  input: { minHeight: 44, borderRadius: 12, borderWidth: 1, borderColor: colors.line, color: colors.text, paddingHorizontal: 12, fontSize: 16 },
-  newBtn: { height: 40, paddingHorizontal: 14, borderRadius: 10, backgroundColor: colors.accent, justifyContent: 'center' },
-  newT: { color: colors.accentInk, fontWeight: '700' },
-  comment: { paddingVertical: 10, borderBottomWidth: 1, borderColor: colors.line, gap: 4 },
-  card: { borderWidth: 1, borderColor: colors.line, borderRadius: 14, padding: 12, gap: 8, backgroundColor: colors.panelSolid },
+  input: { minHeight: 44, borderRadius: 12, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.inset, color: colors.text, paddingHorizontal: 12, fontSize: 16 },
+  newBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40, paddingHorizontal: 16, borderRadius: 20, backgroundColor: colors.accent },
+  newT: { color: colors.accentInk, fontWeight: '800', fontSize: 15 },
+  comment: { padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panelSolid, gap: 4 },
+  card: { borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 12, gap: 8, backgroundColor: colors.panelSolid },
   hide: { flexDirection: 'row', alignItems: 'center', gap: 6 },
 }));

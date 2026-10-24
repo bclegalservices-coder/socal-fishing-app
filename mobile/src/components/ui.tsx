@@ -137,6 +137,43 @@ export function ScreenHeader({ title, subtitle, onBack, backLabel = 'Back', righ
   );
 }
 
+/** "‹ Back" control at the top of a sub-page: a real button, not loose text. */
+export function BackLink({ label, onPress }: { label: string; onPress: () => void }) {
+  const s = useS();
+  return (
+    <Pressable onPress={onPress} hitSlop={8} accessibilityRole="button" accessibilityLabel={label}
+      style={({ pressed }) => [s.backBtn, pressed && { opacity: 0.6 }]}>
+      <Ionicons name="chevron-back" size={20} color={colors.live} /><Text style={s.backT}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/** Small outlined button for actions inside a card or row (Delete, Remove, Show on map). */
+export function SmallBtn({ label, onPress, icon, tone = 'plain', disabled }: { label: string; onPress: () => void; icon?: IconName; tone?: 'plain' | 'accent' | 'danger'; disabled?: boolean }) {
+  const s = useS();
+  const fg = tone === 'danger' ? colors.alert : tone === 'accent' ? colors.live : colors.text;
+  return (
+    <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={label} hitSlop={4}
+      style={({ pressed }) => [s.small, tone === 'danger' && { borderColor: colors.alert }, { opacity: disabled ? 0.4 : pressed ? 0.6 : 1 }]}>
+      {icon ? <Ionicons name={icon as any} size={16} color={fg} /> : null}
+      <Text style={[s.smallT, { color: fg }]} numberOfLines={1}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/** Pill-shaped choice (filters, tags). Filled in the brand color when selected. */
+export function Chip({ label, on, onPress, icon, dot }: { label: string; on?: boolean; onPress: () => void; icon?: IconName; dot?: string }) {
+  const s = useS();
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: !!on }} accessibilityLabel={label}
+      style={({ pressed }) => [s.chip, on && s.chipOn, pressed && { opacity: 0.7 }]}>
+      {dot ? <View style={[s.chipDot, { backgroundColor: dot }]} /> : null}
+      {icon ? <Ionicons name={icon as any} size={16} color={on ? colors.accentInk : colors.text} /> : null}
+      <Text style={[s.chipT, on && { color: colors.accentInk }]} numberOfLines={1}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const useS = makeStyles((colors) => ({
   sheet: { backgroundColor: colors.panelSolid, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 14,
     shadowColor: colors.shadow, shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: -2 }, elevation: 8 },
@@ -172,4 +209,11 @@ const useS = makeStyles((colors) => ({
   headerRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, paddingTop: 6 },
   headerT: { color: colors.text, fontSize: 30, fontWeight: '800', letterSpacing: -0.3 },
   headerS: { color: colors.muted, fontSize: 13.5 },
+  backBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 2, minHeight: 40, paddingRight: 10, marginLeft: -4 },
+  small: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 6, minHeight: 38, paddingHorizontal: 14, borderRadius: 19, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.panelSolid },
+  smallT: { fontSize: 14.5, fontWeight: '700' },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.panelSolid },
+  chipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  chipDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 1, borderColor: 'rgba(255,255,255,0.8)' },
+  chipT: { color: colors.text, fontSize: 14, fontWeight: '700' },
 }));

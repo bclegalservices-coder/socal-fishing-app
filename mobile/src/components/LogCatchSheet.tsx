@@ -9,7 +9,8 @@ import { formatLatLon } from '../geo';
 import { BAITS, SPECIES, TECHNIQUES } from '../community/species';
 import { newClientId, queueCatch, type LocationMode } from '../community/catchApi';
 import { cachedGroups } from '../community/groupsApi';
-import { Btn } from './ui';
+import { Ionicons } from '@expo/vector-icons';
+import { Btn, Chip as UiChip } from './ui';
 import { track } from '../analytics';
 import { friendly } from '../friendly';
 
@@ -78,20 +79,17 @@ export function LogCatchSheet({ lat, lon, nearestSpot, depthFt, onDone, onCancel
     } finally { setBusy(false); }
   };
 
-  const Chip = ({ label, on, onPress, color }: { label: string; on: boolean; onPress: () => void; color?: string }) => { const st = useSt(); return ((
-    <Pressable onPress={onPress} style={[st.chip, on && { backgroundColor: color ?? colors.accent, borderColor: color ?? colors.accent }]}>
-      <Text style={[st.chipT, on && { color: colors.accentInk }]}>{label}</Text>
-    </Pressable>
-  )); };
+  const Chip = ({ label, on, onPress, color }: { label: string; on: boolean; onPress: () => void; color?: string }) => <UiChip label={label} on={on} onPress={onPress} dot={color} />;
 
   return (
     <View style={[st.sheet, { top: insets.top + 56 }]}>
       <View style={st.head}>
         <Text style={st.h1}>Log catch</Text>
-        <Pressable onPress={onCancel} style={st.x} accessibilityLabel="Cancel"><Text style={st.xT}>✕</Text></Pressable>
+        <Pressable onPress={onCancel} style={st.x} accessibilityRole="button" accessibilityLabel="Cancel"><Ionicons name="close" size={22} color={colors.text} /></Pressable>
       </View>
-      <Text style={st.sub}>{formatLatLon(lat, lon)} · now · water temp, chlorophyll, tide, wind, depth and moon are added automatically</Text>
+      <View style={st.where}><Ionicons name="location" size={16} color={colors.live} /><Text style={[st.sub, { flex: 1 }]}>{formatLatLon(lat, lon)} · now. Water temp, tide, wind, depth and moon are added for you.</Text></View>
       <ScrollView contentContainerStyle={{ gap: 14, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+        <Text style={st.groupH}>The fish</Text>
         <View><Text style={st.label}>Species</Text>
           <View style={st.wrap}>{SPECIES.map((s) => <Chip key={s.code} label={s.name} on={species === s.code} onPress={() => setSpecies(s.code)} color={s.color} />)}</View></View>
 
@@ -107,6 +105,7 @@ export function LogCatchSheet({ lat, lon, nearestSpot, depthFt, onDone, onCancel
         </View>
         <View style={st.wrap}><Chip label="Kept" on={kept === true} onPress={() => setKept(kept === true ? null : true)} /><Chip label="Released" on={kept === false} onPress={() => setKept(kept === false ? null : false)} /></View>
 
+        <Text style={st.groupH}>How you caught it</Text>
         <View><Text style={st.label}>Technique</Text><View style={st.wrap}>{TECHNIQUES.map((t) => <Chip key={t} label={t} on={technique === t} onPress={() => setTechnique(technique === t ? null : t)} />)}</View></View>
         <View><Text style={st.label}>Bait / lure</Text><View style={st.wrap}>{BAITS.map((b) => <Chip key={b} label={b} on={bait === b} onPress={() => setBait(bait === b ? null : b)} />)}</View>
           {bait === 'Other' || bait === 'Jig' || bait === 'Artificial lure' ? <TextInput style={[st.input, { marginTop: 6 }]} value={baitOther} onChangeText={setBaitOther} placeholder="Which one? (optional)" placeholderTextColor={colors.muted} /> : null}</View>
@@ -116,18 +115,21 @@ export function LogCatchSheet({ lat, lon, nearestSpot, depthFt, onDone, onCancel
           <View style={{ flex: 1 }}><Text style={st.label}>Water depth (ft)</Text><TextInput style={st.input} value={waterDepth} onChangeText={setWaterDepth} keyboardType="number-pad" placeholderTextColor={colors.muted} placeholder="opt." /></View>
         </View>
         <View><Text style={st.label}>Meter marks</Text><TextInput style={st.input} value={marks} onChangeText={setMarks} placeholder="e.g. marks at 40–60 ft" placeholderTextColor={colors.muted} /></View>
+        <Text style={st.groupH}>Notes and photos</Text>
         <View><Text style={st.label}>Notes</Text><TextInput style={[st.input, { height: 70 }]} multiline value={notes} onChangeText={setNotes} placeholderTextColor={colors.muted} placeholder="optional" /></View>
 
-        <View><Text style={st.label}>Photos (GPS and camera data are removed before upload)</Text>
+        <View><Text style={st.label}>Photos</Text>
           <View style={st.wrap}>
             {photos.map((p, i) => (
               <Pressable key={i} onLongPress={() => setPhotos(photos.filter((_, j) => j !== i))}><Image source={{ uri: p.uri }} style={st.thumb} /></Pressable>
             ))}
-            {photos.length < 4 ? <><Chip label="📷 Camera" on={false} onPress={() => addPhoto(true)} /><Chip label="🖼 Library" on={false} onPress={() => addPhoto(false)} /></> : null}
+            {photos.length < 4 ? <><UiChip label="Camera" icon="camera-outline" onPress={() => addPhoto(true)} /><UiChip label="Library" icon="images-outline" onPress={() => addPhoto(false)} /></> : null}
           </View>
+          <Text style={st.sub}>GPS and camera data are removed from photos before upload.</Text>
           {photos.length ? <Text style={st.sub}>Long-press a photo to remove it. Camera photos taken now help your report get verified.</Text> : null}
         </View>
 
+        <Text style={st.groupH}>Privacy</Text>
         <View style={st.privacy}>
           <Text style={[st.label, { color: colors.text }]}>Who sees where this was?</Text>
           {MODES.map((m) => (
@@ -154,7 +156,7 @@ export function LogCatchSheet({ lat, lon, nearestSpot, depthFt, onDone, onCancel
                 return (
                   <Pressable key={g.id} onPress={() => setToGroups(on ? toGroups.filter((x) => x !== g.id) : [...toGroups, g.id])}
                     style={[st.mode, { flex: 0, paddingVertical: 8 }, on && st.modeOn]} accessibilityRole="checkbox" accessibilityState={{ checked: on }}>
-                    <Text style={st.modeT}>{on ? '✓ ' : ''}{g.name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Ionicons name={on ? 'checkbox' : 'square-outline'} size={18} color={on ? colors.accent : colors.muted} /><Text style={st.modeT}>{g.name}</Text></View>
                   </Pressable>
                 );
               })}
@@ -171,23 +173,25 @@ export function LogCatchSheet({ lat, lon, nearestSpot, depthFt, onDone, onCancel
 const useSt = makeStyles((colors) => ({
   sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, top: 60, backgroundColor: colors.panelSolid, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderColor: colors.line, paddingHorizontal: 16, paddingTop: 10, zIndex: 30 },
   head: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  where: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 10, marginTop: 4, marginBottom: 6, borderRadius: 10, backgroundColor: colors.inset },
+  groupH: { color: colors.text, fontSize: 17, fontWeight: '800', paddingTop: 12, marginBottom: -4, borderTopWidth: 1, borderColor: colors.line },
   h1: { color: colors.text, fontSize: 26, fontWeight: '700' },
-  x: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  x: { width: 44, height: 44, borderRadius: 22, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   xT: { color: colors.text, fontSize: 18 },
   sub: { color: colors.muted, fontSize: 12, lineHeight: 17 },
   label: { color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 6 },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: { minHeight: 40, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1, borderColor: colors.line, justifyContent: 'center' },
-  chipT: { color: colors.text, fontSize: 14 },
+  chip: { minHeight: 40, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, justifyContent: 'center' },
+  chipT: { color: colors.text, fontSize: 14, fontWeight: '700' },
   row: { flexDirection: 'row', gap: 10 },
-  input: { minHeight: 44, borderRadius: 12, borderWidth: 1, borderColor: colors.line, color: colors.text, paddingHorizontal: 12, fontSize: 16 },
-  stepper: { flexDirection: 'row', alignItems: 'center', height: 44, borderRadius: 12, borderWidth: 1, borderColor: colors.line },
+  input: { minHeight: 44, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.inset, color: colors.text, paddingHorizontal: 12, fontSize: 16 },
+  stepper: { flexDirection: 'row', alignItems: 'center', height: 44, borderRadius: 12, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border },
   step: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
   stepT: { color: colors.text, fontSize: 22 },
   qty: { flex: 1, textAlign: 'center', color: colors.text, fontSize: 18, fontWeight: '700' },
   thumb: { width: 72, height: 72, borderRadius: 10 },
   privacy: { gap: 8, borderWidth: 1, borderColor: colors.live, borderRadius: 14, padding: 12 },
-  mode: { flexDirection: 'row', gap: 10, alignItems: 'center', minHeight: touch.min, borderRadius: 12, borderWidth: 1, borderColor: colors.line, padding: 10 },
+  mode: { flexDirection: 'row', gap: 10, alignItems: 'center', minHeight: touch.min, borderRadius: 12, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, padding: 10 },
   modeOn: { borderColor: colors.accent, backgroundColor: colors.warnBg },
   modeT: { color: colors.text, fontSize: 15, fontWeight: '600' },
   dot: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.muted },

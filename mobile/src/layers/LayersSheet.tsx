@@ -15,6 +15,7 @@ import { colors, makeStyles, useTheme } from '../theme';
 import { CHART_SETTINGS_AVAILABLE } from '../config';
 import type { Catalog } from '../types';
 import { external, grid, harborsOf, hdBottom, wind } from './catalog';
+import { SPOT_COLORS } from './spotColors';
 import { CHART_LOOKS, DEFAULT_LAYERS, PRESETS, type ChartLook, type LayerKey, type LayerState, type MapOverlay } from './state';
 import { track } from '../analytics';
 import { PresentedBy } from '../ads/Sponsor';
@@ -50,10 +51,10 @@ const C = { blue: '#0A84FF', teal: '#30B0C7', green: '#34C759', mint: '#00C7BE',
 /** Short names for the "On now" chips. */
 const LABELS: Record<LayerKey, string> = {
   sst: 'Water temp', breaks: 'Temp breaks', chl: 'Chlorophyll', chlEdges: 'Color edges', radar: 'Radar', wind: 'Wind', buoys: 'Buoys',
-  spots: 'Fishing spots', catches: 'Catch reports', buddies: 'My groups', marinas: 'Marinas', docks: 'Docks', fuel: 'Fuel', bait: 'Bait',
+  spots: 'Known spots', mySpots: 'My spots', catches: 'Catch reports', buddies: 'My groups', marinas: 'Marinas', docks: 'Docks', fuel: 'Fuel', bait: 'Bait',
   pumpout: 'Pump-outs', ramps: 'Ramps', bathy: 'Relief', bathyHd: 'HD bottom', contours: 'Contours', rules: 'MPAs', hazards: 'Hazards',
 };
-const CHIP_ORDER: LayerKey[] = ['sst', 'breaks', 'chl', 'chlEdges', 'bathyHd', 'bathy', 'contours', 'radar', 'wind', 'buoys', 'spots', 'catches', 'buddies',
+const CHIP_ORDER: LayerKey[] = ['sst', 'breaks', 'chl', 'chlEdges', 'bathyHd', 'bathy', 'contours', 'radar', 'wind', 'buoys', 'mySpots', 'spots', 'catches', 'buddies',
   'marinas', 'docks', 'fuel', 'bait', 'pumpout', 'ramps', 'rules', 'hazards'];
 
 // ---------------------------------------------------------------- building blocks (top level = stable)
@@ -317,7 +318,8 @@ function LayersSheetInner({ catalog, cached, s, set, radarPlaying, setRadarPlayi
         </Section>
 
         <Section title="Fishing">
-          {Row({ k: "spots", icon: "map-marker-star", tint: C.orange, title: "Known fishing spots", sub: "430 banks, high spots, reefs and kelp" })}
+          {Row({ k: "mySpots", icon: "star", tint: SPOT_COLORS.mine, title: "My spots", sub: "Your saved spots · orange stars, only you see them" })}
+          {Row({ k: "spots", icon: "map-marker", tint: SPOT_COLORS.known, title: "Known fishing spots", sub: "430 banks, high spots, reefs and kelp · blue dots" })}
           {Row({ k: "catches", icon: "fish", tint: C.blue, title: "Catch reports", sub: "What the community is catching" })}
           {Row({ k: "buddies", icon: "account-group", tint: C.purple, title: "My groups", sub: "Buddy boats, pings and shared spots", last: true })}
         </Section>
@@ -371,7 +373,7 @@ const useSt = makeStyles((colors) => ({
 
   chips: { gap: 8, paddingBottom: 12, alignItems: 'center' },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 32, paddingLeft: 13, paddingRight: 10, borderRadius: 16, backgroundColor: colors.accent },
-  chipT: { color: colors.accentInk, fontSize: 13.5, fontWeight: '800' },
+  chipT: { color: colors.accentInk, fontSize: 14, fontWeight: '800' },
   chipNone: { color: colors.muted, fontSize: 13.5, fontWeight: '600', paddingVertical: 7 },
 
   styles: { flexDirection: 'row', gap: 12, marginBottom: 12 },
@@ -384,7 +386,7 @@ const useSt = makeStyles((colors) => ({
 
   section: { marginBottom: 20 },
   caption: { color: colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.2, marginBottom: 8, marginLeft: 2 },
-  card: { backgroundColor: colors.panelSolid, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: colors.line },
+  card: { backgroundColor: colors.panelSolid, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: colors.border },
   foot: { color: colors.muted, fontSize: 12.5, marginTop: 6, marginHorizontal: 6, lineHeight: 17 },
 
   row: { flexDirection: 'row', alignItems: 'center', paddingLeft: 14, minHeight: 60 },
@@ -407,7 +409,7 @@ const useSt = makeStyles((colors) => ({
   seg: { flex: 1, flexDirection: 'row', backgroundColor: colors.inset, borderRadius: 10, padding: 2 },
   segI: { flex: 1, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   segOn: { backgroundColor: colors.accent },
-  segT: { color: colors.muted, fontSize: 12.5, fontWeight: '700' },
+  segT: { color: colors.muted, fontSize: 14, fontWeight: '700' },
   segTOn: { color: colors.accentInk, fontWeight: '800' },
 
   play: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 60, paddingVertical: 11, borderBottomWidth: 0.5, borderColor: colors.line },
@@ -421,7 +423,7 @@ const useSt = makeStyles((colors) => ({
   hourTOn: { color: colors.accentInk },
 
   presets: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
-  preset: { width: '48%', flexGrow: 1, padding: 12, borderRadius: 16, backgroundColor: colors.panelSolid, borderWidth: 2, borderColor: colors.line, gap: 4 },
+  preset: { width: '48%', flexGrow: 1, padding: 12, borderRadius: 16, backgroundColor: colors.panelSolid, borderWidth: 2, borderColor: colors.border, gap: 4 },
   presetOn: { borderColor: colors.accent, backgroundColor: `${colors.accent}12` },
   look: { width: '31%', flexGrow: 0, flexShrink: 1, padding: 10 },
   presetTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },

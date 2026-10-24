@@ -34,6 +34,7 @@ import { MapLayers } from '../layers/MapLayers';
 import { LayersSheet } from '../layers/LayersSheet';
 import { TimeBar } from '../layers/TimeBar';
 import { DEFAULT_LAYERS, applyKillSwitch, type LayerState } from '../layers/state';
+import { spotColors } from '../layers/spotColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CatchMarkers, type Cluster } from '../components/CatchMap';
 import { CatchBar } from '../components/CatchBar';
@@ -679,6 +680,14 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     return declutter(out, view.zoom, 40);
   }, [publicSpots, view, layers.on.spots]);
   const mySpotsFC = useMemo(() => fc(mySpots.map((s) => pointF(s, { id: s.id, name: s.name, subtitle: 'Private — only you' }))), [mySpots]);
+  const showMine = layers.on.mySpots !== false;
+  const spotC = spotColors(theme.mode === 'night');
+  // Your own spot names show when zoomed in close, so a busy area doesn't fill with text.
+  const myLabels = useMemo(() => {
+    if (!view || view.zoom < 11.5 || !showMine) return [];
+    const inView = (mySpotsFC.features as any[]).filter((f) => { const [lon, lat] = f.geometry.coordinates; return lon >= view.minLon && lon <= view.maxLon && lat >= view.minLat && lat <= view.maxLat; });
+    return declutter(inView, view.zoom, 30);
+  }, [mySpotsFC, view, showMine]);
   const pinFC = useMemo(() => fc(sel?.kind === 'pin' ? [pointF(sel.pt)] : []), [sel]);
   const draftFC = useMemo(() => fc(draft && draft.length ? [...(draft.length > 1 ? [lineF(draft)] : []), ...draft.map((p) => pointF(p))] : []), [draft]);
   const navColor = routeColor(theme.palette, theme.mode);   // bright magenta like a plotter by day; the theme's own color at night
@@ -787,7 +796,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
             ) : null}
             {/* Sponsor slot: only when wind is on and you're NOT navigating or recording. */}
             {!openBar && layers.on.wind && !nav && !active && !probe ? <PresentedBy section="Wind" pill /> : null}
-            {shownLine ? <Pressable style={st.chip} onPress={() => setShownLine(null)} accessibilityRole="button"><Text style={st.chipT}>Hide line ✕</Text></Pressable> : null}
+            {shownLine ? <Pressable style={st.chip} onPress={() => setShownLine(null)} accessibilityRole="button"><View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><Text style={st.chipT}>Hide line</Text><Ionicons name="close" size={16} color={colors.text} /></View></Pressable> : null}
             {active ? <Pressable style={[st.chip, { borderColor: colors.alert }]} onPress={() => setPanel('tracks')} accessibilityRole="button"><Text style={[st.chipT, { color: colors.alert }]}>● Recording trip</Text></Pressable> : null}
             <Text style={st.disclaimer}>{SHORT_WARNING}</Text>
           </View>
@@ -882,16 +891,22 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         }} /></SafeLayer> : null}
         <SafeLayer name="featured"><FeaturedPins fc={harborFc} s={layers} view={view} hidden={!!nav} /></SafeLayer>
         {layers.on.spots ? <GeoJSONSource id="public-spots" data={publicSpots} onPress={(e: any) => onSpotPress(e, 'spot')} hitbox={{ top: 15, right: 15, bottom: 15, left: 15 }}>
-          <Layer type="circle" id="public-spots-dots" style={{ circleRadius: 5, circleColor: colors.accent, circleStrokeColor: colors.bg, circleStrokeWidth: 1.5 }} />
+          <Layer type="circle" id="public-spots-dots" style={{ circleRadius: 5, circleColor: spotC.known, circleStrokeColor: spotC.ring, circleStrokeWidth: 1.5 }} />
         </GeoJSONSource> : null}
         {spotLabels.map((f: any) => (
           <Marker key={`lbl-${f.properties.id}`} lngLat={f.geometry.coordinates} anchor="left" offset={[9, 0]}>
             <View pointerEvents="none" style={st.spotLbl}><Text style={st.spotLblT} numberOfLines={1}>{f.properties.name}</Text></View>
           </Marker>
         ))}
-        <GeoJSONSource id="my-spots" data={mySpotsFC} onPress={(e: any) => onSpotPress(e, 'saved')} hitbox={{ top: 15, right: 15, bottom: 15, left: 15 }}>
-          <Layer type="circle" id="my-spots-dots" style={{ circleRadius: 7, circleColor: colors.live, circleStrokeColor: colors.bg, circleStrokeWidth: 2 }} />
-        </GeoJSONSource>
+        {myLabels.map((f: any) => (
+          <Marker key={`mlbl-${f.properties.id}`} lngLat={f.geometry.coordinates} anchor="left" offset={[11, 0]}>
+            <View pointerEvents="none" style={[st.spotLbl, { borderColor: spotC.mine, borderWidth: 1 }]}><Text style={st.spotLblT} numberOfLines={1}>{f.properties.name}</Text></View>
+          </Marker>
+        ))}
+        {showMine ? <GeoJSONSource id="my-spots" data={mySpotsFC} onPress={(e: any) => onSpotPress(e, 'saved')} hitbox={{ top: 15, right: 15, bottom: 15, left: 15 }}>
+          <Layer type="circle" id="my-spots-halo" style={{ circleRadius: 10, circleColor: spotC.mine, circleOpacity: 0.25 }} />
+          <Layer type="circle" id="my-spots-dots" style={{ circleRadius: 6.5, circleColor: spotC.mine, circleStrokeColor: spotC.ring, circleStrokeWidth: 2 }} />
+        </GeoJSONSource> : null}
         <GeoJSONSource id="pin" data={pinFC}>
           <Layer type="circle" id="pin-ring" style={{ circleRadius: 11, circleColor: 'rgba(0,0,0,0)', circleStrokeColor: colors.text, circleStrokeWidth: 2 }} />
         </GeoJSONSource>
@@ -1054,12 +1069,12 @@ const useSt = makeStyles((colors) => ({
   controls: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingBottom: 4 },
   disclaimer: { color: colors.muted, fontSize: 11, backgroundColor: colors.panel, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, overflow: 'hidden' },
   pill: { ...cardStyle(colors), flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.panelSolid, borderColor: colors.border, borderWidth: 1, borderRadius: 20, paddingHorizontal: 12, minHeight: 36 },
-  pillT: { color: colors.text, fontSize: 13.5, fontWeight: '600' },
+  pillT: { color: colors.text, fontSize: 14, fontWeight: '700' },
   barDone: { alignSelf: 'flex-end', marginTop: 6, backgroundColor: colors.panelSolid, borderColor: colors.border, borderWidth: 1, borderRadius: 18, paddingHorizontal: 16, minHeight: 36, justifyContent: 'center' },
   barDoneT: { color: colors.accent, fontSize: 14, fontWeight: '700' },
   chip: { backgroundColor: colors.panel, borderColor: colors.border, borderWidth: 1, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },
-  chipT: { color: colors.text, fontSize: 14, fontWeight: '600' },
-  fab: { width: 76, minHeight: touch.min - 4, borderRadius: 14, backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  chipT: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  fab: { width: 76, minHeight: touch.min - 4, borderRadius: 14, backgroundColor: colors.panel, borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   fabOn: { backgroundColor: colors.live, borderColor: colors.live },
   logFab: { backgroundColor: colors.accent, borderColor: colors.accent },
   offline: { color: colors.accentInk, backgroundColor: colors.accent, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5, fontSize: 12.5, fontWeight: '700', alignSelf: 'flex-start', overflow: 'hidden' },

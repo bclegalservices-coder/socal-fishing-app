@@ -22,7 +22,8 @@ export function CatchBar({ hours, setHours, species, setSpecies, status }: { hou
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
         <Pressable onPress={() => setSpecies(null)} style={[st.chip, !species && st.on]}><Text style={[st.t, !species && { color: colors.accentInk }]}>All fish</Text></Pressable>
         {SPECIES.slice(0, 12).map((s) => (
-          <Pressable key={s.code} onPress={() => setSpecies(species === s.code ? null : s.code)} style={[st.chip, species === s.code && { backgroundColor: s.color, borderColor: s.color }]}>
+          <Pressable key={s.code} onPress={() => setSpecies(species === s.code ? null : s.code)} style={[st.chip, { flexDirection: 'row', gap: 5 }, species === s.code && st.on]}>
+            <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: s.color, borderWidth: 1, borderColor: '#FFFFFF' }} />
             <Text style={[st.t, species === s.code && { color: colors.accentInk }]}>{s.code}</Text>
           </Pressable>
         ))}
@@ -32,10 +33,10 @@ export function CatchBar({ hours, setHours, species, setSpecies, status }: { hou
 }
 
 const useSt = makeStyles((colors) => ({
-  wrap: { backgroundColor: colors.panel, borderColor: colors.line, borderWidth: 1, borderRadius: 14, padding: 10, gap: 8 },
+  wrap: { backgroundColor: colors.panel, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 10, gap: 8 },
   status: { color: colors.text, fontSize: 13, fontWeight: '600' },
   row: { flexDirection: 'row', gap: 6 },
-  chip: { minWidth: 44, height: 34, paddingHorizontal: 8, borderRadius: 10, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center', flexGrow: 1 },
+  chip: { minWidth: 44, minHeight: 40, paddingHorizontal: 8, borderRadius: 10, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', flexGrow: 1 },
   on: { backgroundColor: colors.accent, borderColor: colors.accent },
-  t: { color: colors.text, fontSize: 12.5, fontWeight: '700' },
+  t: { color: colors.text, fontSize: 14, fontWeight: '700' },
 }));

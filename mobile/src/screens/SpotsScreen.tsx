@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, touch, makeStyles } from '../theme';
+import { SPOT_COLORS } from '../layers/spotColors';
 import { loadPublicSpots, loadRoutes, loadSpots, loadTracks, newId, saveRoutes, saveSpots, saveTrackPoints, saveTracks, type SavedSpot } from '../storage';
 import { exportAllGPX, exportSpotsGPX, pickAndParse } from '../io/transfer';
 import * as Location from 'expo-location';
@@ -10,7 +11,7 @@ import { distanceNm } from '../geo';
 import { fmtDist, useUnits } from '../units';
 import { findDuplicates, mergeRepeats, type Imported } from '../io/gpx';
 import { trackStats } from '../nav';
-import { ScreenHeader, Btn } from '../components/ui';
+import { ScreenHeader, Btn, Segmented } from '../components/ui';
 import { track } from '../analytics';
 import type { PickRequest } from './MapScreen';
 import { friendly } from '../friendly';
@@ -102,21 +103,26 @@ export function SpotsScreen({ mySpots, onPick, onImported }: { mySpots: SavedSpo
         </View>
       )}
       {!selecting ? (
-        <View style={st.seg}>
-          {(['mine', 'known'] as const).map((k) => (
-            <Pressable key={k} onPress={() => setTab(k)} style={[st.segB, tab === k && st.segOn]}>
-              <Text style={[st.segT, tab === k && { color: colors.accentInk }]}>{k === 'mine' ? `My spots (${mySpots.length})` : 'Known spots'}</Text>
-            </Pressable>
-          ))}
+        <View style={{ marginBottom: 10 }}>
+          <Segmented value={tab} onChange={setTab} options={[{ key: 'mine', label: `My spots (${mySpots.length})`, icon: 'star' }, { key: 'known', label: 'Known spots', icon: 'location' }]} />
         </View>
       ) : null}
-      <TextInput value={q} onChangeText={setQ} placeholder="Search name or folder" placeholderTextColor={colors.muted} style={st.input} autoCorrect={false} />
-      <View style={st.seg}>
-        {((tab === 'mine' ? ['name', 'folder', 'date', 'distance'] : ['name', 'distance']) as SortKey[]).map((k) => (
-          <Pressable key={k} onPress={() => setSort(k)} style={[st.sortB, sort === k && st.segOn]} accessibilityRole="button" accessibilityState={{ selected: sort === k }}>
-            <Text style={[st.sortT, sort === k && { color: colors.accentInk }]}>{{ name: 'Name', folder: 'Folder', date: 'Date', distance: 'Distance' }[k]}</Text>
-          </Pressable>
-        ))}
+      <View style={st.searchRow}>
+        <Ionicons name="search" size={18} color={colors.muted} />
+        <TextInput value={q} onChangeText={setQ} placeholder="Search name or folder" placeholderTextColor={colors.faint} style={st.search} autoCorrect={false} />
+        {q ? <Pressable onPress={() => setQ('')} hitSlop={10} accessibilityLabel="Clear search"><Ionicons name="close-circle" size={18} color={colors.faint} /></Pressable> : null}
+      </View>
+      <View style={st.sortRow}>
+        <Text style={st.sortLbl}>Sort</Text>
+        <View style={{ flex: 1 }}>
+          <Segmented value={sort} onChange={setSort}
+            options={((tab === 'mine' ? ['name', 'folder', 'date', 'distance'] : ['name', 'distance']) as SortKey[]).map((k) => ({ key: k, label: { name: 'Name', folder: 'Folder', date: 'Date', distance: 'Near' }[k] }))} />
+        </View>
+      </View>
+      <View style={st.legend}>
+        <View style={[st.legDot, { backgroundColor: SPOT_COLORS.mine }]} /><Text style={st.legT}>My spots</Text>
+        <View style={[st.legDot, { backgroundColor: SPOT_COLORS.known, marginLeft: 14 }]} /><Text style={st.legT}>Known spots</Text>
+        <Text style={[st.legT, { marginLeft: 'auto' }]}>Hide either in Layers</Text>
       </View>
       <FlatList data={items} keyExtractor={(i) => i.key} contentContainerStyle={{ paddingBottom: selecting ? 110 : 20 }}
         ListEmptyComponent={<Text style={st.empty}>{tab === 'mine' ? (q ? `No spots match "${q}".` : 'No saved spots yet. Long-press the map to drop a pin and save it, or Import your spots from Navionics or a chartplotter.') : 'Known spots appear here once licensed spot data is loaded.'}</Text>}
@@ -128,10 +134,10 @@ export function SpotsScreen({ mySpots, onPick, onImported }: { mySpots: SavedSpo
               onLongPress={() => { if (tab === 'mine') { setSelecting(true); toggle(item.key); } }}
               accessibilityRole={selecting ? 'checkbox' : 'button'} accessibilityState={selecting ? { checked: on } : undefined}>
               {selecting ? <Ionicons name={on ? 'checkmark-circle' : 'ellipse-outline'} size={26} color={on ? colors.accent : colors.faint} />
-                : <Text style={[st.dot, { color: item.kind === 'saved' ? colors.live : colors.accent }]}>●</Text>}
+                : <Text style={[st.dot, { color: item.kind === 'saved' ? SPOT_COLORS.mine : SPOT_COLORS.known }]}>●</Text>}
               <View style={{ flex: 1 }}><Text style={st.name}>{item.name}</Text><Text style={st.sub}>{item.sub}</Text></View>
               {item.distNm != null ? <Text style={st.dist}>{distText(item.distNm)}</Text> : null}
-              {!selecting ? <Text style={st.go}>›</Text> : null}
+              {!selecting ? <Ionicons name="chevron-forward" size={18} color={colors.faint} /> : null}
             </Pressable>
           );
         }} />
@@ -210,7 +216,7 @@ function ImportPreview({ p, mySpots, onDone }: { p: { fileName: string; data: Im
         ) : null}
         {points.slice(0, 60).map((x, i) => (
           <View key={i} style={st.row}>
-            <Text style={[st.dot, { color: dupes[i] ? colors.accent : colors.live }]}>●</Text>
+            <Text style={[st.dot, { color: dupes[i] ? colors.faint : SPOT_COLORS.mine }]}>●</Text>
             <View style={{ flex: 1 }}><Text style={st.name}>{x.name}</Text><Text style={st.sub}>{x.lat.toFixed(5)}, {x.lon.toFixed(5)}{dupes[i] ? ` · matches "${dupes[i]!.name}"` : ''}</Text></View>
           </View>
         ))}
@@ -229,19 +235,26 @@ const useSt = makeStyles((colors) => ({
   root: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 14 },
   h1: { color: colors.text, fontSize: 28, fontWeight: '700', marginVertical: 8 },
   seg: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  segB: { flex: 1, height: 40, borderRadius: 10, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  segB: { flex: 1, height: 40, borderRadius: 10, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   segOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  segT: { color: colors.text, fontWeight: '600' },
-  input: { height: 44, borderRadius: 12, borderWidth: 1, borderColor: colors.line, color: colors.text, paddingHorizontal: 12, marginBottom: 6 },
+  segT: { color: colors.text, fontWeight: '700', fontSize: 14 },
+  input: { height: 44, borderRadius: 12, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.inset, color: colors.text, paddingHorizontal: 12, marginBottom: 6 },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 46, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.panelSolid, marginBottom: 10 },
+  search: { flex: 1, color: colors.text, fontSize: 16, paddingVertical: 10 },
+  sortRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  sortLbl: { color: colors.muted, fontSize: 12.5, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' },
+  legend: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 2 },
+  legDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 1.5, borderColor: '#FFFFFF' },
+  legT: { color: colors.muted, fontSize: 12.5, fontWeight: '600' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: touch.min + 8, borderBottomWidth: 1, borderColor: colors.line },
   dot: { fontSize: 14 },
   name: { color: colors.text, fontSize: 17, fontWeight: '600' },
   sub: { color: colors.muted, fontSize: 12.5 },
   go: { color: colors.faint, fontSize: 20 },
   dist: { color: colors.muted, fontSize: 13.5, fontWeight: '600', fontVariant: ['tabular-nums'] },
-  sortB: { flex: 1, height: 36, borderRadius: 10, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
-  sortT: { color: colors.text, fontWeight: '600', fontSize: 13.5 },
-  hdrBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: 18, paddingHorizontal: 14, minHeight: 36, justifyContent: 'center' },
+  sortB: { flex: 1, minHeight: 40, borderRadius: 10, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  sortT: { color: colors.text, fontWeight: '700', fontSize: 14 },
+  hdrBtn: { borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.panelSolid, borderRadius: 19, paddingHorizontal: 16, minHeight: 38, justifyContent: 'center' },
   hdrBtnT: { color: colors.text, fontWeight: '700', fontSize: 15 },
   selBar: { position: 'absolute', left: 12, right: 12, bottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.panelSolid,
     borderWidth: 1, borderColor: colors.border, borderRadius: 18, paddingHorizontal: 10, paddingVertical: 6, shadowColor: colors.shadow, shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 2 }, elevation: 6 },

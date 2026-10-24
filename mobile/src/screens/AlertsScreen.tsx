@@ -1,15 +1,15 @@
 // Opt-in alerts (plan: 'Alerts'): species, bite activity, water temperature, marine warnings.
 // At most 4 per day; each alert at most every 3 hours.
 import { useEffect, useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import { colors, makeStyles } from '../theme';
 import { SPECIES } from '../community/species';
 import { supabase } from '../supabase';
-import { Btn } from '../components/ui';
+import { Btn, Card, Chip, ListGroup, ScreenHeader, SectionLabel, Segmented } from '../components/ui';
+import { Ionicons } from '@expo/vector-icons';
 import { track } from '../analytics';
 import { friendly } from '../friendly';
 
@@ -67,73 +67,98 @@ export function AlertsScreen({ onBack }: { onBack: () => void }) {
       sst: `Water ${p.min_f}–${p.max_f}°F`, weather: 'Marine warnings' }[s.kind as string] + ` · ${p.label} (${p.radius_nm} NM)`;
   };
 
+  const needSpecies = kind === 'species' || kind === 'activity';
   return (
-    <SafeAreaView style={st.root} edges={['top']}>
-      <Pressable onPress={onBack} style={{ paddingVertical: 10 }}><Text style={st.link}>‹ Profile</Text></Pressable>
-      <ScrollView contentContainerStyle={{ gap: 12, paddingBottom: 40 }}>
-        <Text style={st.h1}>Alerts</Text>
-        <Text style={st.sub}>Off until you add one. At most 4 alerts a day, and each one at most every 3 hours.</Text>
-        {pushOk === false ? <Text style={[st.sub, { color: colors.accent }]}>Notifications are off for this app. Turn them on in your phone's Settings to receive alerts.</Text> : null}
-        {subs.map((s) => (
-          <View key={s.id} style={st.card}>
-            <Text style={st.p}>{describe(s)}</Text>
-            <View style={st.rowB}>
-              <Text style={st.sub}>{s.last_sent_at ? `Last sent ${new Date(s.last_sent_at).toLocaleString()}` : 'Not sent yet'}</Text>
-              <Switch value={s.active} onValueChange={async (v) => { await supabase.from('alert_subscriptions').update({ active: v }).eq('id', s.id); load(); }} />
-            </View>
-            <Pressable onPress={async () => { await supabase.from('alert_subscriptions').delete().eq('id', s.id); load(); }}><Text style={[st.link, { color: colors.alert }]}>Remove</Text></Pressable>
+    <View style={st.root}>
+      <ScreenHeader title="Alerts" subtitle="At most 4 a day, each at most every 3 hours" onBack={onBack} backLabel="Me" />
+      <ScrollView contentContainerStyle={st.body} keyboardShouldPersistTaps="handled">
+        {pushOk === false ? <Card tone="warn"><Text style={st.p}>Notifications are off for this app. Turn them on in your phone's Settings to get alerts.</Text></Card> : null}
+
+        <SectionLabel>Your alerts</SectionLabel>
+        {subs.length ? (
+          <ListGroup>
+            {subs.map((s, i) => (
+              <View key={s.id} style={[st.subRow, i < subs.length - 1 && st.subLine]}>
+                <View style={st.subIcon}><Ionicons name={(KIND_ICON as any)[s.kind] ?? 'notifications-outline'} size={18} color={colors.live} /></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={st.p} numberOfLines={2}>{describe(s)}</Text>
+                  <Text style={st.sub}>{s.last_sent_at ? `Last sent ${new Date(s.last_sent_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : 'Not sent yet'}</Text>
+                </View>
+                <Switch value={s.active} onValueChange={async (v) => { await supabase.from('alert_subscriptions').update({ active: v }).eq('id', s.id); load(); }} />
+                <Pressable onPress={() => Alert.alert('Remove this alert?', describe(s), [{ text: 'Cancel', style: 'cancel' },
+                  { text: 'Remove', style: 'destructive', onPress: async () => { await supabase.from('alert_subscriptions').delete().eq('id', s.id); load(); } }])}
+                  hitSlop={8} style={st.trash} accessibilityRole="button" accessibilityLabel="Remove alert">
+                  <Ionicons name="trash-outline" size={19} color={colors.alert} />
+                </Pressable>
+              </View>
+            ))}
+          </ListGroup>
+        ) : <Card><Text style={st.sub}>No alerts yet. Alerts stay off until you add one below.</Text></Card>}
+
+        <SectionLabel>Add an alert</SectionLabel>
+        <Card style={{ gap: 14 }}>
+          <Text style={st.step}>1 · What to watch for</Text>
+          <View style={{ gap: 8 }}>
+            {KINDS.map((k) => {
+              const on = kind === k.key;
+              return (
+                <Pressable key={k.key} onPress={() => setKind(k.key)} style={[st.opt, on && st.optOn]} accessibilityRole="radio" accessibilityState={{ selected: on }}>
+                  <Ionicons name={KIND_ICON[k.key] as any} size={20} color={on ? colors.accent : colors.muted} />
+                  <View style={{ flex: 1 }}><Text style={st.optT}>{k.title}</Text><Text style={st.sub}>{k.sub}</Text></View>
+                  <Ionicons name={on ? 'radio-button-on' : 'radio-button-off'} size={22} color={on ? colors.accent : colors.faint} />
+                </Pressable>
+              );
+            })}
           </View>
-        ))}
-        <View style={st.card}>
-          <Text style={st.h2}>Add an alert</Text>
-          {KINDS.map((k) => (
-            <Pressable key={k.key} onPress={() => setKind(k.key)} style={[st.opt, kind === k.key && st.optOn]}>
-              <Text style={st.p}>{k.title}</Text><Text style={st.sub}>{k.sub}</Text>
-            </Pressable>
-          ))}
-          <Text style={st.label}>Area</Text>
-          <View style={st.wrap}>{AREAS.map((a) => <Chip key={a.label} label={a.label} on={area.label === a.label} onPress={() => setArea(a)} />)}</View>
-          <View style={st.wrap}>{[5, 10, 15, 25, 40].map((r) => <Chip key={r} label={`${r} NM`} on={radius === r} onPress={() => setRadius(r)} />)}</View>
-          {kind === 'species' || kind === 'activity' ? (
+
+          <Text style={st.step}>2 · Where</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            {AREAS.map((a) => <Chip key={a.label} label={a.label} icon="location-outline" on={area.label === a.label} onPress={() => setArea(a)} />)}
+          </ScrollView>
+          <Text style={st.lbl}>Within</Text>
+          <Segmented value={String(radius)} onChange={(v) => setRadius(Number(v))} options={[5, 10, 15, 25, 40].map((r) => ({ key: String(r), label: `${r} NM` }))} />
+
+          {needSpecies ? (
             <>
-              <Text style={st.label}>Species</Text>
-              <View style={st.wrap}>{SPECIES.slice(0, 14).map((s) => <Chip key={s.code} label={s.code} on={species.includes(s.code)} color={s.color}
-                onPress={() => setSpecies(species.includes(s.code) ? species.filter((x) => x !== s.code) : [...species, s.code])} />)}</View>
+              <Text style={st.step}>3 · Which fish</Text>
+              <View style={st.wrap}>{SPECIES.slice(0, 14).map((sp) => <Chip key={sp.code} label={sp.name} on={species.includes(sp.code)} dot={sp.color}
+                onPress={() => setSpecies(species.includes(sp.code) ? species.filter((x) => x !== sp.code) : [...species, sp.code])} />)}</View>
+              {kind === 'species' ? <View style={st.rowB}><Text style={st.p}>Verified reports only</Text><Switch value={verified} onValueChange={setVerified} /></View> : null}
             </>
           ) : null}
-          {kind === 'species' ? <View style={st.rowB}><Text style={st.p}>Verified reports only</Text><Switch value={verified} onValueChange={setVerified} /></View> : null}
           {kind === 'sst' ? (
-            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-              <TextInput style={st.input} value={minF} onChangeText={setMinF} keyboardType="decimal-pad" /><Text style={st.p}>to</Text>
-              <TextInput style={st.input} value={maxF} onChangeText={setMaxF} keyboardType="decimal-pad" /><Text style={st.p}>°F</Text>
-            </View>
+            <>
+              <Text style={st.step}>3 · Water temperature</Text>
+              <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                <TextInput style={st.input} value={minF} onChangeText={setMinF} keyboardType="decimal-pad" /><Text style={st.p}>to</Text>
+                <TextInput style={st.input} value={maxF} onChangeText={setMaxF} keyboardType="decimal-pad" /><Text style={st.p}>°F</Text>
+              </View>
+            </>
           ) : null}
-          <Btn label="Add alert" kind="primary" onPress={add} disabled={(kind === 'species' || kind === 'activity') && !species.length} />
-        </View>
+          <Btn label="Add alert" icon="add-circle-outline" kind="primary" onPress={add} disabled={needSpecies && !species.length} />
+        </Card>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
-function Chip({ label, on, onPress, color }: { label: string; on: boolean; onPress: () => void; color?: string }) {
-  const st = useSt();
-  return <Pressable onPress={onPress} style={[st.chip, on && { backgroundColor: color ?? colors.accent, borderColor: color ?? colors.accent }]}><Text style={[st.chipT, on && { color: colors.accentInk }]}>{label}</Text></Pressable>;
-}
+const KIND_ICON: Record<string, string> = { species: 'fish-outline', activity: 'trending-up', sst: 'thermometer-outline', weather: 'warning-outline' };
 
 const useSt = makeStyles((colors) => ({
-  root: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 14 },
-  h1: { color: colors.text, fontSize: 28, fontWeight: '700' },
-  h2: { color: colors.text, fontSize: 17, fontWeight: '700' },
+  root: { flex: 1, backgroundColor: colors.bg },
+  body: { padding: 16, paddingBottom: 48, gap: 10 },
   p: { color: colors.text, fontSize: 15 },
-  sub: { color: colors.muted, fontSize: 12.5, lineHeight: 18 },
-  label: { color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: 4 },
-  link: { color: colors.live, fontSize: 15 },
-  card: { borderWidth: 1, borderColor: colors.line, borderRadius: 14, padding: 12, gap: 8, backgroundColor: colors.panelSolid },
+  sub: { color: colors.muted, fontSize: 13, lineHeight: 18 },
+  step: { color: colors.text, fontSize: 16, fontWeight: '800' },
+  lbl: { color: colors.muted, fontSize: 12.5, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: -6 },
+  subRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
+  subLine: { borderBottomWidth: 1, borderColor: colors.line },
+  subIcon: { width: 32, height: 32, borderRadius: 8, backgroundColor: colors.inset, alignItems: 'center', justifyContent: 'center' },
+  trash: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   rowB: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  opt: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 10 },
-  optOn: { borderColor: colors.accent, backgroundColor: colors.warnBg },
-  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: { height: 34, paddingHorizontal: 10, borderRadius: 17, borderWidth: 1, borderColor: colors.line, justifyContent: 'center' },
-  chipT: { color: colors.text, fontSize: 12.5, fontWeight: '600' },
-  input: { width: 70, height: 40, borderRadius: 10, borderWidth: 1, borderColor: colors.line, color: colors.text, paddingHorizontal: 10 },
+  opt: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, borderRadius: 12, padding: 12 },
+  optOn: { borderColor: colors.accent, borderWidth: 2 },
+  optT: { color: colors.text, fontSize: 15.5, fontWeight: '700' },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  input: { width: 80, height: 44, borderRadius: 12, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.inset, color: colors.text, paddingHorizontal: 12, fontSize: 16, textAlign: 'center' },
 }));

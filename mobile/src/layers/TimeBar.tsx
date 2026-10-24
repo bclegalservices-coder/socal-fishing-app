@@ -76,17 +76,17 @@ export function TimeBar({ catalog, s, setDay, compare, compareOffset }: Props) {
 }
 
 const useSt = makeStyles((colors) => ({
-  wrap: { backgroundColor: colors.panel, borderColor: colors.line, borderWidth: 1, borderRadius: 14, padding: 10, gap: 8 },
+  wrap: { backgroundColor: colors.panel, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 10, gap: 8 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  play: { width: 44, height: 44, borderRadius: 12, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  play: { width: 44, height: 44, borderRadius: 12, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   playT: { color: colors.text, fontSize: 18 },
   title: { color: colors.text, fontSize: 14, fontWeight: '600' },
   age: { color: colors.muted, fontSize: 12 },
-  cmp: { paddingHorizontal: 8, height: 44, borderRadius: 12, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  cmp: { paddingHorizontal: 8, height: 44, borderRadius: 12, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   cmpOn: { backgroundColor: colors.live, borderColor: colors.live },
   cmpT: { color: colors.text, fontSize: 11, textAlign: 'center' },
   chips: { flexDirection: 'row', gap: 6 },
-  chip: { flex: 1, height: 36, borderRadius: 10, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  chip: { flex: 1, minHeight: 40, borderRadius: 10, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   chipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  chipT: { color: colors.text, fontSize: 13, fontWeight: '600' },
+  chipT: { color: colors.text, fontSize: 14, fontWeight: '700' },
 }));
