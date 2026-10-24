@@ -32,6 +32,10 @@ CRM_TITLE = ".*Coastal Relief Model.*Southern California.*"
 NCEI_NCSS = "https://www.ngdc.noaa.gov/thredds/ncss/crm/crm_socal_3as_vers2.nc"
 NCEI_BOX = (-128.0, 30.0, -116.0, 37.0)
 NCEI_ID = "ncei:crm_socal_3as_vers2"
+# First choice (Oct 23): the plain file in NOAA NGDC's download folder — no data service in between, just a file on a
+# web server. Downloaded once; the region is cut out of it and saved, so later runs don't download it again.
+CRM_FILE_URL = "https://www.ngdc.noaa.gov/mgg/coastal/crm/thredds/crm_vol6.nc"
+CRM_FILE_ID = "ngdc:crm_vol6.nc"
 CRM_BOX = (-124.0, 32.0, -114.0, 37.0)
 STEP = 1 / 1200.0                # 3 arc-seconds in degrees
 BLOCK = 0.5
@@ -107,9 +111,112 @@ def pick_crm(http, log=print) -> tuple[str, list, list]:
 
 
 class _Source:
-    """One place to download the relief model from: a name, the box it covers, and get(lat0, lon0, lat1, lon1) → bytes."""
-    def __init__(self, name: str, box: tuple, var: str, get):
-        self.name, self.box, self.var, self.get = name, box, var, get
+    """One place to download the relief model from: a name, the box it covers, and get(lat0, lon0, lat1, lon1) → bytes
+    (or, for a file already on disk, read_block(lat0, lon0, lat1, lon1) → (lats, lons, values[lat, lon]))."""
+    def __init__(self, name: str, box: tuple, var: str, get=None, read_block=None):
+        self.name, self.box, self.var, self.get, self.read_block = name, box, var, get, read_block
+
+
+def _open_grid_file(path: str):
+    """(lats ascending, lons, read(i0, i1, j0, j1) → values[lat, lon]) for a netCDF-3 or -4 grid on disk.
+    Handles plain lat/lon grids (COARDS/CF) and the old GMT layout (x_range, y_range, spacing, dimension, flat z)."""
+    with open(path, "rb") as fh:
+        magic = fh.read(4)
+    if magic == b"\x89HDF":
+        import h5py
+        f = h5py.File(path, "r")
+        names = list(f.keys())
+        var = lambda k: f[k]                                   # noqa: E731
+        attrs = lambda k: dict(f[k].attrs)                     # noqa: E731
+        dims_of = lambda k: tuple(d.label or "" for d in f[k].dims)   # noqa: E731
+    else:
+        from scipy.io import netcdf_file
+        f = netcdf_file(path, "r", mmap=True)
+        names = list(f.variables)
+        var = lambda k: f.variables[k]                         # noqa: E731
+        attrs = lambda k: dict(f.variables[k]._attributes)     # noqa: E731
+        dims_of = lambda k: tuple(f.variables[k].dimensions)   # noqa: E731
+    low = {n.lower(): n for n in names}
+    ndim = lambda k: len(getattr(var(k), "shape", ()))   # noqa: E731  (works for scipy and h5py variables)
+
+    def fill_of(k):
+        a = attrs(k); v = a.get("_FillValue", a.get("missing_value"))
+        return None if v is None else float(np.ravel(v)[0])
+
+    if all(k in low for k in ("x_range", "y_range", "dimension", "z")) and ndim(low["z"]) == 1:
+        nx, ny = (int(v) for v in np.array(var(low["dimension"])[:])[:2])
+        xr = np.array(var(low["x_range"])[:], np.float64); yr = np.array(var(low["y_range"])[:], np.float64)
+        pix = int(attrs(low["z"]).get("node_offset", 0)) == 1
+        if pix:
+            dxs, dys = (xr[1] - xr[0]) / nx, (yr[1] - yr[0]) / ny
+            lons = xr[0] + (np.arange(nx) + 0.5) * dxs; lats = yr[0] + (np.arange(ny) + 0.5) * dys
+        else:
+            lons = np.linspace(xr[0], xr[1], nx); lats = np.linspace(yr[0], yr[1], ny)
+        z = var(low["z"]); fill = fill_of(low["z"])
+
+        def read(i0, i1, j0, j1):                               # GMT rows run north → south
+            rows = [np.array(z[(ny - 1 - i) * nx + j0:(ny - 1 - i) * nx + j1], np.float32) for i in range(i0, i1)]
+            arr = np.stack(rows) if rows else np.zeros((0, j1 - j0), np.float32)
+            if fill is not None:
+                arr[arr == np.float32(fill)] = np.nan
+            return arr
+        return lats, lons, read
+
+    lat = next(low[k] for k in ("lat", "latitude", "y") if k in low)
+    lon = next(low[k] for k in ("lon", "longitude", "x") if k in low)
+    zname = next((low[k] for k in ("z", "band1", "elevation", "topo", "altitude") if k in low and ndim(low[k]) == 2), None) \
+        or next(n for n in names if n not in (lat, lon) and ndim(n) == 2)
+    z = var(zname); fill = fill_of(zname)
+    lats = np.array(var(lat)[:], np.float64); lons = np.array(var(lon)[:], np.float64)
+    lon_first = dims_of(zname)[:1] == (lon,) or (z.shape == (lons.size, lats.size) and lats.size != lons.size)
+    desc = lats.size > 1 and lats[0] > lats[-1]
+    ny = lats.size
+    if desc:
+        lats = lats[::-1]
+
+    def read(i0, i1, j0, j1):
+        r0, r1 = (ny - i1, ny - i0) if desc else (i0, i1)
+        arr = np.array(z[j0:j1, r0:r1] if lon_first else z[r0:r1, j0:j1], np.float32)
+        if lon_first:
+            arr = arr.T
+        if desc:
+            arr = arr[::-1]
+        if fill is not None:
+            arr[arr == np.float32(fill)] = np.nan
+        return arr
+    return lats, lons, read
+
+
+def _file_source(http, log, url: str = CRM_FILE_URL) -> _Source:
+    """Download the whole relief-model file once (it's a few hundred MB), then cut blocks out of it on disk."""
+    import os
+    import tempfile
+    path = os.path.join(tempfile.gettempdir(), os.path.basename(url))
+    if not (os.path.exists(path) and os.path.getsize(path) > 1_000_000):
+        log(f"crm: downloading {url}")
+        with http.stream("GET", url) as r:
+            if r.status_code != 200:
+                raise RuntimeError(f"{CRM_FILE_ID} not available (HTTP {r.status_code})")
+            got, next_log = 0, 50_000_000
+            with open(path + ".part", "wb") as out:
+                for chunk in r.iter_bytes(1 << 20):
+                    out.write(chunk); got += len(chunk)
+                    if got >= next_log:
+                        log(f"crm: {got / 1e6:.0f} MB downloaded"); next_log += 50_000_000
+        os.replace(path + ".part", path)
+        log(f"crm: download done ({os.path.getsize(path) / 1e6:.0f} MB)")
+    lats, lons_raw, read = _open_grid_file(path)
+    lons = np.where(lons_raw > 180, lons_raw - 360.0, lons_raw)
+    log(f"crm: {CRM_FILE_ID} grid {lats.size}×{lons.size}, {lats[0]:.2f}–{lats[-1]:.2f}°N, {lons.min():.2f}–{lons.max():.2f}°")
+
+    def read_block(a, b, la1, lo1):
+        e = STEP * 0.25                                   # grid points can sit a hair off the exact 3″ marks
+        i0, i1 = int(np.searchsorted(lats, a - e)), int(np.searchsorted(lats, la1 - e))
+        j0, j1 = int(np.searchsorted(lons, b - e)), int(np.searchsorted(lons, lo1 - e))
+        if i1 <= i0 or j1 <= j0:
+            return None
+        return lats[i0:i1], lons[j0:j1], read(i0, i1, j0, j1)
+    return _Source(CRM_FILE_ID, (float(lons.min()), float(lats[0]), float(lons.max()), float(lats[-1])), "z", read_block=read_block)
 
 
 def _erddap_source(http, log) -> _Source:
@@ -184,6 +291,16 @@ def _download(src: _Source, bbox, lats, lons, log) -> np.ndarray:
     got = 0
     for k, (a, b) in enumerate(blocks):
         la1, lo1 = min(a + BLOCK, clat1), min(b + BLOCK, clon1)
+        if src.read_block is not None:                    # a file already on disk
+            blk = src.read_block(a, b, la1, lo1)
+            if blk is None:
+                continue
+            blat, blon, arr = blk
+            ii = np.clip(np.floor((blat - lat0) / STEP + 0.25).astype(int), 0, lats.size - 1)
+            jj = np.clip(np.floor((blon - lon0) / STEP + 0.25).astype(int), 0, lons.size - 1)
+            out[np.ix_(ii, jj)] = arr
+            got += 1
+            continue
         data, code = src.get(a, b, la1, lo1)
         if not data:
             log(f"crm: block {a:.2f},{b:.2f} not available from {src.name} (HTTP {code})")
@@ -194,12 +311,14 @@ def _download(src: _Source, bbox, lats, lons, log) -> np.ndarray:
         blon = np.where(blon > 180, blon - 360.0, blon)  # 0–360 datasets → the usual -180…180
         if arr.shape != (blat.size, blon.size):
             arr = arr.T
-        ii = np.clip(np.rint((blat - lat0) / STEP - 0.5).astype(int), 0, lats.size - 1)
-        jj = np.clip(np.rint((blon - lon0) / STEP - 0.5).astype(int), 0, lons.size - 1)
+        ii = np.clip(np.floor((blat - lat0) / STEP + 0.25).astype(int), 0, lats.size - 1)
+        jj = np.clip(np.floor((blon - lon0) / STEP + 0.25).astype(int), 0, lons.size - 1)
         out[np.ix_(ii, jj)] = arr
         got += 1
         if (k + 1) % 10 == 0:
             log(f"crm: {k + 1}/{len(blocks)} blocks downloaded from {src.name}")
+    if got == 0:
+        raise RuntimeError(f"{src.name} sent no data for this region")
     return out
 
 
@@ -210,7 +329,7 @@ def fetch_crm(bbox: tuple, http, log=print) -> Grid:
     lats = lat0 + (np.arange(int(round((lat1 - lat0) / STEP))) + 0.5) * STEP
     lons = lon0 + (np.arange(int(round((lon1 - lon0) / STEP))) + 0.5) * STEP
     out, used, why = None, None, []
-    for make in (_erddap_source, _ncei_source):
+    for make in (_file_source, _erddap_source, _ncei_source):
         try:
             src = make(http, log)
             out = _download(src, bbox, lats, lons, log)
@@ -218,7 +337,7 @@ def fetch_crm(bbox: tuple, http, log=print) -> Grid:
         except Exception as e:  # noqa: BLE001
             why.append(str(e)[:160]); log(f"crm: {str(e)[:160]} — trying the next source")
     if out is None:
-        raise RuntimeError("Neither NOAA server is sending the Southern California relief model right now "
+        raise RuntimeError("None of the three NOAA sources is sending the Southern California relief model right now "
                            f"({' | '.join(why)}). Nothing was changed; the current seafloor stays as it is. Try again later.")
     have = float(np.isfinite(out).mean())
     if have < 0.5:

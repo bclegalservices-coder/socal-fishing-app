@@ -152,3 +152,72 @@ def test_stops_cleanly_when_both_noaa_servers_fail():
         assert False, "should have stopped"
     except RuntimeError as e:
         assert "Nothing was changed" in str(e)
+
+
+def _fake_file_http(blob: bytes):
+    """An HTTP client whose .stream() serves one file (the NGDC download) and refuses everything else."""
+    class Stream:
+        status_code = 200
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def iter_bytes(self, n):
+            for i in range(0, len(blob), n):
+                yield blob[i:i + n]
+
+    class H:
+        def stream(self, method, url, **k):
+            assert url.endswith("crm_vol6.nc")
+            return Stream()
+        def get(self, *a, **k): raise AssertionError("the plain file should be enough")
+    return H()
+
+
+def _fresh_tmp():
+    import os, tempfile
+    p = os.path.join(tempfile.gettempdir(), "crm_vol6.nc")
+    if os.path.exists(p):
+        os.remove(p)
+
+
+def test_plain_file_coards_layout_fills_every_row():
+    """NGDC's crm_vol6.nc as a lat/lon grid with points on exact 3″ marks: every row and column must land (no stripes)."""
+    from scipy.io import netcdf_file
+    from ocean import crm
+    lat = np.arange(32.95, 33.10, 1 / 1200); lon = np.arange(-118.35, -118.20, 1 / 1200)
+    buf = io.BytesIO(); f = netcdf_file(buf, "w")
+    f.createDimension("y", lat.size); f.createDimension("x", lon.size)
+    f.createVariable("y", "d", ("y",))[:] = lat
+    f.createVariable("x", "d", ("x",))[:] = lon
+    f.createVariable("z", "f", ("y", "x"))[:] = -30.0 - (lat[:, None] - 32.95) * 100
+    f.flush(); _fresh_tmp()
+    g = crm.fetch_crm((-118.30, 33.00, -118.25, 33.04), _fake_file_http(buf.getvalue()), log=lambda *a: None)
+    assert g.meta["dataset"] == crm.CRM_FILE_ID
+    assert np.isfinite(g.values).all()
+    assert (np.diff(g.values[:, 0]) <= 0).all() and g.values.max() < 0      # deeper to the north, no gaps or swaps
+    _fresh_tmp()
+
+
+def test_plain_file_old_gmt_layout():
+    """The old GMT layout: x_range/y_range/spacing/dimension and one flat z, rows north → south."""
+    from scipy.io import netcdf_file
+    from ocean import crm
+    nx, ny = 180, 150
+    x0, y0 = -118.35, 32.95
+    x1, y1 = x0 + (nx - 1) / 1200, y0 + (ny - 1) / 1200
+    lats_desc = np.linspace(y1, y0, ny)
+    zz = (-30.0 - (lats_desc[:, None] - y0) * 100 + 0 * np.zeros((1, nx))).astype(np.float32)
+    buf = io.BytesIO(); f = netcdf_file(buf, "w")
+    f.createDimension("side", 2); f.createDimension("xysize", nx * ny)
+    f.createVariable("x_range", "d", ("side",))[:] = [x0, x1]
+    f.createVariable("y_range", "d", ("side",))[:] = [y0, y1]
+    f.createVariable("z_range", "d", ("side",))[:] = [zz.min(), zz.max()]
+    f.createVariable("spacing", "d", ("side",))[:] = [1 / 1200, 1 / 1200]
+    f.createVariable("dimension", "i", ("side",))[:] = [nx, ny]
+    f.createVariable("z", "f", ("xysize",))[:] = zz.ravel()
+    f.flush(); _fresh_tmp()
+    g = crm.fetch_crm((-118.30, 33.00, -118.25, 33.04), _fake_file_http(buf.getvalue()), log=lambda *a: None)
+    assert np.isfinite(g.values).all()
+    assert (np.diff(g.values[:, 0]) <= 0).all()                         # north is deeper → rows weren't flipped
+    want = -30.0 - (g.lats - y0) * 100
+    assert np.allclose(g.values[:, 0], want, atol=0.2)
+    _fresh_tmp()
