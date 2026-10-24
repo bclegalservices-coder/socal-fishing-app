@@ -1,28 +1,42 @@
 import { useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import { getJSON } from '../api';
 import type { Catalog, ExternalLayer, GridLayer, HdBottomLayer, LayerDate, WindLayer } from '../types';
 
 export const DAY_OFFSETS = [0, 1, 2, 3, 7];
 
-/** Loads the layer catalog (dates, tile URLs, sources), refreshing every 15 min; falls back to the saved copy offline. */
+/** Loads the layer catalog (dates, tile URLs, sources), refreshing every 15 min; falls back to the saved copy offline.
+ *  The server can take up to a minute to wake up, so the first try waits longer, a failed try is retried soon
+ *  (20 s, 1 min, 2 min, then every 5 min) and again whenever the app comes back to the front. */
 export function useCatalog() {
   const [cat, setCat] = useState<Catalog | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [cached, setCached] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   useEffect(() => {
     let alive = true;
-    const load = async () => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let fails = 0;
+    const schedule = (ms: number) => { if (timer) clearTimeout(timer); timer = setTimeout(load, ms); };
+    async function load() {
       try {
-        const r = await getJSON<Catalog>('/layers', { cacheKey: 'layers' });
-        if (alive) { setCat(r.data); setSavedAt(r.savedAt); setCached(r.cached); }
-      } catch { /* no network and nothing saved yet */ }
-    };
+        const r = await getJSON<Catalog>('/layers', { cacheKey: 'layers', timeoutMs: fails === 0 ? 45000 : 25000 });
+        if (!alive) return;
+        setCat(r.data); setSavedAt(r.savedAt); setCached(r.cached);
+        if (r.cached) { fails += 1; schedule(RETRY[Math.min(fails - 1, RETRY.length - 1)]); }
+        else { fails = 0; schedule(15 * 60 * 1000); }
+      } catch {
+        /* no network and nothing saved yet */
+        if (alive) { fails += 1; schedule(RETRY[Math.min(fails - 1, RETRY.length - 1)]); }
+      }
+    }
     load();
-    const t = setInterval(load, 15 * 60 * 1000);
-    return () => { alive = false; clearInterval(t); };
-  }, []);
-  return { catalog: cat, savedAt, cached };
+    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') { fails = 0; load(); } });
+    return () => { alive = false; if (timer) clearTimeout(timer); sub.remove(); };
+  }, [retryKey]);
+  return { catalog: cat, savedAt, cached, retry: () => setRetryKey((k) => k + 1) };
 }
+const RETRY = [20000, 60000, 120000, 300000];
 
 /** A grid layer, keeping only dates that really have map tiles. A date with a blank tile address makes the map
  *  engine crash (Oct 20), so a damaged catalog — even an old saved copy — can never reach the map. */

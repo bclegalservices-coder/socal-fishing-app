@@ -169,7 +169,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const [openBar, setOpenBar] = useState<'catch' | 'time' | null>(null);
   const [probeAt, setProbeAt] = useState<Pt | null>(null);
   const [probeData, setProbeData] = useState<Conditions | null>(null);
-  const { catalog, cached: catalogCached } = useCatalog();
+  const { catalog, cached: catalogCached, savedAt: catalogSavedAt, retry: retryCatalog } = useCatalog();
   const harborFc = useHarbors(harborsOf(catalog));
   const [view, setView] = useState<{ minLon: number; minLat: number; maxLon: number; maxLat: number; zoom: number; heading: number } | null>(null);
   const [clusters, setClusters] = useState<Cluster[]>([]);
@@ -1035,7 +1035,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       ) : null}
 
       {panel === 'layers' ? (
-        <LayersSheet catalog={catalog} cached={catalogCached} s={layers} set={setLayersSafe} killed={killed} radarPlaying={radarPlaying} setRadarPlaying={setRadarPlaying}
+        <LayersSheet catalog={catalog} cached={catalogCached} savedAt={catalogSavedAt} onRetry={retryCatalog} s={layers} set={setLayersSafe} killed={killed} radarPlaying={radarPlaying} setRadarPlaying={setRadarPlaying}
           onClose={closePanel} rulesChecked={rules?.checked_at ?? null} onSaveArea={view ? saveAreaStable : undefined} />
       ) : null}
       {logAt ? (

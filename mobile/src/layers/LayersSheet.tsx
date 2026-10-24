@@ -20,7 +20,7 @@ import { CHART_LOOKS, DEFAULT_LAYERS, PRESETS, type ChartLook, type LayerKey, ty
 import { track } from '../analytics';
 import { PresentedBy } from '../ads/Sponsor';
 
-type Props = { catalog: Catalog | null; cached: boolean; s: LayerState; set: (fn: (s: LayerState) => LayerState) => void;
+type Props = { catalog: Catalog | null; cached: boolean; savedAt?: number | null; onRetry?: () => void; s: LayerState; set: (fn: (s: LayerState) => LayerState) => void;
   radarPlaying: boolean; setRadarPlaying: (b: boolean) => void; onClose: () => void; rulesChecked?: string | null; onSaveArea?: () => void; killed?: string[] };
 type Icon = keyof typeof MaterialCommunityIcons.glyphMap;
 
@@ -147,7 +147,7 @@ function PickCard({ icon, tint, title, sub, active, onPress, narrow, role = 'but
 
 // ---------------------------------------------------------------- the sheet
 
-function LayersSheetInner({ catalog, cached, s, set, radarPlaying, setRadarPlaying, onClose, rulesChecked, onSaveArea, killed = [] }: Props) {
+function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlaying, setRadarPlaying, onClose, rulesChecked, onSaveArea, killed = [] }: Props) {
   const st = useSt();
   const insets = useSafeAreaInsets();
   const setOverlay = (o: MapOverlay) => { if (o !== 'none' && killed.includes(o)) return; set((p) => ({ ...p, overlay: o })); track('map_style', { style: o }); };
@@ -192,7 +192,13 @@ function LayersSheetInner({ catalog, cached, s, set, radarPlaying, setRadarPlayi
           <Text style={st.doneT}>Done</Text>
         </Pressable>
       </View>
-      {cached ? <Text style={st.offline}>Offline · showing the layer list saved earlier</Text> : null}
+      {cached ? (
+        <Pressable onPress={onRetry} style={({ pressed }) => [st.offlineBox, pressed && { opacity: 0.7 }]} accessibilityRole="button" accessibilityLabel="Try again">
+          <MaterialCommunityIcons name="cloud-off-outline" size={18} color={colors.warn} />
+          <Text style={[st.offline, { flex: 1, marginBottom: 0 }]}>Can't reach the server right now. Showing layers saved {savedAt ? new Date(savedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'earlier'}. Retrying on its own.</Text>
+          <Text style={st.retryT}>Try again</Text>
+        </Pressable>
+      ) : null}
 
       {/* On now: what's showing, tap a chip to turn it off */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.chips} style={{ flexGrow: 0 }}>
@@ -370,6 +376,8 @@ const useSt = makeStyles((colors) => ({
   done: { height: 36, paddingHorizontal: 18, borderRadius: 18, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   doneT: { color: colors.accentInk, fontSize: 15.5, fontWeight: '800' },
   offline: { color: colors.warn, fontSize: 13, marginBottom: 6 },
+  offlineBox: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.warn, marginBottom: 8 },
+  retryT: { color: colors.live, fontWeight: '800', fontSize: 14 },
 
   chips: { gap: 8, paddingBottom: 12, alignItems: 'center' },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 32, paddingLeft: 13, paddingRight: 10, borderRadius: 16, backgroundColor: colors.accent },
