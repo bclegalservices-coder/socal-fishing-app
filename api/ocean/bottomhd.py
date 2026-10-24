@@ -179,9 +179,9 @@ def draw(dem_m: np.ndarray, z: int, lat: float) -> np.ndarray | None:
     from .contourtiles import contour_pixels
     lv, major = levels_for(z)
     thin, bold, lvl = contour_pixels(depth_ft, water, lv, major)
-    fat = ndimage.binary_dilation(bold) & water
-    rgb[thin & ~fat] = rgb[thin & ~fat] * 0.55 + np.array([20, 40, 55]) * 0.45
-    rgb[fat] = rgb[fat] * 0.25 + np.array([15, 30, 42]) * 0.75
+    # Oct 24: lines thinner and lighter (were 3 px wide and 75% dark): every line 1 px; main depths just a bit darker.
+    rgb[thin] = rgb[thin] * 0.72 + np.array([20, 40, 55]) * 0.28
+    rgb[bold] = rgb[bold] * 0.5 + np.array([15, 30, 42]) * 0.5
     out = np.zeros(depth_ft.shape + (4,), dtype=np.uint8)
     out[..., :3] = np.clip(rgb, 0, 255).astype(np.uint8)
     out[..., 3] = np.where(water, 255, 0)
@@ -319,7 +319,8 @@ def run(store, area: str, http, log=print, budget_s: float = 48 * 60, force: boo
         store.put(work_key, json.dumps(sorted(done)).encode(), "application/json")
         log(f"bottomhd: block {k} done — {stats['tiles']} map squares so far ({len(done)}/{len(tops)} blocks)")
     pool.shutdown(wait=True)
-    manifest = {"key": "bottomhd", "label": "HD bottom", "tiles": store.url(base) + "/{z}/{x}/{y}.png",
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M")      # new address each build, so phones don't show old cached squares
+    manifest = {"key": "bottomhd", "label": "HD bottom", "tiles": store.url(base) + "/{z}/{x}/{y}.png?v=" + stamp,
                 "minzoom": TOP_Z, "maxzoom": MAX_Z, "areas": {area: list(bbox)}, "complete": not stopped,
                 "built_at": datetime.now(timezone.utc).isoformat(), "source": "NOAA BlueTopo (Office of Coast Survey)",
                 "note": "Seafloor detail from NOAA surveys. For fishing, not navigation."}

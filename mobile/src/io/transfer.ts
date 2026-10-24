@@ -50,3 +50,13 @@ export async function exportAllGPX() {
   await Sharing.shareAsync(uri, { mimeType: 'application/gpx+xml', UTI: 'com.topografix.gpx', dialogTitle: 'Export my spots, routes and tracks' });
   return { spots: spots.length, routes: routes.length, tracks: tracks.length };
 }
+
+/** One trip as a GPX file in the share sheet (Messages, email, AirDrop, chartplotter apps). */
+export async function exportTrackGPX(meta: { id: string; name: string }) {
+  const points = await loadTrackPoints(meta.id);
+  const gpx = buildGPX({ points: [], routes: [], tracks: [{ name: meta.name, points: points.map((p) => ({ lat: p.lat, lon: p.lon, t: p.t })) }] });
+  const safe = meta.name.replace(/[^A-Za-z0-9 _-]+/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'trip';
+  const uri = await writeText(`${safe}.gpx`, gpx);
+  if (!(await Sharing.isAvailableAsync())) throw new Error('Sharing is not available on this device');
+  await Sharing.shareAsync(uri, { mimeType: 'application/gpx+xml', UTI: 'com.topografix.gpx', dialogTitle: `Share ${meta.name}` });
+}

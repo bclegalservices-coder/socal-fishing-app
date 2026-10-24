@@ -18,7 +18,10 @@ import { Hud, type Fix } from '../components/Hud';
 import { Compass, type Orientation } from '../components/Compass';
 import { SpotCard } from '../components/SpotCard';
 import { RouteDraft, RoutesList } from '../components/RoutePanel';
-import { TracksPanel } from '../components/TracksPanel';
+import { TripsScreen } from '../components/TripsScreen';
+import { autoRate, ReplayBar, ReplayHud } from '../components/TripReplay';
+import { analyze, at as tripAt, autoName, placesFromHarbors, speedLines, type TripAnalysis } from '../trips';
+import { exportTrackGPX } from '../io/transfer';
 import { SearchSheet, type SearchHit } from '../components/SearchSheet';
 import { BuoyCard } from '../components/BuoyCard';
 import { Btn, IconButton, Row, Sheet, Title } from '../components/ui';
@@ -139,6 +142,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const { height: screenH } = useWindowDimensions();
   const [panel, setPanel] = useState<Panel>('none');
   const [shownLine, setShownLine] = useState<(Pt | TrackPoint)[] | null>(null);
+  // Trip playback: the boat moves along a recorded trip; ms = time into the trip, rate = how many times faster than real time.
+  const [replay, setReplay] = useState<{ meta: store.TrackMeta; a: TripAnalysis; ms: number; playing: boolean; rate: number; follow: boolean } | null>(null);
   const [arrived, setArrived] = useState<string | null>(null);
   const [layers, setLayers] = useState<LayerState>(DEFAULT_LAYERS);
   const [killed, setKilled] = useState<string[]>(config().features_off ?? []);
@@ -432,6 +437,28 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const saveAreaRef = useRef(saveArea); saveAreaRef.current = saveArea;
   const saveAreaStable = useCallback(() => saveAreaRef.current(), []);
 
+  const replayPlaying = !!replay?.playing;
+  useEffect(() => {
+    if (!replayPlaying) return;
+    const id = setInterval(() => setReplay((r) => {
+      if (!r) return r;
+      const dur = r.a.t1 - r.a.t0, ms = Math.min(dur, r.ms + 100 * r.rate);
+      return { ...r, ms, playing: ms < dur };
+    }), 100);
+    return () => clearInterval(id);
+  }, [replayPlaying]);
+  const replayAt = useMemo(() => (replay ? tripAt(replay.a, replay.ms) : null), [replay?.a, replay?.ms]);
+  const replayDone = useMemo(() => (replay ? speedLines(replay.a, replay.ms) : null), [replay?.a, replay?.ms]);
+  const replayAll = useMemo(() => (replay ? speedLines(replay.a) : null), [replay?.a]);
+  const replayCam = useRef(0);
+  useEffect(() => {
+    if (!replay?.follow || !replayAt) return;
+    const now = Date.now();
+    if (now - replayCam.current < 700) return;
+    replayCam.current = now;
+    camera.current?.setStop({ center: [replayAt.lon, replayAt.lat], duration: 600 });
+  }, [replay?.follow, replayAt]);
+
   const navInfo = useMemo(() => {
     if (!nav) return null;
     const tgt = nav.points[nav.leg];
@@ -571,12 +598,28 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     try {
       if (active) {
         const meta = await stopTrack(); setActive(null);
-        if (meta) { setTracks(await store.loadTracks()); track('track_saved'); } else Alert.alert('Track not saved', 'It was too short to save.');
+        if (meta) {
+          // Name it after the marina / ramp / harbor at each end when there is one ("Cabrillo Marina - Avalon").
+          try {
+            const nm = autoName(await store.loadTrackPoints(meta.id), placesFromHarbors(harborFc));
+            if (nm) { const all = await store.loadTracks(); await store.saveTracks(all.map((t) => (t.id === meta.id ? { ...t, name: nm } : t))); }
+          } catch { /* keep the date name */ }
+          setTracks(await store.loadTracks()); track('track_saved');
+        } else Alert.alert('Track not saved', 'It was too short to save.');
       } else {
         const mode = await startTrack(); setActive(await store.loadActive()); track('track_started', { background: mode === 'background' });
         if (mode === 'foreground') Alert.alert('Recording while the app is open', 'To keep recording with the screen off, set Location to "Always" for this app in Settings.');
       }
     } catch (e: any) { Alert.alert('Could not record', friendly(e)); }
+  };
+  // ---- trip playback ----
+  const startReplay = async (meta: store.TrackMeta) => {
+    const pts = await store.loadTrackPoints(meta.id);
+    if (pts.length < 2) { Alert.alert('Nothing to play', 'This trip has too few points.'); return; }
+    const a = analyze(pts);
+    setPanel('none'); setSel(null); setShownLine(null);
+    setReplay({ meta, a, ms: 0, playing: true, rate: autoRate(a.t1 - a.t0), follow: false });
+    fitTo(pts); track('trip_replay');
   };
   const cycleOrient = () => {
     const next: Orientation = orient === 'north' ? 'heading' : orient === 'heading' ? 'course' : 'north';
@@ -640,7 +683,14 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
 
   // ---- bottom area ----
   let bottom: ReactNode = null;
-  if (plan) {
+  if (replay) {
+    const dur = Math.max(1, replay.a.t1 - replay.a.t0);
+    bottom = <ReplayBar playing={replay.playing} frac={replay.ms / dur} rate={replay.rate} follow={replay.follow}
+      onToggle={() => setReplay((r) => r && ({ ...r, playing: !r.playing, ms: !r.playing && r.ms >= dur ? 0 : r.ms }))}
+      onSeek={(f) => setReplay((r) => r && ({ ...r, ms: f * dur }))}
+      onRate={(rate) => setReplay((r) => r && ({ ...r, rate }))}
+      onFollow={() => setReplay((r) => r && ({ ...r, follow: !r.follow }))} />;
+  } else if (plan) {
     bottom = <RoutePreview name={plan.name} status={plan.status} route={plan.route} error={plan.error} safetyFt={safetyFt}
       onSafety={(ft) => { setSafety(ft); setSafetyFt(ft); runPlan(plan.targets, plan.name, ft); }}
       onStart={() => plan.route && beginRoute(plan.route, plan.name, plan.targets)}
@@ -657,7 +707,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       { key: 'save', label: 'Save this spot', sub: h ? 'Where the boat is now' : 'Waiting for GPS', icon: 'bookmark', onPress: () => { if (h) saveSpot({ ...h, name: undefined } as any); else Alert.alert('Waiting for GPS', 'Long-press the map to save any other spot.'); } },
       { key: 'crew', label: 'Send to my crew', sub: 'Come to me / my position', icon: 'megaphone', tint: colors.buddy, hidden: !supabaseReady, onPress: () => { setSel(null); setCrew({ mode: 'me', pt: null }); } },
       { key: 'route', label: 'Routes', sub: `${routes.length} saved · plan a new one`, icon: 'git-commit', onPress: () => setPanel('routes') },
-      { key: 'track', label: active ? 'Recording…' : 'Record a trip', sub: active ? 'Tap to stop and save' : `${tracks.length} saved trips`, icon: active ? 'stop-circle' : 'radio-button-on', tint: colors.alert, active: !!active, onPress: () => setPanel('tracks') },
+      { key: 'track', label: active ? 'Recording…' : 'Trips', sub: active ? 'Tap to stop and save' : `Record, play back and compare · ${tracks.length} saved`, icon: active ? 'stop-circle' : 'radio-button-on', tint: colors.alert, active: !!active, onPress: () => setPanel('tracks') },
       { key: 'probe', label: probe ? 'Stop reading' : 'Read conditions', sub: 'Water temp & depth under the crosshair', icon: 'scan', onPress: () => { if (!probe) track('probe_used'); setProbe(!probe); setProbeData(null); } },
       { key: 'today', label: "Today's report", sub: "What's biting, water, warnings", icon: 'newspaper', tint: colors.ok, onPress: () => { setToday(true); track('screen_view', { screen: 'today' }); } },
       { key: 'wx', label: 'Weather here', sub: '5-day forecast for your boat', icon: 'partly-sunny', tint: colors.warn, hidden: !onWeather, onPress: () => { const p = here(); if (p && onWeather) onWeather(p.lat, p.lon, 'My position'); else if (onWeather) onWeather(33.585, -117.885, 'Off Newport'); } },
@@ -684,11 +734,6 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       onNew={() => { setPanel('none'); setDraft(here() ? [{ ...here()!, name: 'Start' }] : []); }}
       onGo={(r) => goTo(draftTargets(r.points), r.name)} onShow={(r) => { setShownLine(r.points); fitTo(r.points); }}
       onDelete={async (r) => { const next = routes.filter((x) => x.id !== r.id); setRoutes(next); await store.saveRoutes(next); }}
-      onClose={() => setPanel('none')} />;
-  } else if (panel === 'tracks') {
-    bottom = <TracksPanel active={active} activePts={active?.points ?? []} tracks={tracks} onStart={toggleTrack} onStop={toggleTrack}
-      onShow={async (t) => { const pts = await store.loadTrackPoints(t.id); setShownLine(pts); fitTo(pts); setPanel('none'); }}
-      onDelete={async (t) => { const next = tracks.filter((x) => x.id !== t.id); setTracks(next); await store.saveTracks(next); await store.deleteTrackPoints(t.id); }}
       onClose={() => setPanel('none')} />;
   } else if (arrived) {
     bottom = <Sheet><Title>Arrived at {arrived}</Title><Row><Btn label="OK" kind="primary" onPress={() => setArrived(null)} /></Row></Sheet>;
@@ -823,6 +868,27 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         <GeoJSONSource id="pin" data={pinFC}>
           <Layer type="circle" id="pin-ring" style={{ circleRadius: 11, circleColor: 'rgba(0,0,0,0)', circleStrokeColor: colors.text, circleStrokeWidth: 2 }} />
         </GeoJSONSource>
+        {/* Trip playback: the whole trip faint, the part played so far bright, both colored by speed */}
+        {replay && replayAll && replayDone ? (
+          <>
+            <GeoJSONSource id="replay-all" data={replayAll}>
+              <Layer type="line" id="replay-all-line" style={{ lineColor: ['get', 'c'] as any, lineWidth: 4, lineOpacity: 0.35, lineCap: 'round', lineJoin: 'round' }} />
+            </GeoJSONSource>
+            <GeoJSONSource id="replay-done" data={replayDone}>
+              <Layer type="line" id="replay-done-casing" style={{ lineColor: '#FFFFFF', lineWidth: 9, lineOpacity: 0.9, lineCap: 'round', lineJoin: 'round' }} />
+              <Layer type="line" id="replay-done-line" style={{ lineColor: ['get', 'c'] as any, lineWidth: 5.5, lineCap: 'round', lineJoin: 'round' }} />
+            </GeoJSONSource>
+          </>
+        ) : null}
+        {replay && replayAt ? (
+          <Marker key="replay-boat" lngLat={[replayAt.lon, replayAt.lat]} anchor="center">
+            <View pointerEvents="none" style={[st.boatHalo, { backgroundColor: `${boatFill}38` }]}>
+              <View style={[st.boat, { backgroundColor: boatFill }]}>
+                <Ionicons name="navigate" size={20} color="#FFFFFF" style={{ transform: [{ rotate: `${replayAt.heading - (view?.heading ?? 0) - 45}deg` }] }} />
+              </View>
+            </View>
+          </Marker>
+        ) : null}
         {/* While navigating: a big bright boat on top of EVERYTHING (markers draw above every map layer), pointing
             where the boat is going (course when moving, the compass when stopped). Last child = drawn last = on top. */}
         {nav && fix ? (
@@ -845,7 +911,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         </View>
       ) : null}
 
-      <SafeAreaView style={st.top} edges={['top']} pointerEvents="box-none">
+      {replay && replayAt ? <ReplayHud name={replay.meta.name} m={replayAt} onClose={() => { setReplay(null); }} /> : null}
+      <SafeAreaView style={[st.top, replay ? { display: 'none' } : null]} edges={['top']} pointerEvents="box-none">
         <View style={st.searchRow}>
           <Pressable style={st.search} onPress={() => setPanel('search')} accessibilityRole="search" accessibilityLabel="Search spots">
             <Ionicons name="search" size={19} color={colors.muted} />
@@ -914,6 +981,16 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       </SafeAreaView>
 
       <View style={st.bottom} pointerEvents="box-none">{bottom}</View>
+
+      {panel === 'tracks' ? (
+        <TripsScreen tracks={tracks} active={active} activePts={active?.points ?? []} onStartStop={toggleTrack}
+          onPlay={startReplay}
+          onShowOnMap={async (t) => { const pts = await store.loadTrackPoints(t.id); setShownLine(pts); fitTo(pts); setPanel('none'); }}
+          onRename={async (t, name) => { const next = tracks.map((x) => (x.id === t.id ? { ...x, name } : x)); setTracks(next); await store.saveTracks(next); }}
+          onShare={(t) => { exportTrackGPX(t).catch((e) => Alert.alert('Could not share', friendly(e))); }}
+          onDelete={async (t) => { const next = tracks.filter((x) => x.id !== t.id); setTracks(next); await store.saveTracks(next); await store.deleteTrackPoints(t.id); }}
+          onClose={() => setPanel('none')} />
+      ) : null}
 
       {panel === 'layers' ? (
         <LayersSheet catalog={catalog} cached={catalogCached} s={layers} set={setLayersSafe} killed={killed} radarPlaying={radarPlaying} setRadarPlaying={setRadarPlaying}
