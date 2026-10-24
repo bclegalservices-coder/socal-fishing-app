@@ -2,39 +2,105 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fishing App — Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Channel Nav Admin</title>
+<meta name="theme-color" content="#0A1622">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CN Admin">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <style>
-:root{--bg:#0A141C;--panel:#101C27;--line:#24394B;--text:#EAF0F4;--muted:#A3B4C1;--accent:#F5A524;--live:#62CBE2;--alert:#FF7A68;--ok:#3fb950}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-header{display:flex;align-items:center;gap:16px;padding:12px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:2}
-header h1{font-size:18px;margin:0}nav{display:flex;gap:6px;flex-wrap:wrap}nav button{background:none;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer}
-nav button.on{background:var(--accent);border-color:var(--accent);color:#10161B;font-weight:700}
-main{padding:20px;max-width:1200px;margin:0 auto}.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
-input,select,textarea{background:#0C1822;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;width:100%}
-label{display:block;color:var(--muted);font-size:12px;margin:8px 0 4px}button.act{background:#182836;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;margin:4px 4px 0 0}
-button.primary{background:var(--accent);color:#10161B;border-color:var(--accent);font-weight:700}button.danger{border-color:var(--alert);color:var(--alert)}
-table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:600;font-size:12px}
-.muted{color:var(--muted);font-size:13px}.warn{color:var(--accent)}.bad{color:var(--alert)}.good{color:var(--ok)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+:root{--bg:#0A1622;--panel:#102131;--panel2:#152A3E;--line:#223B53;--text:#EAF1F7;--muted:#9FB3C6;--accent:#4C9BEA;--accentBg:rgba(76,155,234,.16);--btn:#1F6FC8;--live:#62CBE2;--alert:#FF7A68;--ok:#45C277;--warnc:#F2B544;--tabh:64px}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,"Segoe UI",sans-serif}
+a{color:var(--accent)}
+#app{display:flex;min-height:100vh}
+#side{width:248px;flex:0 0 248px;border-right:1px solid var(--line);padding:20px 14px;position:sticky;top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column;gap:6px}
+#content{flex:1;min-width:0}
+.brand{display:flex;align-items:center;gap:10px;padding:0 8px 14px}
+.brand .mark{width:36px;height:36px;border-radius:9px;border:1px solid #2A5D8F;display:block}
+.brand .nm{font-weight:800;font-size:16px;letter-spacing:.02em;line-height:1.1}.brand .nm small{display:block;font-weight:600;font-size:11px;color:var(--muted);letter-spacing:.08em}
+.grp{color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;padding:14px 10px 4px}
+.navi{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;color:var(--text);font:inherit;font-size:14.5px;text-align:left;padding:9px 10px;border-radius:9px;cursor:pointer}
+.navi svg{flex:0 0 18px;color:var(--muted)}@media (hover:hover){.navi:hover{background:var(--panel)}}
+.navi.on{background:var(--accentBg);color:#A9CFF6;font-weight:600}.navi.on svg{color:var(--accent)}
+.badge{margin-left:auto;background:var(--alert);color:#1A0805;font-size:11px;font-weight:800;border-radius:999px;padding:1px 7px;min-width:20px;text-align:center}
+.who{margin-top:auto;padding:14px 10px 0;border-top:1px solid var(--line);color:var(--muted);font-size:13px;word-break:break-all}
+.who a{display:inline-block;padding:6px 0;margin-right:14px}
+#top{display:none}
+main{padding:24px 28px 40px;max-width:1240px;margin:0 auto}
+h2{font-size:22px;margin:0 0 14px}h3{font-size:16px;margin:0 0 8px}
+.sec{color:var(--muted);font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;margin:22px 2px 10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px;overflow-x:auto}
+input,select,textarea{background:#0C1B29;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;font-size:16px;width:100%}
+label{display:block;color:var(--muted);font-size:12.5px;margin:10px 0 4px}
+button.act{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px 14px;min-height:40px;cursor:pointer;margin:4px 4px 0 0;font:inherit;font-size:14px}
+button.primary{background:var(--btn);color:#FFFFFF;border-color:var(--btn);font-weight:700}button.danger{border-color:var(--alert);color:var(--alert)}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:600;font-size:12px;white-space:nowrap}
+.muted{color:var(--muted);font-size:13px}.warn{color:var(--warnc)}.bad{color:var(--alert)}.good{color:var(--ok)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:10px}
+.card.warn{border-color:#5A4A1E}.card.bad{border-color:#5A2A24}.card.good{border-color:#1F4A30}
 .pill{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:1px 8px;font-size:12px;color:var(--muted)}
-pre{white-space:pre-wrap;word-break:break-word;background:#0C1822;padding:8px;border-radius:8px;margin:6px 0}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px}.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
-.kpi .v{font-size:26px;font-weight:800}.kpi .k{color:var(--muted);font-size:12px}.kpi .s{color:var(--muted);font-size:11.5px}
-.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px}.chartbox{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;height:280px}
-.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.toolbar select,.toolbar input{width:auto}
+pre{white-space:pre-wrap;word-break:break-word;background:#0C1B29;padding:8px;border-radius:8px;margin:6px 0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-bottom:12px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;text-align:left;color:var(--text);font:inherit;position:relative;width:100%}
+button.kpi{cursor:pointer}@media (hover:hover){button.kpi:hover{border-color:#36597C;background:var(--panel2)}}button.kpi:active{transform:scale(.98)}
+.kpi .v{font-size:28px;font-weight:800;line-height:1.15;margin-top:4px;font-variant-numeric:tabular-nums}.kpi .k{color:var(--muted);font-size:12.5px;font-weight:600;padding-right:16px}.kpi .s{color:var(--muted);font-size:12px;margin-top:2px}
+.kpi .chev{position:absolute;right:12px;top:12px;color:var(--muted);font-size:18px;line-height:1}
+.kpi.hot{border-color:#7A3B32;background:#2A1714}.kpi.hot .v{color:var(--alert)}
+.alertbar{display:flex;align-items:center;gap:12px;width:100%;background:#2A1714;border:1px solid #7A3B32;color:var(--text);border-radius:14px;padding:14px 16px;font:inherit;text-align:left;cursor:pointer;margin-bottom:6px}
+.alertbar b{color:var(--alert)}.alertbar span{margin-left:auto;color:var(--muted)}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:12px}.chartbox{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;height:280px}
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.toolbar b{font-size:22px}.toolbar select,.toolbar input{width:auto}
 .ret td{text-align:center}.ret td:first-child{text-align:left}
-#kit{background:#fff;color:#111;border-radius:12px;padding:28px;max-width:860px}#kit h1{margin:0 0 4px;font-size:28px}#kit .muted{color:#555}#kit .kpi{background:#f4f6f8;border-color:#dde3e8}#kit .kpi .k,#kit .kpi .s{color:#555}
+#tabbar{display:none}#tabbar:empty{display:none!important}
+#sheet{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:20;display:flex;align-items:flex-end}
+#sheet[hidden]{display:none}
+#sheet .pane{background:var(--bg);width:100%;max-height:88vh;overflow-y:auto;border-radius:20px 20px 0 0;border-top:1px solid var(--line);padding:10px 14px calc(18px + env(safe-area-inset-bottom))}
+#sheet .grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:4px auto 6px}
+#sheet .navi{padding:13px 10px;font-size:16px}
+#kit{background:#fff;color:#111;border-radius:12px;padding:28px;max-width:860px}#kit h1{margin:0 0 4px;font-size:28px}#kit .muted{color:#555}#kit .kpi{background:#f4f6f8;border-color:#dde3e8;color:#111}#kit .kpi .k,#kit .kpi .s{color:#555}
 #kit table td,#kit table th{border-color:#e3e7ea;color:#111}
-@media print{header,nav,.toolbar,.noprint{display:none!important}body{background:#fff}main{padding:0}#kit{max-width:none;border-radius:0}}
+@media (max-width:899px){
+  #side{display:none}
+  #top{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:5;background:rgba(10,22,34,.94);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);padding:calc(10px + env(safe-area-inset-top)) 16px 10px}
+  #top h1{font-size:19px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  main{padding:14px 14px calc(var(--tabh) + 28px + env(safe-area-inset-bottom))}
+  main>h2:first-child,.toolbar>b:first-child{display:none}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .kpi{padding:12px}.kpi .v{font-size:24px}.kpi .k{font-size:12px}.kpi .s{font-size:11.5px}
+  .chartbox{height:230px}
+  .toolbar select,.toolbar input{flex:1;min-width:0}
+  #tabbar{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;left:0;right:0;bottom:0;z-index:10;background:rgba(10,22,34,.96);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+  #tabbar button{background:none;border:0;color:var(--muted);font:inherit;font-size:10.5px;font-weight:600;height:var(--tabh);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;position:relative}
+  #tabbar button.on{color:var(--accent)}
+  #tabbar .badge{position:absolute;top:8px;left:calc(50% + 6px);margin:0}
+}
+@media print{#side,#top,#tabbar,.toolbar,.noprint{display:none!important}body{background:#fff}main{padding:0}#kit{max-width:none;border-radius:0}}
 </style>
 </head>
 <body>
-<header><h1>🎣 Admin</h1><nav id="nav"></nav><span style="margin-left:auto" class="muted" id="who"></span></header>
-<main id="main"><div class="card">Loading…</div></main>
+<div id="app">
+  <aside id="side" aria-label="Admin sections">
+    <div class="brand"><img class="mark" src="icon-180.png" alt="" aria-hidden="true">
+      <div class="nm">CHANNEL NAV<small>ADMIN</small></div></div>
+    <div id="sidenav"></div>
+    <div class="who"></div>
+  </aside>
+  <div id="content">
+    <header id="top"><div class="brand" style="padding:0"><img class="mark" src="icon-180.png" alt="" aria-hidden="true"></div><h1 id="title">Admin</h1></header>
+    <main id="main"><div class="card">Loading…</div></main>
+  </div>
+</div>
+<nav id="tabbar" aria-label="Main sections"></nav>
+<div id="sheet" hidden><div class="pane" role="dialog" aria-label="All sections"><div class="grab"></div><div id="sheetnav"></div><div class="who" style="border-top:1px solid var(--line);margin-top:10px"></div></div></div>
 <script>
 // ---------- setup ----------
+if (/[?&]reset\b/.test(location.search)) { localStorage.removeItem('admin-cfg'); history.replaceState(null, '', location.pathname); }
 const cfg = JSON.parse(localStorage.getItem('admin-cfg') || 'null');
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -50,17 +116,80 @@ function setupForm() {
 
 async function signIn() {
   $('#main').innerHTML = `<div class="card"><h2>Sign in</h2><label>Email</label><input id="em"><button class="act primary" id="send">Email me a code</button>
-  <div id="codebox" hidden><label>Code from the email</label><input id="code"><button class="act primary" id="ver">Sign in</button></div><p id="msg" class="muted"></p></div>`;
-  $('#send').onclick = async () => { const { error } = await sb.auth.signInWithOtp({ email: $('#em').value.trim(), options: { shouldCreateUser: false } }); $('#msg').textContent = error ? error.message : 'Code sent.'; if (!error) $('#codebox').hidden = false; };
+  <div id="codebox" hidden><label>Code from the email</label><input id="code"><button class="act primary" id="ver">Sign in</button></div><p id="msg" class="muted"></p>
+  <p class="muted" style="margin-top:18px">Connected to ${esc(cfg.url || '(no Supabase URL)')} · <a href="#" id="chg" style="color:var(--live)">Change connection</a></p></div>`;
+  $('#chg').onclick = (e) => { e.preventDefault(); localStorage.removeItem('admin-cfg'); location.reload(); };
+  $('#send').onclick = async () => {
+    try {
+      const { error } = await sb.auth.signInWithOtp({ email: $('#em').value.trim(), options: { shouldCreateUser: false } });
+      $('#msg').textContent = error ? error.message : 'Code sent.'; if (!error) $('#codebox').hidden = false;
+    } catch (e) {
+      $('#msg').textContent = "Couldn't reach Supabase. The Supabase URL saved on this device is probably wrong: tap Change connection and enter it again.";
+    }
+  };
   $('#ver').onclick = async () => { const { error } = await sb.auth.verifyOtp({ email: $('#em').value.trim(), token: $('#code').value.trim(), type: 'email' }); if (error) $('#msg').textContent = error.message; else location.reload(); };
 }
 
 const TABS = { Overview: overview, Audience: audience, Engagement: engagement, 'Ads & reports': adsReports, 'Media kit': mediaKit, Sponsors: sponsors, Users: users, Moderation: moderation, Spots: spots, Categories: categories, Broadcast: broadcast, Announcements: announcements, Settings: settings, 'Feedback & crashes': feedback, 'Data health': health, 'Audit log': audit };
+// Sections, grouped like a phone settings app. On a phone: a bottom tab bar (the four you use most + More);
+// on a computer: a left sidebar. Every number card on Overview is a button that opens the section behind it.
+const GROUPS = [
+  ['Today', ['Overview', 'Moderation', 'Feedback & crashes']],
+  ['People', ['Users', 'Audience', 'Engagement']],
+  ['Sponsors & ads', ['Sponsors', 'Ads & reports', 'Media kit']],
+  ['Content', ['Spots', 'Categories', 'Announcements', 'Broadcast']],
+  ['System', ['Settings', 'Data health', 'Audit log']],
+];
+const TABBAR = [['Overview', 'Overview'], ['Moderation', 'Moderation'], ['Sponsors', 'Sponsors'], ['Feedback & crashes', 'Feedback']];
+const IC = {
+  Overview: '<path d="M4 13h6V4H4zM14 20h6v-9h-6zM4 20h6v-4H4zM14 7h6V4h-6z"/>',
+  Moderation: '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
+  'Feedback & crashes': '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-5A8 8 0 1 1 21 12z"/>',
+  Users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.9.7 3.1 2.4 3.5 5.2"/>',
+  Audience: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+  Engagement: '<path d="M3 17l5-5 4 4 8-9"/><path d="M14 7h6v6"/>',
+  Sponsors: '<path d="M3 11l14-6v14L3 13z"/><path d="M7 12.5V18a2 2 0 0 0 4 0v-3.5"/>',
+  'Ads & reports': '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  'Media kit': '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+  Spots: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/>',
+  Categories: '<path d="M4 6h16M4 12h16M4 18h10"/>',
+  Announcements: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  Broadcast: '<path d="M5 12a7 7 0 0 1 14 0M8.5 12a3.5 3.5 0 0 1 7 0"/><circle cx="12" cy="12" r="1"/><path d="M12 13v8"/>',
+  Settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15.1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 4.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  'Data health': '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  'Audit log': '<path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="9"/>',
+  More: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
+};
+const icon = (t, size = 18) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[t] || ''}</svg>`;
+let current = 'Overview', modCount = 0;
+const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const fromSlug = (h) => Object.keys(TABS).find((t) => slug(t) === h);
+const badge = (t) => (t === 'Moderation' && modCount > 0 ? `<span class="badge">${modCount}</span>` : '');
 function nav(active) {
-  $('#nav').innerHTML = Object.keys(TABS).map((t) => `<button class="${t === active ? 'on' : ''}" data-t="${esc(t)}">${esc(t)}</button>`).join('');
-  document.querySelectorAll('#nav button').forEach((b) => (b.onclick = () => show(b.dataset.t)));
+  const list = GROUPS.map(([g, ts]) => `<div class="grp">${esc(g)}</div>` + ts.map((t) =>
+    `<button class="navi${t === active ? ' on' : ''}" data-go="${esc(t)}" aria-current="${t === active ? 'page' : 'false'}">${icon(t)}<span>${esc(t)}</span>${badge(t)}</button>`).join('')).join('');
+  $('#sidenav').innerHTML = list; $('#sheetnav').innerHTML = list;
+  const inBar = TABBAR.some(([t]) => t === active);
+  $('#tabbar').innerHTML = TABBAR.map(([t, short]) => `<button class="${t === active ? 'on' : ''}" data-go="${esc(t)}" aria-label="${esc(t)}">${icon(t, 22)}<span>${esc(short)}</span>${badge(t)}</button>`).join('')
+    + `<button class="${inBar ? '' : 'on'}" id="more" aria-label="More sections">${icon('More', 22)}<span>More</span></button>`;
+  $('#more').onclick = () => { $('#sheet').hidden = false; };
+  $('#title').textContent = active;
+  document.title = `${active} · Channel Nav Admin`;
 }
-async function show(t) { clearCharts(); nav(t); $('#main').innerHTML = '<div class="card">Loading…</div>'; try { await TABS[t](); } catch (e) { $('#main').innerHTML = `<div class="card bad">${esc(e.message || e)}</div>`; } }
+async function show(t) {
+  if (!TABS[t]) t = 'Overview';
+  current = t; $('#sheet').hidden = true; clearCharts(); nav(t);
+  if (location.hash !== '#' + slug(t)) history.pushState(null, '', '#' + slug(t));
+  window.scrollTo(0, 0);
+  $('#main').innerHTML = '<div class="card">Loading…</div>';
+  try { await TABS[t](); } catch (e) { $('#main').innerHTML = `<div class="card bad">${esc(e.message || e)}</div>`; }
+}
+document.addEventListener('click', (e) => {
+  const g = e.target.closest('[data-go]');
+  if (g) { e.preventDefault(); show(g.dataset.go); return; }
+  if (e.target.id === 'sheet') $('#sheet').hidden = true;
+});
+window.addEventListener('popstate', () => { const t = fromSlug(location.hash.slice(1)) || 'Overview'; if (t !== current) show(t); });
 const must = ({ data, error }) => { if (error) throw error; return data; };
 
 
@@ -75,7 +204,10 @@ function chart(id, type, labels, datasets, opts = {}) {
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#A3B4C1' } } }, scales: type === 'doughnut' ? {} : { x: { ticks: { color: '#A3B4C1', maxTicksLimit: 10 }, grid: { color: '#1b2c3a' } }, y: { beginAtZero: true, ticks: { color: '#A3B4C1' }, grid: { color: '#1b2c3a' } } }, ...opts } }));
 }
 const clearCharts = () => { while (charts.length) charts.pop().destroy(); };
-const kpi = (k, v, sub = '') => `<div class="kpi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(sub)}</div></div>`;
+/** A number card. With `go` (a section name) it's a button that opens that section. */
+const kpi = (k, v, sub = '', go = '', hot = false) => go
+  ? `<button type="button" class="kpi${hot ? ' hot' : ''}" data-go="${esc(go)}" aria-label="${esc(k)}: ${esc(v)}. Open ${esc(go)}"><span class="chev" aria-hidden="true">›</span><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(sub)}</div></button>`
+  : `<div class="kpi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(sub)}</div></div>`;
 async function metricsRange(days) {
   const from = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
   return must(await sb.from('metrics_daily').select('day,data').gte('day', from).order('day'));
@@ -88,17 +220,36 @@ async function overview(days = 90) {
   clearCharts();
   const [live, rows] = await Promise.all([sb.rpc('admin_live').then(must), metricsRange(days)]);
   const last30 = rows.slice(-30);
-  $('#main').innerHTML = `<div class="toolbar"><b>Overview</b><select id="rng">${[30, 90, 180, 365].map((d) => `<option ${d === days ? 'selected' : ''} value="${d}">Last ${d} days</option>`).join('')}</select>
-    <button class="act" id="recompute">Recompute numbers</button><span class="muted">Daily numbers refresh hourly. Live counters are real-time.</span></div>
-  <div class="kpis">${kpi('Active right now (1 h)', fmt(live.active_last_hour))}${kpi('Daily active users today', fmt(live.dau_today), `avg ${fmt(avg(last30, 'dau'))}/day over 30 days`)}
-  ${kpi('Weekly active users', fmt(live.wau))}${kpi('Monthly active users', fmt(live.mau), `stickiness ${pct(avg(last30, 'dau'), live.mau)} (DAU/MAU)`)}
-  ${kpi('Installs (first opens)', fmt(live.total_installs), `+${fmt(live.new_installs_today)} today`)}${kpi('Store downloads (entered)', fmt(live.store_downloads_total), 'from App Store / Play Console')}
-  ${kpi('Accounts', fmt(live.total_accounts))}${kpi('Sessions today', fmt(live.sessions_today), `avg ${last30.length ? (last30.reduce((a, r) => a + (Number(r.data.avg_session_min) || 0), 0) / last30.length).toFixed(1) : '—'} min/session`)}
-  ${kpi('Catches logged', fmt(live.catches_total), `+${fmt(live.catches_today)} today`)}${kpi('Public catch reports', fmt(live.public_reports_total))}
-  ${kpi('Fishing groups', fmt(live.groups), `${fmt(live.sharing_now)} boats sharing now`)}${kpi('Alert subscribers', fmt(live.alert_subscribers), `${fmt(live.push_devices)} push devices`)}
-  ${kpi('Forum posts', fmt(live.forum_posts_total))}${kpi('Verified reporters', fmt(live.verified_reporters))}
-  ${kpi('Sponsor impressions (30 d)', fmt(live.ad_impressions_30d), `CTR ${pct(live.ad_clicks_30d, live.ad_impressions_30d)}`)}${kpi('Moderation waiting', fmt(live.moderation_open))}</div>
-  ${rows.length ? '' : '<div class="card warn">No daily numbers yet — click "Recompute numbers" (or wait for the hourly job).</div>'}
+  modCount = Number(live.moderation_open) || 0; nav('Overview');
+  const avgMin = last30.length ? (last30.reduce((a, r) => a + (Number(r.data.avg_session_min) || 0), 0) / last30.length).toFixed(1) : '—';
+  $('#main').innerHTML = `<h2>Overview</h2>
+  ${modCount ? `<button type="button" class="alertbar" data-go="Moderation">${icon('Moderation', 22)}<div><b>${fmt(modCount)} waiting for review</b><div class="muted">Apple requires reports to be handled within 24 hours</div></div><span>›</span></button>` : ''}
+  <div class="sec">Right now</div>
+  <div class="kpis">${kpi('Active in the last hour', fmt(live.active_last_hour), 'people using the app', 'Engagement')}
+  ${kpi('Users today', fmt(live.dau_today), `avg ${fmt(avg(last30, 'dau'))}/day (30 days)`, 'Engagement')}
+  ${kpi('Sessions today', fmt(live.sessions_today), avgMin === '—' ? '' : `avg ${avgMin} min each`, 'Engagement')}
+  ${kpi('Moderation waiting', fmt(live.moderation_open), modCount ? 'tap to review' : 'all clear', 'Moderation', modCount > 0)}</div>
+  <div class="sec">Growth</div>
+  <div class="kpis">${kpi('Installs (first opens)', fmt(live.total_installs), `+${fmt(live.new_installs_today)} today`, 'Audience')}
+  ${kpi('Accounts', fmt(live.total_accounts), 'signed-up users', 'Users')}
+  ${kpi('Weekly active', fmt(live.wau), 'last 7 days', 'Engagement')}
+  ${kpi('Monthly active', fmt(live.mau), `stickiness ${pct(avg(last30, 'dau'), live.mau)}`, 'Engagement')}
+  ${kpi('Store downloads', fmt(live.store_downloads_total), 'typed in from App Store / Play', 'Settings')}</div>
+  <div class="sec">Fishing &amp; community</div>
+  <div class="kpis">${kpi('Catches logged', fmt(live.catches_total), `+${fmt(live.catches_today)} today`, 'Engagement')}
+  ${kpi('Public catch reports', fmt(live.public_reports_total), 'shared on the Catch Map', 'Moderation')}
+  ${kpi('Fishing groups', fmt(live.groups), `${fmt(live.sharing_now)} boats sharing now`, 'Engagement')}
+  ${kpi('Forum posts', fmt(live.forum_posts_total), '', 'Moderation')}
+  ${kpi('Verified reporters', fmt(live.verified_reporters), '', 'Users')}
+  ${kpi('Alert subscribers', fmt(live.alert_subscribers), `${fmt(live.push_devices)} push devices`, 'Broadcast')}</div>
+  <div class="sec">Sponsors</div>
+  <div class="kpis">${kpi('Sponsor views (30 days)', fmt(live.ad_impressions_30d), `tap rate ${pct(live.ad_clicks_30d, live.ad_impressions_30d)}`, 'Ads & reports')}
+  ${kpi('Sponsor taps (30 days)', fmt(live.ad_clicks_30d), '', 'Ads & reports')}</div>
+  <div class="sec">Trends</div>
+  <div class="toolbar"><select id="rng" aria-label="Date range">${[30, 90, 180, 365].map((d) => `<option ${d === days ? 'selected' : ''} value="${d}">Last ${d} days</option>`).join('')}</select>
+    <button class="act" id="recompute">Recompute numbers</button></div>
+  <p class="muted" style="margin:-4px 2px 12px">Daily numbers refresh hourly. The cards above are live.</p>
+  ${rows.length ? '' : '<div class="card warn">No daily numbers yet. Tap "Recompute numbers" (or wait for the hourly job).</div>'}
   <div class="charts"><div class="chartbox"><canvas id="c1"></canvas></div><div class="chartbox"><canvas id="c2"></canvas></div>
   <div class="chartbox"><canvas id="c3"></canvas></div><div class="chartbox"><canvas id="c4"></canvas></div><div class="chartbox"><canvas id="c5"></canvas></div><div class="chartbox"><canvas id="c6"></canvas></div></div>`;
   const L = rows.map((r) => r.day.slice(5));
@@ -539,11 +690,13 @@ async function audit() {
   if (!data.session) return signIn();
   me = data.session.user;
   const prof = (await sb.from('profiles').select('is_admin, display_name').eq('id', me.id).maybeSingle()).data;
-  $('#who').innerHTML = `${esc(me.email)} · <a href="#" id="out" style="color:var(--live)">Sign out</a> · <a href="#" id="reset" style="color:var(--muted)">Change connection</a>`;
-  $('#out').onclick = async (e) => { e.preventDefault(); await sb.auth.signOut(); location.reload(); };
-  $('#reset').onclick = (e) => { e.preventDefault(); localStorage.removeItem('admin-cfg'); location.reload(); };
+  document.querySelectorAll('.who').forEach((w) => {
+    w.innerHTML = `<div>Signed in as ${esc(me.email)}</div><a href="#" class="out">Sign out</a><a href="#" class="reset" style="color:var(--muted)">Change connection</a>`;
+    w.querySelector('.out').onclick = async (e) => { e.preventDefault(); await sb.auth.signOut(); location.reload(); };
+    w.querySelector('.reset').onclick = (e) => { e.preventDefault(); localStorage.removeItem('admin-cfg'); location.reload(); };
+  });
   if (!prof?.is_admin) { $('#main').innerHTML = '<div class="card bad">This account is not an admin. Set profiles.is_admin = true in Supabase for your account.</div>'; return; }
-  show('Overview');
+  show(fromSlug(location.hash.slice(1)) || 'Overview');
 })();
 </script>
 </body>
