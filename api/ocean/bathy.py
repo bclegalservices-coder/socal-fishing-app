@@ -33,14 +33,13 @@ def shaded_grid(depth_ft: Grid) -> tuple[Grid, Grid, Grid]:
 
 
 def colorize_relief(depth_vals: np.ndarray, hs_vals: np.ndarray, slope_vals: np.ndarray, dropoff_deg: float = 6.0) -> np.ndarray:
+    """Blue depth shading with soft relief light. (Oct 24: the amber "structure" tint on steep ground is gone — on the
+    Catalina and Santa Barbara slopes it turned whole areas of deep water tan, so it read as land. Drop-offs now show
+    as a gentle shadow instead.)"""
     rgba = apply(depth_vals, DEPTH_FT, alpha=255).astype(np.float64)
-    shade = 0.55 + 0.6 * np.nan_to_num(hs_vals, nan=0.5)
-    rgba[..., :3] = np.clip(rgba[..., :3] * shade[..., None], 0, 255)
-    # structure finder: tint steep ground (drop-offs, canyon walls, bank edges) amber
-    steep = np.nan_to_num(slope_vals, nan=0) >= dropoff_deg
-    rgba[steep, 0] = rgba[steep, 0] * 0.5 + 245 * 0.5
-    rgba[steep, 1] = rgba[steep, 1] * 0.5 + 165 * 0.5
-    rgba[steep, 2] = rgba[steep, 2] * 0.5 + 36 * 0.5
+    shade = 0.78 + 0.32 * np.nan_to_num(hs_vals, nan=0.6)
+    steep = np.clip((np.nan_to_num(slope_vals, nan=0) - 2.0) / 14.0, 0, 1)     # walls a touch darker, no color change
+    rgba[..., :3] = np.clip(rgba[..., :3] * (shade * (1 - 0.12 * steep))[..., None], 0, 255)
     return rgba.astype(np.uint8)
 
 

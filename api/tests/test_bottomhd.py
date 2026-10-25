@@ -37,12 +37,12 @@ def test_draw_colors_water_and_leaves_land_clear():
     dem = -(2 + yy * 0.09)
     dem[:10] = 4.0                      # land strip
     img = draw(dem.astype(np.float32), 16, 33.4)
-    assert img.shape == (256, 256, 4)
-    assert (img[:10, :, 3] == 0).all() and (img[20:, :, 3] == 255).all()
+    assert img.shape == (512, 512, 4)                       # drawn at 2× for Retina screens (v3, Oct 24)
+    assert (img[:16, :, 3] == 0).all() and (img[44:, :, 3] == 255).all()
     lv, major = levels_for(16)
     assert 5 in lv and 60 in major and 100 in major
     # contour lines darken some pixels in each column (depth crosses many 5/10 ft levels down the tile)
-    assert (img[20:, 128, :3].sum(axis=1) < img[20:, 128, :3].sum(axis=1).max() * 0.8).any()
+    assert (img[44:, 256, :3].sum(axis=1) < img[44:, 256, :3].sum(axis=1).max() * 0.8).any()
 
 
 def test_pyramid_draws_every_zoom():

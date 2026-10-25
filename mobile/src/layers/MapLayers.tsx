@@ -85,7 +85,7 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
         </RasterSource>
       ) : null}
       {keep('bathy', s.on.bathy) && bathy && okTile(bathy.tiles) ? (
-        <RasterSource key={`bathy-${idOf(bathy.tiles)}`} id={`bathy-${idOf(bathy.tiles)}`} tiles={[bathy.tiles]} tileSize={256} minzoom={5} maxzoom={11}>
+        <RasterSource key={`bathy-${idOf(bathy.tiles)}`} id={`bathy-${idOf(bathy.tiles)}`} tiles={[bathy.tiles]} tileSize={256} minzoom={5} maxzoom={12}>
           <Layer beforeId={below(SHADING_TOP)} type="raster" id={`bathy-${idOf(bathy.tiles)}-layer`} style={{ visibility: vis(s.on.bathy), rasterOpacity: s.opacity.bathy, rasterFadeDuration: 0 }} />
         </RasterSource>
       ) : null}
@@ -102,12 +102,12 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
         </GeoJSONSource>
       ) : null}
       {keep(`contours-${detail}`, s.on.contours) && contourTiles ? (
-        <RasterSource key={`ctr-${detail}-${idOf(contourTiles)}`} id={`contours-${detail}-${idOf(contourTiles)}`} tiles={[contourTiles]} tileSize={256} minzoom={9} maxzoom={13}>
+        <RasterSource key={`ctr-${detail}-${idOf(contourTiles)}`} id={`contours-${detail}-${idOf(contourTiles)}`} tiles={[contourTiles]} tileSize={256} minzoom={9} maxzoom={14}>
           <Layer beforeId={below(FEATURES_TOP)} type="raster" id={`contours-${detail}-${idOf(contourTiles)}-layer`} minzoom={8.5} style={{ visibility: vis(s.on.contours), rasterOpacity: 1, rasterFadeDuration: 0 }} />
         </RasterSource>
       ) : null}
       {(['std', 'max'] as const).filter((d) => d !== detail && seen.current[`contours-${d}`] && bathy?.contour_tiles?.[d]).map((d) => (
-        <RasterSource key={`ctr-${d}-${idOf(bathy!.contour_tiles![d]!)}`} id={`contours-${d}-${idOf(bathy!.contour_tiles![d]!)}`} tiles={[bathy!.contour_tiles![d]!]} tileSize={256} minzoom={9} maxzoom={13}>
+        <RasterSource key={`ctr-${d}-${idOf(bathy!.contour_tiles![d]!)}`} id={`contours-${d}-${idOf(bathy!.contour_tiles![d]!)}`} tiles={[bathy!.contour_tiles![d]!]} tileSize={256} minzoom={9} maxzoom={14}>
           <Layer beforeId={below(FEATURES_TOP)} type="raster" id={`contours-${d}-${idOf(bathy!.contour_tiles![d]!)}-layer`} minzoom={8.5} style={{ visibility: 'none' }} />
         </RasterSource>
       ))}

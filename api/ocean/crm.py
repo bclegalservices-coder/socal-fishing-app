@@ -2,8 +2,10 @@
 Model (3 arc-second, ~90 m; vs. the ~1.8 km global grid used before). What it updates:
   • "Relief & structure" tiles, now to zoom 12, and the depth you get when you tap the map;
   • the vector "Depth contours" (from a ~700 m copy, as before but from much better data);
-  • two NEW raster contour layers for the "Contour detail" choice: Standard and Max (lots of lines: every 10 ft
-    near shore when zoomed in), with depth labels on the bold lines. Drawn zoom 9–13; the map stretches them past 13.
+  • two raster contour layers for the "Contour detail" choice: Standard and Max, with depth labels on the index lines.
+    Drawn zoom 9–14 at 512 px (sharp on Retina; past 14 the map stretches them 2×). Since Oct 24 (v3) the lines are smooth chart-style curves with
+    crowding control — see contourdraw.py. A new build goes to its own folder and the app switches over only when
+    every block is finished, so run `crm` again until the log says the app now uses the new lines.
 Where the model has no data (south of 32°N, Mexico) the old global grid fills in.
 Resumable: the downloaded model is saved to storage, and contour squares are saved per ~80 km block.
 """
@@ -39,7 +41,7 @@ CRM_FILE_ID = "ngdc:crm_vol6.nc"
 CRM_BOX = (-124.0, 32.0, -114.0, 37.0)
 STEP = 1 / 1200.0                # 3 arc-seconds in degrees
 BLOCK = 0.5
-CONTOUR_TOP, CONTOUR_MAX = 9, 13
+CONTOUR_TOP, CONTOUR_MAX = 9, 14       # Oct 24: one zoom closer, so lines stay thin and sharp when zoomed in a lot
 SIZE = 256
 DENSITIES = ("std", "max")
 
@@ -382,26 +384,94 @@ def square_depth_ft(g: Grid, z: int, x: int, y: int) -> np.ndarray:
     return np.where((v < 0) & ~outside, -v * 3.28084, np.nan).astype(np.float32)
 
 
-def contour_tree(g: Grid, put, z: int, x: int, y: int, bbox: tuple, stats: dict) -> np.ndarray:
-    """Depth for square (z, x, y), drawing it (both densities) and every square under it down to CONTOUR_MAX."""
-    from .contourtiles import lines_only
-    from .bottomhd import half
+CONTOUR_VERSION = "v4"          # Oct 24: smooth chart-style lines (see contourdraw.py). New folder, so old squares never mix in.
+
+
+class ZoomDepths:
+    """The model, blurred just enough for each zoom (zoomed out = more blur), for smooth lines at every scale."""
+
+    def __init__(self, g: Grid, res_m: float = 90.0):
+        self.g, self.res_m, self._cache = g, res_m, {}
+        self.water = np.isfinite(g.values) & (g.values < 0)
+
+    def for_zoom(self, z: int) -> np.ndarray:
+        if z not in self._cache:
+            from scipy import ndimage
+            lat = float(np.mean(self.g.lats))
+            px_m = 40075016.685578488 / (2 ** z) / 512 * math.cos(math.radians(lat))
+            sig = 0.5 * px_m / self.res_m                       # in model cells
+            depth = np.where(self.water, -self.g.values.astype(np.float64) * 3.28084, 0.0)
+            if sig > 0.6:
+                w = ndimage.gaussian_filter(self.water.astype(np.float64), sig, mode="nearest")
+                v = ndimage.gaussian_filter(depth, sig, mode="nearest")
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    depth = np.where(w > 1e-3, v / np.maximum(w, 1e-3), 0.0)
+            self._cache[z] = depth.astype(np.float32)             # ~100 MB per zoom for the whole region; 5 zooms fit easily
+        return self._cache[z]
+
+    def square(self, z: int, x: int, y: int) -> np.ndarray:
+        """Depths (ft, positive down, NaN on land) for square (z, x, y) at 512 px plus the drawing margin."""
+        from scipy.ndimage import map_coordinates
+        from .contourdraw import PAD, SCALE
+        n = 256 * SCALE
+        k = (np.arange(-PAD, n + PAD) + 0.5) / n
+        N = 2 ** z
+        lon = (x + k) / N * 360.0 - 180.0
+        lat = np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * (y + k) / N))))
+        fi = (lat - self.g.lats[0]) / (self.g.lats[1] - self.g.lats[0])
+        fj = (lon - self.g.lons[0]) / (self.g.lons[1] - self.g.lons[0])
+        FI, FJ = np.meshgrid(fi, fj, indexing="ij")
+        d = map_coordinates(self.for_zoom(z), [FI, FJ], order=3, mode="nearest")
+        wet = map_coordinates(self.water.astype(np.float32), [FI, FJ], order=1, mode="nearest") > 0.5
+        outside = (FI < 0) | (FI > self.g.lats.size - 1) | (FJ < 0) | (FJ > self.g.lons.size - 1)
+        return np.where(wet & ~outside & (d > 0), d, np.nan).astype(np.float32)
+
+
+def contour_square(zd: ZoomDepths, z: int, x: int, y: int, density: str) -> np.ndarray | None:
+    """One finished contour square (RGBA 512×512) or None when there's nothing to draw."""
+    from .contourdraw import blur_sigma_px, render, smooth_tile_depth
     from .tiles import tile_bounds
-    from .contourtiles import levels  # noqa: F401  (keeps the import cost out of the loop)
+    d = zd.square(z, x, y)
+    if not np.isfinite(d).any():
+        return None
     w, s, e, n = tile_bounds(z, x, y)
-    if e < bbox[0] or w > bbox[2] or n < bbox[1] or s > bbox[3]:
-        return np.full((SIZE, SIZE), np.nan, np.float32)
-    if z == CONTOUR_MAX:
-        d = square_depth_ft(g, z, x, y)
-    else:
-        q = [contour_tree(g, put, z + 1, 2 * x + dx, 2 * y + dy, bbox, stats) for dy in (0, 1) for dx in (0, 1)]
-        d = half(np.block([[q[0], q[1]], [q[2], q[3]]]))
-    for dens in DENSITIES:
-        img = lines_only(d, z, dens)
-        if img is not None:
-            from .bottomhd import png
-            put(f"{dens}/{z}/{x}/{y}.png", png(img)); stats["tiles"] += 1
-    return d
+    d = smooth_tile_depth(d, blur_sigma_px(z, zd.res_m, (s + n) / 2))
+    return render(d, z, density)
+
+
+_ZD: "ZoomDepths | None" = None          # shared with the drawing processes (copied to them when they start)
+
+
+def _draw_one(job):
+    z, x, y, dens = job
+    from .bottomhd import png
+    img = contour_square(_ZD, z, x, y, dens)
+    return f"{dens}/{z}/{x}/{y}.png", (png(img) if img is not None else None)
+
+
+def block_jobs(z0: int, x0: int, y0: int, bbox: tuple):
+    from .tiles import tile_bounds
+    for z in range(z0, CONTOUR_MAX + 1):
+        f = 2 ** (z - z0)
+        for x in range(x0 * f, (x0 + 1) * f):
+            for y in range(y0 * f, (y0 + 1) * f):
+                w, s, e, n = tile_bounds(z, x, y)
+                if e < bbox[0] or w > bbox[2] or n < bbox[1] or s > bbox[3]:
+                    continue
+                for dens in DENSITIES:
+                    yield (z, x, y, dens)
+
+
+def contour_block(zd: ZoomDepths, put, z0: int, x0: int, y0: int, bbox: tuple, stats: dict, procs=None):
+    """Every contour square inside one zoom-9 block, zoom 9 through CONTOUR_MAX, both densities.
+    `procs` = a process pool to draw several squares at once (GitHub's machines have 4 processors)."""
+    global _ZD
+    _ZD = zd
+    jobs = list(block_jobs(z0, x0, y0, bbox))
+    results = procs.map(_draw_one, jobs, chunksize=4) if procs is not None else map(_draw_one, jobs)
+    for key, data in results:
+        if data is not None:
+            put(key, data); stats["tiles"] += 1
 
 
 def run(store, region: str, http, log=print, budget_s: float = 48 * 60, force: bool = False):
@@ -410,42 +480,66 @@ def run(store, region: str, http, log=print, budget_s: float = 48 * 60, force: b
     t0 = time.time()
     bbox = REGIONS[region]
     cache = f"work/crm/{region}.npz"
-    raw = None if force else store.get(cache)
+    raw = store.get(cache)                      # the downloaded model is reused even on a rebuild (it doesn't change)
     if raw:
         g = from_npz(raw); log(f"crm: using the saved relief model ({g.values.shape[1]}×{g.values.shape[0]})")
     else:
         g = fetch_crm(bbox, http, log)
         store.put(cache, to_npz(g), "application/octet-stream")
-    base = f"tiles/contours/{region}"
-    extra = {"contour_tiles": {d: store.url(f"{base}/{d}") + "/{z}/{x}/{y}.png" for d in DENSITIES},
-             "contour_zooms": [CONTOUR_TOP, CONTOUR_MAX], "relief_model": g.meta.get("dataset", CRM_ID)}
-    work_key = f"work/crm/{region}/done.json"
+    base = f"tiles/contours/{region}/{CONTOUR_VERSION}"
+    work_key = f"work/crm/{region}/{CONTOUR_VERSION}/done.json"
     done = set() if force else set(json.loads(store.get(work_key) or b"[]"))
+    old = json.loads(store.get("manifests/bathy.json") or b"{}")
+    old_extra = {k: v for k, v in ((old.get("dates") or [{}])[0]).items() if k in ("contour_tiles", "contour_zooms", "contours_complete")}
+    tops = list(tiles_for_bbox(bbox, CONTOUR_TOP))
+
+    def extra_now(complete: bool) -> dict:
+        stamp = time.strftime("%Y%m%d%H%M", time.gmtime())
+        if complete:          # switch the app to the new lines only once every block is drawn
+            return {"contour_tiles": {d: store.url(f"{base}/{d}") + "/{z}/{x}/{y}.png?v=" + stamp for d in DENSITIES},
+                    "contour_zooms": [CONTOUR_TOP, CONTOUR_MAX], "contour_style": CONTOUR_VERSION, "contours_complete": True,
+                    "relief_model": g.meta.get("dataset", CRM_ID)}
+        return {**old_extra, "relief_model": g.meta.get("dataset", CRM_ID)}
+
     if "relief" not in done:
-        run_bathy(region, None, grid=g, extra=extra, zooms=range(5, 13))
+        run_bathy(region, None, grid=g, extra=extra_now(False), zooms=range(5, 13))
         done.add("relief"); store.put(work_key, json.dumps(sorted(done)).encode(), "application/json")
-        log("crm: relief tiles, depth lookup and vector contours updated")
+        log("crm: relief tiles (new smooth colors), depth lookup and vector contours updated")
+    zd = ZoomDepths(g)
+    global _ZD
+    _ZD = zd
+    for z in range(CONTOUR_TOP, CONTOUR_MAX + 1):              # blur once per zoom, before the drawing processes start
+        zd.for_zoom(z)
+    procs = None
+    try:
+        import multiprocessing as mp
+        from concurrent.futures import ProcessPoolExecutor
+        procs = ProcessPoolExecutor(max_workers=max(1, min(4, (mp.cpu_count() or 1))), mp_context=mp.get_context("fork"))
+    except Exception as e:                                      # no fork (e.g. Windows): draw one at a time
+        log(f"crm: drawing one square at a time ({str(e)[:80]})")
     pool = ThreadPoolExecutor(max_workers=8)
     pending, stats = [], {"tiles": 0}
     put = lambda k, data: pending.append(pool.submit(store.put, f"{base}/{k}", data, "image/png"))   # noqa: E731
-    tops = list(tiles_for_bbox(bbox, CONTOUR_TOP))
     stopped = False
     for (z, x, y) in tops:
         k = f"{z}/{x}/{y}"
         if k in done:
             continue
         if time.time() - t0 > budget_s:
-            stopped = True; log("crm: time's up for this run — saving progress (run again to continue)"); break
-        contour_tree(g, put, z, x, y, bbox, stats)
+            stopped = True; log("crm: time's up for this run — saving progress (run `crm` again to continue)"); break
+        contour_block(zd, put, z, x, y, bbox, stats, procs)
         for f in pending:
             f.result()
         pending.clear()
         done.add(k); store.put(work_key, json.dumps(sorted(done)).encode(), "application/json")
         log(f"crm: contour block {k} done — {stats['tiles']} squares this run ({len([d for d in done if '/' in d])}/{len(tops)} blocks)")
     pool.shutdown(wait=True)
-    # make sure the manifest carries the contour tiles (also when the relief step ran in an earlier run)
+    if procs is not None:
+        procs.shutdown(wait=True)
+    complete = all(f"{z}/{x}/{y}" in done for (z, x, y) in tops)
     m = json.loads(store.get("manifests/bathy.json") or b"{}")
     if m.get("dates"):
-        m["dates"][0].update(extra); m["dates"][0]["contours_complete"] = not stopped
+        m["dates"][0].update(extra_now(complete))
         store.put("manifests/bathy.json", json.dumps(m).encode(), "application/json")
-    log(f"crm: saved — {len([d for d in done if '/' in d])}/{len(tops)} contour blocks{' (run again to continue)' if stopped else ''}")
+    log(f"crm: saved — {len([d for d in done if '/' in d])}/{len(tops)} contour blocks"
+        + (" — the app now uses the new lines" if complete else " (run `crm` again to continue; the app keeps the old lines until it's finished)"))

@@ -3,7 +3,7 @@ import io
 
 import numpy as np
 
-from ocean.contourtiles import levels, lines_only
+from ocean.contourtiles import levels, lines_only  # older drawer, still used by the vector/legacy paths
 from ocean.grid import Grid
 
 
@@ -33,17 +33,67 @@ def test_max_has_more_lines_than_standard():
 
 
 def test_contour_pyramid_both_densities():
-    from ocean.crm import CONTOUR_TOP, contour_tree
+    from ocean.crm import CONTOUR_TOP, ZoomDepths, contour_block
     from ocean.tiles import tiles_for_bbox
     lats = np.arange(33.30, 33.60, 1 / 1200) + 1 / 2400; lons = np.arange(-118.60, -118.20, 1 / 1200) + 1 / 2400
     la = lats[:, None] + 0 * lons[None, :]
     g = Grid(lats, lons, (-(5 + (33.58 - la) * 4000)).astype(np.float32), {})
     got = {}
     bbox = (-118.45, 33.42, -118.43, 33.44)
+    zd = ZoomDepths(g)
     for z, x, y in tiles_for_bbox(bbox, CONTOUR_TOP):
-        contour_tree(g, lambda k, d: got.__setitem__(k, d), z, x, y, bbox, {"tiles": 0})
+        contour_block(zd, lambda k, d: got.__setitem__(k, d), z, x, y, bbox, {"tiles": 0})
     assert {k.split("/")[0] for k in got} == {"std", "max"}
-    assert {int(k.split("/")[1]) for k in got} == set(range(9, 14))
+    assert {int(k.split("/")[1]) for k in got} == set(range(9, 15))
+
+
+def _slope_square(n=512 + 48, ft_per_px=1.0, start=5.0):
+    yy = np.mgrid[0:n, 0:n][0].astype(np.float64)
+    return start + yy * ft_per_px + np.sin(np.mgrid[0:n, 0:n][1] / 40.0) * 6
+
+
+def test_new_lines_are_smooth_and_antialiased():
+    """v3 lines: soft (anti-aliased) edges instead of hard pixel steps, and Max draws more than Standard."""
+    from ocean.contourdraw import render
+    d = _slope_square()
+    a = render(d, 12, "std", labels=False); b = render(d, 12, "max", labels=False)
+    assert a.shape == (512, 512, 4)
+    alpha = b[..., 3]
+    assert ((alpha > 0) & (alpha < 100)).sum() > 0.3 * (alpha > 0).sum()      # lots of partial pixels = smooth edges
+    assert (b[..., 3] > 0).sum() > (a[..., 3] > 0).sum()
+
+
+def test_crowded_walls_keep_only_the_main_lines():
+    """On a steep wall, minor lines would sit 1–2 px apart — only the round-number lines are drawn there."""
+    from ocean.contourdraw import GAP, PAD, declutter, levels, trace
+    steep = _slope_square(ft_per_px=12.0, start=400.0)         # ~12 ft per px: 50 ft lines would be 4 px apart
+    lv, major = levels("max", 13)
+    raw = trace(steep, lv)
+    kept = declutter(raw, np.full(steep.shape, 12.0), major)
+    assert 1000.0 in kept and 1500.0 in kept                  # 500-ft lines have room (≈42 px apart)
+    assert 950.0 in raw and 950.0 not in kept                 # 50-ft lines (4 px apart) are left out
+    assert GAP > 4 and PAD > 0
+
+
+def test_land_stays_clear_and_squares_join():
+    from ocean.contourdraw import PAD, render
+    d = _slope_square()
+    d[: PAD + 60] = np.nan                                     # land along the top
+    img = render(d, 12, "max", labels=False)
+    assert (img[:50, :, 3] == 0).all()
+    # two neighbouring squares traced with the margin: a line crossing the shared edge lands in the same place
+    from ocean.crm import ZoomDepths, contour_square
+    lats = np.arange(33.30, 33.60, 1 / 1200); lons = np.arange(-118.60, -118.20, 1 / 1200)
+    la = lats[:, None] + 0 * lons[None, :]; lo = 0 * lats[:, None] + lons[None, :]
+    g = Grid(lats, lons, (-(20 + (33.58 - la) * 3000 + np.sin(lo * 300) * 15)).astype(np.float32), {})
+    zd = ZoomDepths(g)
+    from ocean.tiles import lonlat_to_tile
+    x, y = lonlat_to_tile(-118.40, 33.45, 12)
+    left = contour_square(zd, 12, x, y, "max"); right = contour_square(zd, 12, x + 1, y, "max")
+    ea = left[:, -1, 3].astype(int); eb = right[:, 0, 3].astype(int)
+    ia = np.nonzero(ea > 60)[0]; ib = np.nonzero(eb > 60)[0]
+    assert len(ia) and len(ib)
+    assert all(np.min(np.abs(ib - i)) <= 3 for i in ia)        # every line leaving one square enters the next
 
 
 def test_uses_new_noaa_name_and_converts_longitude():

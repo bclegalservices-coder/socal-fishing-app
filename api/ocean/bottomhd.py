@@ -37,6 +37,7 @@ AREAS = {
     "pilot": (-118.65, 33.25, -118.05, 33.85),
 }
 TOP_Z, MAX_Z = 11, 16
+HD_VERSION = "v4"            # Oct 24: smooth chart-style lines at 512 px (see contourdraw.py)
 SIZE = 256
 M_TO_FT = 3.28084
 EARTH = 40075016.685578488
@@ -137,7 +138,7 @@ def link_url(u: str) -> str:
 DEPTH_STOPS_FT = [0, 6, 15, 30, 60, 120, 250, 500, 1000, 3000]
 DEPTH_COLORS = np.array([
     [236, 226, 128], [205, 228, 122], [160, 220, 140], [104, 206, 178], [70, 186, 210],
-    [48, 156, 214], [36, 122, 198], [28, 92, 172], [22, 68, 140], [16, 48, 108]], dtype=np.float64)
+    [48, 156, 214], [40, 130, 202], [34, 108, 182], [30, 90, 160], [28, 76, 140]], dtype=np.float64)   # Oct 24: deep water lighter (was near-black once shaded)
 
 
 def levels_for(z: int) -> tuple[np.ndarray, set]:
@@ -174,21 +175,34 @@ def draw(dem_m: np.ndarray, z: int, lat: float) -> np.ndarray | None:
     rgb = np.empty(depth_ft.shape + (3,))
     for c in range(3):
         rgb[..., c] = np.interp(depth_ft, DEPTH_STOPS_FT, DEPTH_COLORS[:, c])
-    rgb *= (0.28 + 1.0 * hs)[..., None]                     # strong light/shadow so rocks and ledges pop
+    rgb *= (0.5 + 0.7 * hs)[..., None]                      # light/shadow so rocks and ledges pop (softer since Oct 24)
     # contour lines (shared with the region-wide contour layer)
     from .contourtiles import contour_pixels
-    lv, major = levels_for(z)
-    thin, bold, lvl = contour_pixels(depth_ft, water, lv, major)
-    # Oct 24: lines thinner and lighter (were 3 px wide and 75% dark): every line 1 px; main depths just a bit darker.
-    rgb[thin] = rgb[thin] * 0.72 + np.array([20, 40, 55]) * 0.28
-    rgb[bold] = rgb[bold] * 0.5 + np.array([15, 30, 42]) * 0.5
     out = np.zeros(depth_ft.shape + (4,), dtype=np.uint8)
     out[..., :3] = np.clip(rgb, 0, 255).astype(np.uint8)
     out[..., 3] = np.where(water, 255, 0)
-    if z >= 14:                                                     # depth numbers on the bold lines
-        from .contourtiles import label_spots, put_labels
-        out = put_labels(out, label_spots(bold, lvl))
-    return out
+    return hd_lines(out, dem_m, z, lat)
+
+
+def hd_lines(shaded: np.ndarray, dem_m: np.ndarray, z: int, lat: float) -> np.ndarray:
+    """Oct 24 (v3): smooth chart-style contour lines (contourdraw.py) drawn over the shaded square at 512 px, instead of
+    the old pixel-step lines. Returns RGBA 512×512."""
+    from PIL import Image
+    from scipy import ndimage
+    from .contourdraw import PAD, SCALE, blur_sigma_px, render, smooth_tile_depth
+    n = SIZE * SCALE
+    base = np.array(Image.fromarray(shaded, "RGBA").resize((n, n), Image.BILINEAR))
+    depth = np.where(np.isfinite(dem_m) & (dem_m < 0), -dem_m * M_TO_FT, np.nan).astype(np.float64)
+    pad = PAD // SCALE
+    big = np.pad(depth, pad, mode="edge")
+    wet = np.isfinite(big)
+    filled = np.where(wet, big, 0.0)
+    up = ndimage.zoom(filled, SCALE, order=3)
+    upw = ndimage.zoom(wet.astype(np.float32), SCALE, order=1) > 0.5
+    d = np.where(upw & (up > 0), up, np.nan)
+    d = smooth_tile_depth(d, blur_sigma_px(z, 8.0, lat))
+    img = render(d, z, "hd", base=base, labels=z >= 14)
+    return img if img is not None else base
 
 
 def png(rgba: np.ndarray) -> bytes:
@@ -285,8 +299,8 @@ def run(store, area: str, http, log=print, budget_s: float = 48 * 60, force: boo
     from .tiles import tiles_for_bbox
     t0 = time.time()
     bbox = AREAS[area]
-    base = f"tiles/bottomhd/{area}"
-    work_key = f"work/bottomhd/{area}/done.json"
+    base = f"tiles/bottomhd/{area}/{HD_VERSION}"
+    work_key = f"work/bottomhd/{area}/{HD_VERSION}/done.json"
     done = set() if force else set(json.loads(store.get(work_key) or b"[]"))
     key = latest_scheme_key(http)
     log(f"bottomhd: tile index {key.split('/')[-1]}")
@@ -319,9 +333,14 @@ def run(store, area: str, http, log=print, budget_s: float = 48 * 60, force: boo
         store.put(work_key, json.dumps(sorted(done)).encode(), "application/json")
         log(f"bottomhd: block {k} done — {stats['tiles']} map squares so far ({len(done)}/{len(tops)} blocks)")
     pool.shutdown(wait=True)
+    complete = all(f"{z}/{x}/{y}" in done for (z, x, y) in tops)
+    if not complete and store.get("manifests/bottomhd.json"):
+        log(f"bottomhd: {len(done)}/{len(tops)} blocks drawn with the new lines — run `bottomhd` again to continue "
+            "(the app keeps the old HD bottom until it's finished)")
+        return
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M")      # new address each build, so phones don't show old cached squares
     manifest = {"key": "bottomhd", "label": "HD bottom", "tiles": store.url(base) + "/{z}/{x}/{y}.png?v=" + stamp,
-                "minzoom": TOP_Z, "maxzoom": MAX_Z, "areas": {area: list(bbox)}, "complete": not stopped,
+                "minzoom": TOP_Z, "maxzoom": MAX_Z, "areas": {area: list(bbox)}, "complete": complete, "style": HD_VERSION,
                 "built_at": datetime.now(timezone.utc).isoformat(), "source": "NOAA BlueTopo (Office of Coast Survey)",
                 "note": "Seafloor detail from NOAA surveys. For fishing, not navigation."}
     store.put("manifests/bottomhd.json", json.dumps(manifest).encode(), "application/json")
