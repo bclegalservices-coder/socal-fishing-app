@@ -57,3 +57,21 @@ def test_pyramid_draws_every_zoom():
         build_tree(read, lambda k, d: got.__setitem__(k, d), z, x, y, bbox, {"tiles": 0})
     zooms = {int(k.split("/")[0]) for k in got}
     assert zooms == {11, 12, 13, 14, 15, 16}
+
+
+def test_restore_points_the_app_back_at_an_earlier_build():
+    import json
+    from ocean.bottomhd import restore
+    class Store:
+        def __init__(self): self.d = {}
+        def get(self, k): return self.d.get(k)
+        def put(self, k, v, ct=None): self.d[k] = v
+        def url(self, k): return "https://data.example/" + k
+    st = Store()
+    st.put("work/bottomhd/pilot/done.json", b'["11/1/2"]')
+    st.put("manifests/bottomhd.json", json.dumps({"tiles": "https://data.example/tiles/bottomhd/pilot/v4/{z}/{x}/{y}.png"}).encode())
+    assert restore(st, "pilot", "legacy", log=lambda *a: None)
+    m = json.loads(st.get("manifests/bottomhd.json"))
+    assert m["tiles"].startswith("https://data.example/tiles/bottomhd/pilot/{z}/{x}/{y}.png?v=") and m["style"] == "legacy"
+    assert not restore(st, "pilot", "v3", log=lambda *a: None)            # nothing saved for v3 → nothing changed
+    assert json.loads(st.get("manifests/bottomhd.json"))["style"] == "legacy"

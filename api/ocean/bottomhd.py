@@ -345,3 +345,28 @@ def run(store, area: str, http, log=print, budget_s: float = 48 * 60, force: boo
                 "note": "Seafloor detail from NOAA surveys. For fishing, not navigation."}
     store.put("manifests/bottomhd.json", json.dumps(manifest).encode(), "application/json")
     log(f"bottomhd: saved — {len(done)}/{len(tops)} blocks, {stats['tiles']} map squares this run{'' if not stopped else ' (run again to continue)'}")
+
+
+def restore(store, area: str, version: str, log=print) -> bool:
+    """Point the app back at an earlier HD bottom build — nothing is redrawn. Every build since Oct 24 lives in its own
+    folder: "legacy" = the build from before the smooth-line versions (tiles/bottomhd/<area>/), "v3", "v4" = the newer ones."""
+    folders = {"legacy": (f"tiles/bottomhd/{area}", f"work/bottomhd/{area}/done.json")}
+    for v in ("v3", "v4"):
+        folders[v] = (f"tiles/bottomhd/{area}/{v}", f"work/bottomhd/{area}/{v}/done.json")
+    for v, (_, wk) in folders.items():
+        n = len(json.loads(store.get(wk) or b"[]"))
+        log(f"bottomhd-restore: build '{v}': {n} blocks drawn" + ("  <- restoring this one" if v == version else ""))
+    if version not in folders:
+        log(f"bottomhd-restore: unknown version '{version}' — use legacy, v3 or v4"); return False
+    base, wk = folders[version]
+    if not json.loads(store.get(wk) or b"[]"):
+        log(f"bottomhd-restore: build '{version}' has nothing saved, so nothing was changed"); return False
+    bbox = AREAS[area]
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M")
+    manifest = {"key": "bottomhd", "label": "HD bottom", "tiles": store.url(base) + "/{z}/{x}/{y}.png?v=" + stamp,
+                "minzoom": TOP_Z, "maxzoom": MAX_Z, "areas": {area: list(bbox)}, "complete": True,
+                "built_at": datetime.now(timezone.utc).isoformat(), "style": version, "restored": True,
+                "source": "NOAA BlueTopo (Office of Coast Survey)", "note": "Seafloor detail from NOAA surveys. For fishing, not navigation."}
+    store.put("manifests/bottomhd.json", json.dumps(manifest).encode(), "application/json")
+    log(f"bottomhd-restore: the app now shows the '{version}' HD bottom (phones pick it up within a few minutes)")
+    return True

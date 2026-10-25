@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "sst, chl, bathy, wind, rules, harbors, navmask / navmask-rebuild (auto-route water map), bottomhd (HD bottom), crm (sharper seafloor + contour detail), all, verify or discover"
+        description: "sst, chl, bathy, wind, rules, harbors, navmask / navmask-rebuild (auto-route water map), bottomhd (HD bottom), bottomhd-restore (go back to the HD bottom from before the smooth-line builds; -v3 / -v4 for those), crm (sharper seafloor + contour detail), all, verify or discover"
         default: "all"
 
 jobs:

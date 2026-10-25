@@ -5,7 +5,14 @@ import numpy as np
 SST_F = {"min": 54.0, "max": 78.0, "bands": 1.0, "stops": [
     "#493dab", "#4a57db", "#4172f3", "#368df9", "#2ca6f1", "#26bee0", "#26d2ca", "#2de3b1", "#3cf198", "#50f980", "#6afd6a", "#87fd58",
     "#a5f749", "#c3ed3c", "#ddde33", "#f2cb2c", "#ffb526", "#ff9c21", "#ff811d", "#fa6619", "#e84b14", "#d0330e", "#b71f08", "#a01101"]}
-CHL = {"min": 0.03, "max": 10.0, "log": True, "stops": ["#1b2a6b", "#1f5f8b", "#1f8f8a", "#3fae6a", "#9cc95a", "#e1d85a", "#b0753a"]}
+# Chlorophyll (Oct 24, v2): 20 crisp bands, each 1/10 of a tenfold step, from 0.05 to 5 mg/m³ — the range SoCal water
+# actually spans. Deep "blue water" is rich blue, the 0.15–0.4 edge fish hold on turns cyan → aqua → green in a few
+# steps, and green coastal water runs yellow → orange. (Was 0.03–10 in 7 blended colors: most of the map ended up
+# the same muddy teal.)
+CHL = {"min": 0.05, "max": 5.0, "log": True, "bands": True, "stops": [
+    "#1a1466", "#1c2a8f", "#1a43b3", "#1760cf", "#1a7fe0", "#1f9ee8", "#22bde6", "#20d3d1", "#1fd9a8", "#2bd37e",
+    "#4fd258", "#82d83f", "#b5df33", "#e2e22e", "#f6cf2a", "#f9b126", "#f78f23", "#ee6c22", "#d94c21", "#b53420"]}
+CHL_OLD = {"min": 0.03, "max": 10.0, "log": True, "stops": ["#1b2a6b", "#1f5f8b", "#1f8f8a", "#3fae6a", "#9cc95a", "#e1d85a", "#b0753a"]}
 DEPTH_FT = {"min": 0.0, "max": 6000.0, "stops": ["#cfe9f3", "#8cc4de", "#4f97c4", "#2a6a9e", "#173f6b", "#0b2140"]}
 
 

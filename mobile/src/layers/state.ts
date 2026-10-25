@@ -33,7 +33,7 @@ export const DEFAULT_LAYERS: LayerState = {
   tilt: false,
   contourDetail: 'std',
   chart: { look: 'clean', ...CHART_LOOKS.clean, lightCircles: false, simpleSymbols: false },
-  opacity: { bathy: 0.8, bathyHd: 0.95, sst: 0.85, chl: 0.75, radar: 0.5, overlay: 0.75, wind: 0.3 },
+  opacity: { bathy: 0.8, bathyHd: 0.95, sst: 0.85, chl: 0.9, radar: 0.5, overlay: 0.75, wind: 0.3 },
   dayIndex: 0,
   windIndex: 0,
 };

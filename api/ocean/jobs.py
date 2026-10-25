@@ -31,7 +31,7 @@ from .tiles import pixel_lonlat, render, tiles_for_bbox
 KEEP_DAYS = 14
 LEGENDS = {
     "sst": legend(SST_F, "°F", [54, 58, 62, 66, 70, 74, 78]),
-    "chl": legend(CHL, "mg/m³", [0.05, 0.1, 0.25, 0.5, 1, 3, 10]),
+    "chl": legend(CHL, "mg/m³", [0.05, 0.1, 0.2, 0.3, 0.5, 1, 2, 5]),
     "bathy": legend(DEPTH_FT, "ft", [60, 300, 600, 1200, 3000, 6000]),
 }
 LABELS = {
@@ -344,11 +344,12 @@ def verify():
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("job", choices=["sst", "chl", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "bottomhd", "bottomhd-rebuild", "crm", "crm-rebuild", "all", "discover", "verify"])
+    p.add_argument("job", choices=["sst", "chl", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "bottomhd", "bottomhd-rebuild", "bottomhd-restore", "bottomhd-restore-v3", "bottomhd-restore-v4", "crm", "crm-rebuild", "all", "discover", "verify"])
     p.add_argument("--region", default="socal")
     p.add_argument("--days", default="0,1,2,3,7")
     p.add_argument("--file", default=None, help="local seafloor file for `bathy`")
     p.add_argument("--force", action="store_true", help="navmask: rebuild every tile instead of continuing")
+    p.add_argument("--version", default="legacy", help="bottomhd-restore: which saved build to show (legacy, v3, v4)")
     p.add_argument("--area", default="pilot", help="bottomhd: which area to draw (see ocean/bottomhd.py AREAS)")
     a = p.parse_args(argv)
     days = [int(x) for x in a.days.split(",") if x.strip()]
@@ -358,6 +359,10 @@ def main(argv=None):
         from .crm import run as run_crm
         http = httpx.Client(timeout=300, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})
         return run_crm(get_store(), a.region, http, log, force=a.force or a.job == "crm-rebuild")
+    if a.job.startswith("bottomhd-restore"):   # switch the app back to an earlier HD bottom build (nothing is redrawn)
+        from .bottomhd import restore
+        version = a.job[len("bottomhd-restore-"):] if a.job.startswith("bottomhd-restore-") else a.version
+        return None if restore(get_store(), a.area, version, log) else sys.exit(1)
     if a.job in ("bottomhd", "bottomhd-rebuild"):   # HD bottom: sharp relief + dense contours (resumable)
         from .bottomhd import run as run_bottomhd
         http = httpx.Client(timeout=300, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})

@@ -230,7 +230,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         AsyncStorage.getItem(LAYERS_KEY).then((l) => reportError(new Error('App closed during the first 30 s last launch (likely a native crash)'),
           `startup · layers ${l ? Object.entries(JSON.parse(l).on ?? {}).filter(([, v]) => v).map(([k]) => k).join(',') : '?'}`, true)).catch(() => {});
       }
-      try { const l = safeStart ? null : await AsyncStorage.getItem(LAYERS_KEY); if (l) { const p = JSON.parse(l); setLayers({ ...DEFAULT_LAYERS, ...p, on: { ...DEFAULT_LAYERS.on, ...p.on }, opacity: { ...DEFAULT_LAYERS.opacity, ...p.opacity }, chart: { ...DEFAULT_LAYERS.chart, ...p.chart } }); } } catch {}
+      try { const l = safeStart ? null : await AsyncStorage.getItem(LAYERS_KEY); if (l) { const p = JSON.parse(l); if (p.opacity?.chl === 0.75) p.opacity.chl = 0.9; /* Oct 24: old default was too see-through */ setLayers({ ...DEFAULT_LAYERS, ...p, on: { ...DEFAULT_LAYERS.on, ...p.on }, opacity: { ...DEFAULT_LAYERS.opacity, ...p.opacity }, chart: { ...DEFAULT_LAYERS.chart, ...p.chart } }); } } catch {}
       loadCoordFormat();
       const cachedSpots = await store.loadPublicSpots();
       if (cachedSpots) setPublicSpots(cachedSpots);
