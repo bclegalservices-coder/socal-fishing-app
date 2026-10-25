@@ -334,14 +334,19 @@ def test_forecast_radar_tiles_skip_dry_hours():
 
 
 def test_sst_bands_are_crisp():
-    """Each 1 °F band is one solid color; neighboring degrees get different colors."""
+    """Each 1 °F band is one solid color in its middle; neighboring degrees get different colors; and since Oct 24 the
+    last bit of a band fades softly into the next one (a soft edge instead of a hard step)."""
     import numpy as np
     from ocean import colormaps
-    v = np.array([64.1, 64.9, 65.1, np.nan])
+    v = np.array([64.3, 64.7, 65.3, np.nan, 64.98, 65.02])
     rgba = colormaps.apply(v, colormaps.SST_F)
-    assert (rgba[0, :3] == rgba[1, :3]).all()          # same band → identical color
+    assert (rgba[0, :3] == rgba[1, :3]).all()          # middle of a band → identical color
     assert not (rgba[1, :3] == rgba[2, :3]).all()      # next degree → a different color
     assert rgba[3, 3] == 0                              # no data → transparent
+    a, c = rgba[1, :3].astype(int), rgba[2, :3].astype(int)
+    for k in (4, 5):                                    # right at the 65° break: in between the two band colors
+        m = rgba[k, :3].astype(int)
+        assert ((m >= np.minimum(a, c) - 1) & (m <= np.maximum(a, c) + 1)).all() and not (m == a).all() and not (m == c).all()
     assert len(colormaps.SST_F["stops"]) == 24
 
 
