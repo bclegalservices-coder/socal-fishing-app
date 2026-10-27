@@ -59,6 +59,13 @@ async def layers():
     return {"layers": out}
 
 
+@router.get("/air")
+async def air(all: bool = Query(False, description="include airliners up high")):
+    """Live air traffic over the SoCal waters, with circling / likely-spotter planes flagged (see air/traffic.py)."""
+    from air.traffic import current
+    return JSONResponse(await current(include_high=all), headers={"Cache-Control": "no-store"})
+
+
 @router.get("/tides")
 async def tide(lat: float = Query(..., ge=-90, le=90), lon: float = Query(..., ge=-180, le=180)):
     try:

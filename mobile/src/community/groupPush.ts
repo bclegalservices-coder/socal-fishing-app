@@ -6,11 +6,15 @@ import * as Notifications from 'expo-notifications';
 export type GroupOpen =
   | { type: 'goto'; lat: number; lon: number; label: string; kind: string }
   | { type: 'show'; lat: number; lon: number; label: string; kind: string }
-  | { type: 'groups'; groupId?: string };
+  | { type: 'groups'; groupId?: string }
+  | { type: 'spotter'; lat: number; lon: number; hex: string; label: string };
 
 /** What tapping a notification should do (pure — tested). */
 export function routeNotification(data: any): GroupOpen | null {
   if (!data || typeof data !== 'object') return null;
+  if (data.type === 'spotter' && typeof data.lat === 'number' && typeof data.lon === 'number') {
+    return { type: 'spotter', lat: data.lat, lon: data.lon, hex: String(data.hex ?? ''), label: data.label ?? 'Spotter plane' };
+  }
   if (data.type === 'group_share') {
     const has = typeof data.lat === 'number' && typeof data.lon === 'number';
     if (has && (data.kind === 'ping' || data.kind === 'position' || data.kind === 'overdue')) {

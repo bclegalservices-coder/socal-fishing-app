@@ -44,7 +44,7 @@ export function SendToGroupSheet({ mode, pt, onClose, onDone }: Props) {
     return (
       <Sheet>
         <Title>Send to my group</Title>
-        <Note>You're not in a fishing group yet. Create one or join with a code in Community → My groups (sign in first).</Note>
+        <Note>You're not in a fishing group yet. Create one or join with a code in the Crew tab (sign in first).</Note>
         <Btn label="Close" onPress={onClose} />
       </Sheet>
     );

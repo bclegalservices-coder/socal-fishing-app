@@ -19,6 +19,7 @@ import { getOptOut, setOptOut, track } from '../analytics';
 import { friendly } from '../friendly';
 import { FeedbackForm } from '../components/Feedback';
 import { AppearanceScreen, appearanceSummary } from '../components/ThemePicker';
+import { AWAKE_LABELS, setAwakeMode, useAwakeMode, type AwakeMode } from '../screenAwake';
 import { FULL_TEXT } from '../legal';
 
 export function ProfileScreen({ onShowOnMap, onOpenSpots, spotCount }: { onShowOnMap: (lat: number, lon: number, name: string) => void; onOpenSpots?: () => void; spotCount?: number }) {
@@ -102,7 +103,8 @@ export function ProfileScreen({ onShowOnMap, onOpenSpots, spotCount }: { onShowO
         <SectionLabel>App settings</SectionLabel>
         <ListGroup>
           <ListRow icon="color-palette-outline" iconColor={colors.accent} title="Appearance"
-            subtitle={appearanceSummary(theme.setting, theme.dayTheme, theme.nightTheme)} onPress={() => setPage('appearance')} last />
+            subtitle={appearanceSummary(theme.setting, theme.dayTheme, theme.nightTheme)} onPress={() => setPage('appearance')} />
+          <AwakeRow last />
         </ListGroup>
 
         <SectionLabel>About</SectionLabel>
@@ -314,4 +316,14 @@ function AdminTools({ uid }: { uid: string | null }) {
       <Note>Only you see this. Placeholders are never counted as views. The 5-second intro shows each time you open the app while this is on.</Note>
     </>
   );
+}
+
+
+/** Screen stays on: Always / Only while navigating or recording / Off. */
+function AwakeRow({ last }: { last?: boolean }) {
+  const m = useAwakeMode();
+  const pick = () => Alert.alert('Keep the screen on', 'Stops your phone from locking while you use the map. Uses more battery.', [
+    ...(['always', 'active', 'off'] as AwakeMode[]).map((k) => ({ text: `${k === m ? '✓ ' : ''}${AWAKE_LABELS[k]}`, onPress: () => setAwakeMode(k) })),
+    { text: 'Cancel', style: 'cancel' as const }]);
+  return <ListRow icon="phone-portrait-outline" iconColor={colors.accent} title="Keep screen on" subtitle={AWAKE_LABELS[m]} onPress={pick} last={last} />;
 }

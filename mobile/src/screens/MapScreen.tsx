@@ -3,12 +3,13 @@ import { Alert, AppState, Pressable, StyleSheet, Text, Vibration, View, useWindo
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { useKeepAwake } from 'expo-keep-awake';
+import { useAwakeMode } from '../screenAwake';
 import { Camera, GeoJSONSource, Layer, LogManager, Map as MapView, Marker, UserLocation } from '@maplibre/maplibre-react-native';
 import type { CameraRef } from '@maplibre/maplibre-react-native';
 import { API_URL, CHART_ATTRIBUTION, DEFAULT_CENTER, DEFAULT_ZOOM, CHART_TILE_SIZE, NOAA_CHART_MAXZOOM, NOAA_CHART_MINZOOM, noaaChartTiles } from '../config';
 import { boatColor, cardStyle, colors, makeStyles, routeColor, setThemePosition, touch, useTheme } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
-import { bearingTrue, distanceNm, formatLatLon } from '../geo';
+import { bearingTrue, cardinal, distanceNm, formatLatLon } from '../geo';
 import { crossTrackNm, etaMinutes, SpeedEstimator, steerDelta, type Pt, type TrackPoint } from '../nav';
 import * as store from '../storage';
 import { getJSON } from '../api';
@@ -23,6 +24,8 @@ import { autoRate, ReplayBar, ReplayHud } from '../components/TripReplay';
 import { analyze, at as tripAt, autoName, placesFromHarbors, speedLines, type TripAnalysis } from '../trips';
 import { exportTrackGPX } from '../io/transfer';
 import { MeasureCard } from '../components/MeasureCard';
+import { AirCard, AirChip, AirMapLayer, useAirTraffic, useWatchList, type Plane } from '../components/AirTraffic';
+import { usePro } from '../pro';
 import { deg3 as mDeg3, legs as mLegs, measureFC, type MPt } from '../measure';
 import { fmtDist as uDist, useUnits } from '../units';
 import { SearchSheet, type SearchHit } from '../components/SearchSheet';
@@ -110,13 +113,16 @@ let goToWarned = false, autoWarned = false;
 
 type Selected = { kind: 'spot' | 'pin' | 'saved'; pt: Pt & { subtitle?: string; id?: string; saveName?: string; sponsor?: string; sponsorTags?: string[] } } | null;
 type Panel = 'none' | 'routes' | 'tracks' | 'layers' | 'search' | 'actions';
-export type PickRequest = { kind: 'spot' | 'saved'; pt: Pt & { subtitle?: string; id?: string }; go?: boolean; route?: Pt[] } | null;
+export type PickRequest = { kind: 'spot' | 'saved'; pt: Pt & { subtitle?: string; id?: string }; go?: boolean; route?: Pt[]; air?: string } | null;
 
 const fc = (features: any[]) => ({ type: 'FeatureCollection' as const, features });
 const pointF = (p: Pt, props: Record<string, unknown> = {}) => ({ type: 'Feature' as const, properties: props, geometry: { type: 'Point' as const, coordinates: [p.lon, p.lat] } });
 const lineF = (pts: (Pt | TrackPoint)[]) => ({ type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates: pts.map((p) => [p.lon, p.lat]) } });
 
 function StayAwake() { useKeepAwake(); return null; }
+const VIEW_KEY = 'map-view:v1';
+const START_CENTER: [number, number] = [-118.42, 33.38];   // Santa Catalina Island
+const START_ZOOM = 9.6;
 
 export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWeather }: { pick: PickRequest; clearPick: () => void; onSpotsChanged?: (s: store.SavedSpot[]) => void; reloadKey?: number; onWeather?: (lat: number, lon: number, label: string, tab?: 'wind') => void }) {
   const st = useSt();
@@ -124,6 +130,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const camera = useRef<CameraRef>(null);
   const est = useRef(new SpeedEstimator());
   const featurePressAt = useRef(0);
+  const awake = useAwakeMode();
   const [fix, setFix] = useState<Fix | null>(null);
   const [motion, setMotion] = useState<{ sogKt: number | null; cogT: number | null }>({ sogKt: null, cogT: null });
   const [heading, setHeading] = useState<number | null>(null);
@@ -172,6 +179,20 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const { catalog, cached: catalogCached, savedAt: catalogSavedAt, retry: retryCatalog } = useCatalog();
   const harborFc = useHarbors(harborsOf(catalog));
   const [view, setView] = useState<{ minLon: number; minLat: number; maxLon: number; maxLat: number; zoom: number; heading: number } | null>(null);
+  // Oct 27: reopen where you were (if you used the app in the last 12 hours), otherwise start on Catalina.
+  const lastView = useRef<{ lon: number; lat: number; zoom: number } | null>(null);
+  useEffect(() => {
+    AsyncStorage.getItem(VIEW_KEY).then((v) => {
+      const p = v ? JSON.parse(v) : null;
+      if (p && Date.now() - p.at < 12 * 3600000 && Number.isFinite(p.lon) && Number.isFinite(p.lat)) {
+        setTimeout(() => camera.current?.setStop({ center: [p.lon, p.lat], zoom: p.zoom ?? START_ZOOM, duration: 0 }).catch(() => {}), 50);
+      }
+    }).catch(() => {});
+    const save = () => { const l = lastView.current; if (l) AsyncStorage.setItem(VIEW_KEY, JSON.stringify({ ...l, at: Date.now() })).catch(() => {}); };
+    const sub = AppState.addEventListener('change', (st) => { if (st !== 'active') save(); });
+    const t = setInterval(save, 30000);
+    return () => { sub.remove(); clearInterval(t); save(); };
+  }, []);
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [catchHours, setCatchHours] = useState(24);
   const [catchSpecies, setCatchSpecies] = useState<string | null>(null);
@@ -182,6 +203,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const [groupPins, setGroupPins] = useState<groupsApi.Pin[]>([]);
   const [crew, setCrew] = useState<{ mode: 'me' | 'spot'; pt: (Pt & { name?: string }) | null } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [airSel, setAirSel] = useState<string | null>(null);
   const [rules, setRules] = useState<RulesData | null>(null);
   const [ruleSel, setRuleSel] = useState<any | null>(null);
   const [mpaHere, setMpaHere] = useState<any[]>([]);
@@ -290,6 +312,11 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   useEffect(() => {
     if (!pick) return;
     setPanel('none'); setCrew(null);
+    if (pick.air) {                                                    // tapped a spotter-plane notification: show the plane
+      setLayersSafe((p) => ({ ...p, on: { ...p.on, air: true } })); setSel(null); setAirSel(pick.air);
+      camera.current?.setStop({ center: [pick.pt.lon, pick.pt.lat], zoom: 10.5, duration: 700 }).catch(() => {});
+      clearPick(); return;
+    }
     if (pick.go) goTo([pick.pt], pick.pt.name ?? 'Buddy');           // e.g. tapped a "Come to me" notification
     else if (pick.route?.length) { setSel(null); setShownLine(pick.route); fitTo(pick.route); }
     else setSel(pick);
@@ -682,6 +709,25 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const mySpotsFC = useMemo(() => fc(mySpots.map((s) => pointF(s, { id: s.id, name: s.name, subtitle: 'Private — only you' }))), [mySpots]);
   const showMine = layers.on.mySpots !== false;
   const spotC = spotColors(theme.mode === 'night');
+  // Live air traffic: planes over the water, circling / likely-spotter planes highlighted (components/AirTraffic.tsx)
+  const air = useAirTraffic(!!layers.on.air);
+  const pro = usePro();
+  const proUpsell = () => Alert.alert('Spotter planes · Pro', 'See which planes are circling low over the water — usually a spotter sitting on fish — with their loops, plus alerts when one starts circling near you.\n\nPro sign-up is coming soon.', [{ text: 'OK' }]);
+  const airWatch = useWatchList();
+  const watchedPlane = useCallback((p: Plane) => airWatch.find(p), [airWatch.list]);
+  const airPlane = airSel ? air?.planes.find((p) => p.hex === airSel) ?? null : null;
+  const spotterSeen = useRef(new Set<string>());
+  useEffect(() => {
+    if (!air || pro.locked) return;
+    const fresh = air.planes.filter((p) => (p.spotter || (watchedPlane(p) && p.circling)) && !spotterSeen.current.has(p.hex));
+    fresh.forEach((p) => spotterSeen.current.add(p.hex));
+    if (fresh.length) {
+      const p = fresh[0]; const h = here();
+      const where = h ? ` ${distanceNm(h.lat, h.lon, p.lat, p.lon).toFixed(0)} NM ${cardinal(bearingTrue(h.lat, h.lon, p.lat, p.lon))} of you` : '';
+      setToast(`${watchedPlane(p)?.name ?? 'A plane'} is circling low over the water${where}`);
+    }
+  }, [air]);
+  const jumpToPlane = (p: Plane) => { setAirSel(p.hex); setSel(null); camera.current?.setStop({ center: [p.lon, p.lat], zoom: Math.max(view?.zoom ?? 10, 10.5), duration: 700 }).catch(() => {}); track('air_jump'); };
   // Your own spot names show when zoomed in close, so a busy area doesn't fill with text.
   const myLabels = useMemo(() => {
     if (!view || view.zoom < 11.5 || !showMine) return [];
@@ -741,6 +787,12 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     bottom = <ClusterSheet c={clusterSel} hours={catchHours} onClose={() => setClusterSel(null)} />;
   } else if (buoy) {
     bottom = <BuoyCard p={buoy} onClose={() => setBuoy(null)} />;
+  } else if (airPlane && layers.on.air) {
+    bottom = <AirCard p={pro.locked ? { ...airPlane, circling: false, spotter: false, circles: 0 } : airPlane} locked={pro.locked} onUpsell={proUpsell}
+      watch={pro.locked ? undefined : watchedPlane(airPlane)} boat={here()} credit={air?.credit ?? 'Aircraft data: ADS-B network'}
+      onWatch={(name) => { airWatch.add(airPlane, name); track('air_watch_added'); }} onUnwatch={() => airWatch.remove(airPlane)}
+      onCenter={() => camera.current?.setStop({ center: [airPlane.lon, airPlane.lat], duration: 500 }).catch(() => {})}
+      onClose={() => setAirSel(null)} />;
   } else if (sel) {
     bottom = <SpotCard spot={sel.pt} boat={here()} kind={sel.kind}
       onGo={() => goTo([sel.pt], sel.pt.name ?? 'Dropped pin')} onAddToRoute={() => addToRoute(sel.pt)}
@@ -812,7 +864,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
 
   return (
     <View style={st.root}>
-      {nav || active ? <StayAwake /> : null}
+      {awake === 'always' || (awake === 'active' && (nav || active)) ? <StayAwake /> : null}
       <MapView style={StyleSheet.absoluteFill} mapStyle={mapStyle as any} attribution logo={false} compass={false}
         onPress={onMapPress} onLongPress={onLongPress}
         onRegionWillChange={(e: any) => { if (nav && follow && e?.nativeEvent?.userInteraction) setFollow(false); }}
@@ -821,8 +873,9 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           if (probe && v.center) setProbeAt({ lon: v.center[0], lat: v.center[1] });
           const b = v.bounds; // [west, south, east, north]
           if (b) setView({ maxLon: b[2], maxLat: b[3], minLon: b[0], minLat: b[1], zoom: v.zoom ?? 9, heading: v.bearing ?? 0 });
+          if (v.center) lastView.current = { lon: v.center[0], lat: v.center[1], zoom: v.zoom ?? START_ZOOM };
         }}>
-        <Camera ref={camera} initialViewState={{ center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM }}
+        <Camera ref={camera} initialViewState={{ center: START_CENTER, zoom: START_ZOOM }}
           trackUserLocation={nav && follow ? undefined : orient === 'heading' ? 'heading' : orient === 'course' ? 'course' : undefined}
           onTrackUserLocationChange={(e: any) => { if (e?.nativeEvent?.trackUserLocation == null && orient !== 'north') setOrient('north'); }} />
         {orderOn !== null ? <SafeLayer name="ocean" resetKey={JSON.stringify(layers.on)}>
@@ -899,13 +952,14 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           </Marker>
         ))}
         {myLabels.map((f: any) => (
-          <Marker key={`mlbl-${f.properties.id}`} lngLat={f.geometry.coordinates} anchor="left" offset={[11, 0]}>
+          <Marker key={`mlbl-${f.properties.id}`} lngLat={f.geometry.coordinates} anchor="left" offset={[8, 0]}>
             <View pointerEvents="none" style={[st.spotLbl, { borderColor: spotC.mine, borderWidth: 1 }]}><Text style={st.spotLblT} numberOfLines={1}>{f.properties.name}</Text></View>
           </Marker>
         ))}
         {showMine ? <GeoJSONSource id="my-spots" data={mySpotsFC} onPress={(e: any) => onSpotPress(e, 'saved')} hitbox={{ top: 15, right: 15, bottom: 15, left: 15 }}>
-          <Layer type="circle" id="my-spots-halo" style={{ circleRadius: 10, circleColor: spotC.mine, circleOpacity: 0.25 }} />
-          <Layer type="circle" id="my-spots-dots" style={{ circleRadius: 6.5, circleColor: spotC.mine, circleStrokeColor: spotC.ring, circleStrokeWidth: 2 }} />
+          {/* Oct 27: smaller — and they shrink a bit more when zoomed out so a busy area doesn't fill with orange */}
+          <Layer type="circle" id="my-spots-halo" style={{ circleRadius: ['interpolate', ['linear'], ['zoom'], 8, 5, 12, 7.5] as any, circleColor: spotC.mine, circleOpacity: 0.2 }} />
+          <Layer type="circle" id="my-spots-dots" style={{ circleRadius: ['interpolate', ['linear'], ['zoom'], 8, 3.2, 12, 4.8] as any, circleColor: spotC.mine, circleStrokeColor: spotC.ring, circleStrokeWidth: 1.5 }} />
         </GeoJSONSource> : null}
         <GeoJSONSource id="pin" data={pinFC}>
           <Layer type="circle" id="pin-ring" style={{ circleRadius: 11, circleColor: 'rgba(0,0,0,0)', circleStrokeColor: colors.text, circleStrokeWidth: 2 }} />
@@ -922,6 +976,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
             </GeoJSONSource>
           </>
         ) : null}
+        {layers.on.air ? <AirMapLayer data={air} view={view} mapHeading={view?.heading ?? 0} watched={watchedPlane} locked={pro.locked}
+          onPick={(p) => { featurePressAt.current = Date.now(); setAirSel(p.hex); setSel(null); setBuoy(null); track('air_plane_tap', { circling: p.circling, spotter: p.spotter }); }} /> : null}
         {replay && replayAt ? (
           <Marker key="replay-boat" lngLat={[replayAt.lon, replayAt.lat]} anchor="center">
             <View pointerEvents="none" style={[st.boatHalo, { backgroundColor: `${boatFill}38` }]}>
@@ -984,6 +1040,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
             onUnsilence={() => { setMpaSilence({ until: 0, key: null }); AsyncStorage.removeItem('mpa-silence:v1').catch(() => {}); }} />
         ) : null}
         {!net.online ? <Text style={st.offline}>Offline · showing saved maps and data, each with its age</Text> : null}
+        {layers.on.air && !nav && !replay ? <AirChip data={air} onJump={jumpToPlane} locked={pro.locked} gated={pro.gated} onUpsell={proUpsell} /> : null}
         {probe ? (
           <View style={st.probe} pointerEvents="none">
             {probeAt ? <Text style={st.probeC}>{formatLatLon(probeAt.lat, probeAt.lon)}</Text> : <Text style={st.probeL}>Move the map under the crosshair</Text>}

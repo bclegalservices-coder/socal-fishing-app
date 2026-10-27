@@ -37,7 +37,12 @@ async def lifespan(app: FastAPI):
         )
         await pool.open()
     app.state.pool = pool
+    # Oct 27: watch the air traffic around the clock and send spotter-plane alerts (air/alerts.py)
+    import asyncio
+    from air.alerts import loop as spotter_loop
+    watcher = asyncio.create_task(spotter_loop(pool))
     yield
+    watcher.cancel()
     if pool:
         await pool.close()
 

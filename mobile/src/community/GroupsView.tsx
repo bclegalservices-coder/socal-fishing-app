@@ -1,4 +1,4 @@
-// Community → My groups. Your crews: invites (email or code), who's out and where (live / last known),
+// Crew tab (was Community → My groups). Your crews: invites (email or code), who's out and where (live / last known),
 // "Come to me", shared catches, spots and routes, messages, and float plans with automatic overdue alerts.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';

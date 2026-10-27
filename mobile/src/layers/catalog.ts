@@ -55,10 +55,12 @@ export const harborsOf = (c: Catalog | null) => (c?.layers.find((l) => l.key ===
 export const wind = (c: Catalog | null) => (c?.layers.find((l) => l.key === 'wind') as WindLayer | undefined) ?? undefined;
 export const external = (c: Catalog | null, key: string) => (c?.layers.find((l) => l.key === key) as ExternalLayer | undefined) ?? undefined;
 
-/** The satellite day `offset` days before the latest one (spec: Latest / 24 h / 48 h / 3 days / 7 days). */
+/** The satellite day `offset` days before the latest one (spec: Latest / 24 h / 48 h / 3 days / 7 days).
+ *  Oct 27: when that exact day wasn't saved (a missed download), use the closest older day instead of showing nothing
+ *  — a missing day used to make the whole layer disappear even though its switch was on. */
 export function pickDate(dates: LayerDate[] | undefined, offset: number): LayerDate | undefined {
   if (!dates?.length) return undefined;
   if (offset === 0) return dates[0];
   const target = new Date(new Date(dates[0].date + 'T00:00:00Z').getTime() - offset * 86400000).toISOString().slice(0, 10);
-  return dates.find((d) => d.date === target);
+  return dates.find((d) => d.date === target) ?? dates.find((d) => d.date < target) ?? dates[dates.length - 1];
 }

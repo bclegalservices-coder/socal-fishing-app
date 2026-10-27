@@ -6,8 +6,10 @@ import { supabase, supabaseReady } from './supabase';
 export type AppConfig = { ads_enabled: boolean; intro_enabled: boolean; maintenance_message: string | null; min_app_version: string; analytics_enabled: boolean;
   /** Remote off-switches (Admin → Settings → Emergency off-switches): map layers ('wind', 'radar', 'sst', 'fuel'…),
    *  'relief', 'satellite' and 'chart_helper' (falls back to the plain NOAA chart). */
-  features_off: string[] };
-const DEFAULTS: AppConfig = { ads_enabled: true, intro_enabled: true, maintenance_message: null, min_app_version: '0.0.0', analytics_enabled: true, features_off: [] };
+  features_off: string[];
+  /** Admin → Settings: true = spotter planes (circling highlights + spotter alerts) need Pro. False = free for everyone. */
+  spotter_premium: boolean };
+const DEFAULTS: AppConfig = { ads_enabled: true, intro_enabled: true, maintenance_message: null, min_app_version: '0.0.0', analytics_enabled: true, features_off: [], spotter_premium: false };
 const listeners = new Set<(c: AppConfig) => void>();
 /** Runs whenever new settings arrive (start-up and when the app comes back to the foreground). */
 export function onConfig(fn: (c: AppConfig) => void) { listeners.add(fn); return () => { listeners.delete(fn); }; }
@@ -40,3 +42,6 @@ export function needsUpdate(cfg: AppConfig): boolean {
   for (let i = 0; i < 3; i++) { if ((mine[i] ?? 0) !== (min[i] ?? 0)) return (mine[i] ?? 0) < (min[i] ?? 0); }
   return false;
 }
+
+/** The settings as they are right now (saved copy until the server answers). */
+export const currentConfig = () => current;

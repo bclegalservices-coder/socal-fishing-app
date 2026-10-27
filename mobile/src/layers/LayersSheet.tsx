@@ -51,10 +51,10 @@ const C = { blue: '#0A84FF', teal: '#30B0C7', green: '#34C759', mint: '#00C7BE',
 /** Short names for the "On now" chips. */
 const LABELS: Record<LayerKey, string> = {
   sst: 'Water temp', breaks: 'Temp breaks', chl: 'Chlorophyll', chlEdges: 'Color edges', radar: 'Radar', wind: 'Wind', buoys: 'Buoys',
-  spots: 'Known spots', mySpots: 'My spots', catches: 'Catch reports', buddies: 'My groups', marinas: 'Marinas', docks: 'Docks', fuel: 'Fuel', bait: 'Bait',
+  spots: 'Known spots', mySpots: 'My spots', air: 'Air traffic', catches: 'Catch reports', buddies: 'My groups', marinas: 'Marinas', docks: 'Docks', fuel: 'Fuel', bait: 'Bait',
   pumpout: 'Pump-outs', ramps: 'Ramps', bathy: 'Relief', bathyHd: 'HD bottom', contours: 'Contours', rules: 'MPAs', hazards: 'Hazards',
 };
-const CHIP_ORDER: LayerKey[] = ['sst', 'breaks', 'chl', 'chlEdges', 'bathyHd', 'bathy', 'contours', 'radar', 'wind', 'buoys', 'mySpots', 'spots', 'catches', 'buddies',
+const CHIP_ORDER: LayerKey[] = ['sst', 'breaks', 'chl', 'chlEdges', 'bathyHd', 'bathy', 'contours', 'radar', 'wind', 'buoys', 'mySpots', 'spots', 'air', 'catches', 'buddies',
   'marinas', 'docks', 'fuel', 'bait', 'pumpout', 'ramps', 'rules', 'hazards'];
 
 // ---------------------------------------------------------------- building blocks (top level = stable)
@@ -151,7 +151,14 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
   const st = useSt();
   const insets = useSafeAreaInsets();
   const setOverlay = (o: MapOverlay) => { if (o !== 'none' && killed.includes(o)) return; set((p) => ({ ...p, overlay: o })); track('map_style', { style: o }); };
-  const toggle = (k: LayerKey) => set((p) => ({ ...p, on: { ...p.on, [k]: !p.on[k] } }));
+  // Water temp and chlorophyll each color the whole sea, and chlorophyll draws on top — with both on, water temp looked
+  // like it wasn't working. Turning one on now turns the other off (their break / edge lines can stay on together).
+  const toggle = (k: LayerKey) => set((p) => {
+    const on = { ...p.on, [k]: !p.on[k] };
+    if (on[k] && k === 'sst') on.chl = false;
+    if (on[k] && k === 'chl') on.sst = false;
+    return { ...p, on };
+  });
   const opacity = (k: keyof LayerState['opacity'], v: number) => set((p) => ({ ...p, opacity: { ...p.opacity, [k]: v } }));
   const hc: Record<string, number> | undefined = harborsOf(catalog)?.counts;
   const sst = grid(catalog, 'sst'), chl = grid(catalog, 'chl'), bathy = grid(catalog, 'bathy'), w = wind(catalog), radar = external(catalog, 'radar');
@@ -259,7 +266,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
           ))}
         </View>
 
-        <Section title="Ocean" foot="Water temp and chlorophyll update every morning from satellites.">
+        <Section title="Ocean" foot="Water temp and chlorophyll update every morning from satellites. They take turns: turning one on turns the other off, since both color the whole sea.">
           {Row({ k: "sst", icon: "thermometer-water", tint: C.orange, title: "Water temperature", sub: latest(sst), disabled: !sst?.dates?.length })}
           {s.on.sst ? <Strength value={s.opacity.sst} onPick={(v) => opacity('sst', v)} /> : null}
           {Row({ k: "breaks", icon: "chart-line-variant", tint: C.red, title: "Temperature breaks", sub: "Thicker line = stronger break", disabled: !sst?.dates?.length })}
@@ -327,6 +334,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
           {Row({ k: "mySpots", icon: "star", tint: SPOT_COLORS.mine, title: "My spots", sub: "Your saved spots · orange stars, only you see them" })}
           {Row({ k: "spots", icon: "map-marker", tint: SPOT_COLORS.known, title: "Known fishing spots", sub: "430 banks, high spots, reefs and kelp · blue dots" })}
           {Row({ k: "catches", icon: "fish", tint: C.blue, title: "Catch reports", sub: "What the community is catching" })}
+          {Row({ k: "air", icon: "airplane", tint: "#FF5A00", title: "Air traffic · spotter planes", sub: "Live small planes. Circling planes flash orange — often a spotter on fish. Spotter highlights are Pro, free for now" })}
           {Row({ k: "buddies", icon: "account-group", tint: C.purple, title: "My groups", sub: "Buddy boats, pings and shared spots", last: true })}
         </Section>
 

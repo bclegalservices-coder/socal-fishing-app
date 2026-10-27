@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+import * as Location from 'expo-location';
 import Constants from 'expo-constants';
 import { colors, makeStyles } from '../theme';
 import { SPECIES } from '../community/species';
@@ -11,6 +12,7 @@ import { supabase } from '../supabase';
 import { Btn, Card, Chip, ListGroup, ScreenHeader, SectionLabel, Segmented } from '../components/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { track } from '../analytics';
+import { usePro } from '../pro';
 import { friendly } from '../friendly';
 
 const AREAS = [
@@ -24,6 +26,7 @@ const KINDS = [
   { key: 'activity', title: 'Bite alert', sub: 'Reports jumped in the last 6 hours' },
   { key: 'sst', title: 'Water temp alert', sub: 'Your temperature range shows up in an area (once a day)' },
   { key: 'weather', title: 'Marine warning', sub: 'New NWS warning or advisory for an area' },
+  { key: 'spotter', title: 'Spotter plane', sub: 'A plane starts circling low over the water in your area (usually a spotter on fish)' },
 ] as const;
 
 export async function registerPush(): Promise<string | null> {
@@ -43,12 +46,19 @@ export function AlertsScreen({ onBack }: { onBack: () => void }) {
   const [subs, setSubs] = useState<any[]>([]);
   const [kind, setKind] = useState<(typeof KINDS)[number]['key']>('species');
   const [area, setArea] = useState(AREAS[0]);
+  const [here, setHere] = useState<{ label: string; center: number[] } | null>(null);
+  useEffect(() => {
+    Location.getLastKnownPositionAsync().then((p) => {
+      if (p) setHere({ label: 'Near me', center: [Math.round(p.coords.longitude * 100) / 100, Math.round(p.coords.latitude * 100) / 100] });
+    }).catch(() => {});
+  }, []);
   const [radius, setRadius] = useState(15);
   const [species, setSpecies] = useState<string[]>(['BFT']);
   const [verified, setVerified] = useState(true);
   const [minF, setMinF] = useState('66');
   const [maxF, setMaxF] = useState('72');
   const [pushOk, setPushOk] = useState<boolean | null>(null);
+  const pro = usePro();
   const load = async () => { const { data } = await supabase.from('alert_subscriptions').select('*').order('created_at'); setSubs(data ?? []); };
   useEffect(() => { load(); registerPush().then((t) => setPushOk(!!t)).catch(() => setPushOk(false)); }, []);
 
@@ -64,7 +74,7 @@ export function AlertsScreen({ onBack }: { onBack: () => void }) {
     const p = s.params ?? {};
     const sp = (p.species ?? []).join(', ');
     return { species: `${p.verified_only ? 'Verified ' : ''}${sp || 'any fish'} reports`, activity: `${sp || 'Any'} bite picking up`,
-      sst: `Water ${p.min_f}–${p.max_f}°F`, weather: 'Marine warnings' }[s.kind as string] + ` · ${p.label} (${p.radius_nm} NM)`;
+      sst: `Water ${p.min_f}–${p.max_f}°F`, weather: 'Marine warnings', spotter: 'Spotter planes circling' }[s.kind as string] + ` · ${p.label} (${p.radius_nm} NM)`;
   };
 
   const needSpecies = kind === 'species' || kind === 'activity';
@@ -113,7 +123,7 @@ export function AlertsScreen({ onBack }: { onBack: () => void }) {
 
           <Text style={st.step}>2 · Where</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-            {AREAS.map((a) => <Chip key={a.label} label={a.label} icon="location-outline" on={area.label === a.label} onPress={() => setArea(a)} />)}
+            {[...(here ? [here] : []), ...AREAS].map((a) => <Chip key={a.label} label={a.label} icon={a.label === 'Near me' ? 'navigate-outline' : 'location-outline'} on={area.label === a.label} onPress={() => setArea(a)} />)}
           </ScrollView>
           <Text style={st.lbl}>Within</Text>
           <Segmented value={String(radius)} onChange={(v) => setRadius(Number(v))} options={[5, 10, 15, 25, 40].map((r) => ({ key: String(r), label: `${r} NM` }))} />
@@ -135,14 +145,17 @@ export function AlertsScreen({ onBack }: { onBack: () => void }) {
               </View>
             </>
           ) : null}
-          <Btn label="Add alert" icon="add-circle-outline" kind="primary" onPress={add} disabled={needSpecies && !species.length} />
+          {kind === 'spotter' ? (
+            <Text style={st.sub}>{pro.locked ? 'Spotter plane alerts are part of Pro.' : `Sent within a couple of minutes of a plane circling low over the water inside your area — at most 6 a day, and each plane once.${pro.gated ? '' : ' Pro feature, free for now.'}`}</Text>
+          ) : null}
+          <Btn label="Add alert" icon="add-circle-outline" kind="primary" onPress={add} disabled={(needSpecies && !species.length) || (kind === 'spotter' && pro.locked)} />
         </Card>
       </ScrollView>
     </View>
   );
 }
 
-const KIND_ICON: Record<string, string> = { species: 'fish-outline', activity: 'trending-up', sst: 'thermometer-outline', weather: 'warning-outline' };
+const KIND_ICON: Record<string, string> = { species: 'fish-outline', activity: 'trending-up', sst: 'thermometer-outline', weather: 'warning-outline', spotter: 'airplane-outline' };
 
 const useSt = makeStyles((colors) => ({
   root: { flex: 1, backgroundColor: colors.bg },

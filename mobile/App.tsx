@@ -23,6 +23,7 @@ import { MapScreen, type PickRequest } from './src/screens/MapScreen';
 import { SpotsScreen } from './src/screens/SpotsScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { CommunityScreen } from './src/screens/CommunityScreen';
+import { CrewScreen } from './src/screens/CrewScreen';
 import { WeatherScreen, type WeatherPlace } from './src/screens/WeatherScreen';
 import { setupGroupNotifications } from './src/community/groupPush';
 import type { GroupNav } from './src/community/GroupsView';
@@ -56,7 +57,8 @@ function AppInner() {
   useEffect(() => setupGroupNotifications((o) => {
     if (o.type === 'goto') { goToOnMap(o.lat, o.lon, o.label); track('group_pin_open', { kind: o.kind, from: 'push' }); }
     else if (o.type === 'show') { showOnMap(o.lat, o.lon, o.label); track('group_pin_open', { kind: o.kind, from: 'push' }); }
-    else { setOpenGroup({ id: o.groupId ?? null, at: Date.now() }); setTab('community'); }
+    else if (o.type === 'spotter') { setPick({ kind: 'spot', pt: { lat: o.lat, lon: o.lon, name: o.label }, air: o.hex }); setTab('map'); track('spotter_push_open'); }
+    else { setOpenGroup({ id: o.groupId ?? null, at: Date.now() }); setTab('crew'); }
   }), []);
   const [reloadKey, setReloadKey] = useState(0);
   const [intro, setIntro] = useState<Ad | null>(null);
@@ -124,7 +126,8 @@ function AppInner() {
           {/* Weather stays mounted after first visit so switching tabs doesn't refetch. */}
           {wxMounted ? <View style={[StyleSheet.absoluteFill, tab !== 'weather' && st.gone]} pointerEvents={tab === 'weather' ? 'auto' : 'none'}><WeatherScreen at={weatherAt} mySpots={mySpots} /></View> : null}
           {tab === 'spots' ? <View style={StyleSheet.absoluteFill}><SpotsScreen mySpots={mySpots} onPick={(p) => { setPick(p); setTab('map'); }} onImported={() => setReloadKey((k) => k + 1)} /></View> : null}
-          {tab === 'community' ? <View style={StyleSheet.absoluteFill}><CommunityScreen onShowOnMap={showOnMap} groupNav={groupNav} openGroup={openGroup} /></View> : null}
+          {tab === 'crew' ? <View style={StyleSheet.absoluteFill}><CrewScreen groupNav={groupNav} openGroup={openGroup} /></View> : null}
+          {tab === 'community' ? <View style={StyleSheet.absoluteFill}><CommunityScreen onShowOnMap={showOnMap} /></View> : null}
           {tab === 'me' ? <View style={StyleSheet.absoluteFill}><ProfileScreen onShowOnMap={showOnMap} onOpenSpots={() => goTab('spots')} spotCount={mySpots.length} /></View> : null}
         </View>
         <TabBar tab={tab} setTab={goTab} />

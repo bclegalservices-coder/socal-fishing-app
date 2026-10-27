@@ -206,7 +206,7 @@ function CatchDetail({ r, onBack, onDeleted, onShowOnMap }: { r: any; onBack: ()
           }} />
           <Btn icon="people-outline" label="Send to group" onPress={async () => {
             const gs = await cachedGroups();
-            if (!gs.length) { Alert.alert('No groups yet', 'Create or join a fishing group in Community → My groups.'); return; }
+            if (!gs.length) { Alert.alert('No groups yet', 'Create or join a fishing group in the Crew tab.'); return; }
             const send = (ids: string[]) => shareCatch(r.id, ids)
               .then((n) => { track('group_catch_shared', { groups: ids.length }); Alert.alert(n ? 'Sent to your group' : 'Already shared with that group'); })
               .catch((e) => Alert.alert('Not sent', friendly(e)));

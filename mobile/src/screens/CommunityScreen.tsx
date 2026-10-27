@@ -6,7 +6,6 @@ import { ageText } from '../api';
 import { colors, touch, makeStyles } from '../theme';
 import { latestReports, type PublicReport } from '../community/catchApi';
 import * as forum from '../community/forumApi';
-import { GroupsView, type GroupNav } from '../community/GroupsView';
 import { SPECIES, TIME_WINDOWS } from '../community/species';
 import { ReportCard } from '../components/ReportView';
 import { Btn, ScreenHeader, Segmented, BackLink, SmallBtn, Chip } from '../components/ui';
@@ -15,23 +14,20 @@ import { track } from '../analytics';
 import { supabase } from '../supabase';
 import { friendly } from '../friendly';
 
-type Seg = 'reports' | 'forum' | 'groups';
+type Seg = 'reports' | 'forum';
 
-export function CommunityScreen({ onShowOnMap, groupNav, openGroup }: {
-  onShowOnMap: (lat: number, lon: number, name: string) => void; groupNav: GroupNav; openGroup?: { id: string | null; at: number } | null;
-}) {
+export function CommunityScreen({ onShowOnMap }: { onShowOnMap: (lat: number, lon: number, name: string) => void }) {
   const st = useSt();
-  const [seg, setSeg] = useState<Seg>(openGroup ? 'groups' : 'reports');
-  useEffect(() => { if (openGroup) setSeg('groups'); }, [openGroup?.at]);
+  const [seg, setSeg] = useState<Seg>('reports');
   useEffect(() => { track('screen_view', { screen: `community_${seg}` }); }, [seg]);
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScreenHeader title="Community" subtitle="Reports, forum and your crew" />
+      <ScreenHeader title="Community" subtitle="Catch reports and the forum" />
       <View style={st.root}>
       <View style={{ marginVertical: 10 }}>
-        <Segmented<Seg> value={seg} onChange={setSeg} options={[{ key: 'reports', label: 'Reports', icon: 'fish-outline' }, { key: 'forum', label: 'Forum', icon: 'chatbubbles-outline' }, { key: 'groups', label: 'My crew', icon: 'boat-outline' }]} />
+        <Segmented<Seg> value={seg} onChange={setSeg} options={[{ key: 'reports', label: 'Reports', icon: 'fish-outline' }, { key: 'forum', label: 'Forum', icon: 'chatbubbles-outline' }]} />
       </View>
-      {seg === 'reports' ? <Reports onShowOnMap={onShowOnMap} /> : seg === 'forum' ? <Forum /> : <GroupsView nav={groupNav} openGroupId={openGroup?.id ?? null} />}
+      {seg === 'reports' ? <Reports onShowOnMap={onShowOnMap} /> : <Forum />}
       </View>
     </View>
   );

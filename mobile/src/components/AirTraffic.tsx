@@ -1,0 +1,275 @@
+// Live air traffic (Oct 27): small planes over the water, with CIRCLING planes highlighted — a plane working circles
+// low and slow over the ocean is usually a fish-spotter plane sitting on a school. Data: the server's GET /air
+// (ADS-B, shared by hobbyist receivers), refreshed every 10 s while the layer is on and the app is open.
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Animated, AppState, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
+import { GeoJSONSource, Layer, Marker } from '@maplibre/maplibre-react-native';
+import { getJSON } from '../api';
+import { colors, makeStyles, touch } from '../theme';
+import { distanceNm, bearingTrue, cardinal } from '../geo';
+
+export type Plane = {
+  hex: string; callsign: string | null; reg: string | null; type: string | null; lat: number; lon: number;
+  alt_ft: number | null; gs_kt: number | null; track: number | null; age_s: number; kind: 'small' | 'heli' | 'jet' | 'high';
+  water: boolean; low: boolean; slow: boolean; circling: boolean; circles: number; loiter_min: number; spotter: boolean;
+};
+export type AirData = { updated: number; age_s: number | null; source: string | null; credit: string; error: string | null;
+  count: number; circling: number; spotters: number; planes: Plane[]; trails: Record<string, [number, number][]> };
+export type Watch = { hex: string; reg: string | null; name: string };
+
+export const AIR_COLORS = { spotter: '#FF5A00', circling: '#FFB300', watched: '#D53CF5', plane: '#1F2F3F', heli: '#5B6573' };
+const WATCH_KEY = 'air-watch:v1';
+
+/** Polls /air every 10 s while `on` and the app is in front. */
+export function useAirTraffic(on: boolean) {
+  const [data, setData] = useState<AirData | null>(null);
+  const [active, setActive] = useState(AppState.currentState === 'active');
+  useEffect(() => { const s = AppState.addEventListener('change', (st) => setActive(st === 'active')); return () => s.remove(); }, []);
+  useEffect(() => {
+    if (!on || !active) return;
+    let alive = true;
+    const load = () => getJSON<AirData>('/air', { timeoutMs: 20000 }).then((r) => { if (alive) setData(r.data); }).catch(() => {});
+    load();
+    const t = setInterval(load, 10000);
+    return () => { alive = false; clearInterval(t); };
+  }, [on, active]);
+  useEffect(() => { if (!on) setData(null); }, [on]);
+  return data;
+}
+
+export function useWatchList() {
+  const [list, setList] = useState<Watch[]>([]);
+  useEffect(() => { AsyncStorage.getItem(WATCH_KEY).then((v) => v && setList(JSON.parse(v))).catch(() => {}); }, []);
+  const save = (next: Watch[]) => { setList(next); AsyncStorage.setItem(WATCH_KEY, JSON.stringify(next)).catch(() => {}); };
+  return {
+    list,
+    find: (p: Plane) => list.find((w) => w.hex === p.hex || (!!p.reg && w.reg === p.reg)),
+    add: (p: Plane, name: string) => save([...list.filter((w) => w.hex !== p.hex), { hex: p.hex, reg: p.reg, name }]),
+    remove: (p: Plane) => save(list.filter((w) => w.hex !== p.hex && !(p.reg && w.reg === p.reg))),
+  };
+}
+
+export const planeTitle = (p: Plane, w?: Watch) => w?.name || p.callsign || p.reg || p.type || 'Aircraft';
+const altText = (ft: number | null) => (ft == null ? '—' : `${Math.round(ft / 50) * 50 >= 1000 ? (Math.round(ft / 50) * 50).toLocaleString() : Math.round(ft / 50) * 50} ft`);
+
+/** One shared pulse for every circling plane (a soft ring growing and fading). */
+function usePulse() {
+  const v = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(Animated.timing(v, { toValue: 1, duration: 1600, easing: Easing.out(Easing.quad), useNativeDriver: true }));
+    loop.start();
+    return () => loop.stop();
+  }, [v]);
+  return v;
+}
+
+/** Map part (goes inside <MapView>): recent loops of circling planes, and a plane icon for each aircraft in view. */
+export function AirMapLayer({ data: raw, view, mapHeading, watched: watchedIn, onPick, locked }: {
+  data: AirData | null; view: { minLon: number; minLat: number; maxLon: number; maxLat: number; zoom: number } | null;
+  mapHeading: number; watched: (p: Plane) => Watch | undefined; onPick: (p: Plane) => void; locked?: boolean;
+}) {
+  const pulse = usePulse();
+  // Pro switched on and this person isn't Pro: plain air traffic only (no circling / spotter highlights or loops)
+  const data = useMemo(() => (raw && locked ? lockData(raw) : raw), [raw, locked]);
+  const watched = locked ? noWatch : watchedIn;
+  const trails = useMemo(() => {
+    const feats: any[] = [];
+    if (!data) return { type: 'FeatureCollection', features: feats };
+    const byHex: Record<string, Plane> = {};
+    data.planes.forEach((p) => { byHex[p.hex] = p; });
+    for (const [hx, coords] of Object.entries(data.trails)) {
+      const p = byHex[hx];
+      if (!p || coords.length < 2) continue;
+      const c = watched(p) ? AIR_COLORS.watched : p.spotter ? AIR_COLORS.spotter : p.circling ? AIR_COLORS.circling : '#6B7C8F';
+      feats.push({ type: 'Feature', properties: { c, w: p.circling ? 3 : 1.6 }, geometry: { type: 'LineString', coordinates: coords } });
+    }
+    return { type: 'FeatureCollection', features: feats };
+  }, [data, watched]);
+  const shown = useMemo(() => {
+    if (!data || !view) return [];
+    const padLon = (view.maxLon - view.minLon) * 0.1, padLat = (view.maxLat - view.minLat) * 0.1;
+    return data.planes.filter((p) => p.lon >= view.minLon - padLon && p.lon <= view.maxLon + padLon && p.lat >= view.minLat - padLat && p.lat <= view.maxLat + padLat
+      && (p.circling || p.spotter || !!watched(p) || p.kind !== 'jet' || view.zoom >= 9)).slice(0, 70);
+  }, [data, view, watched]);
+  if (!data) return null;
+  return (
+    <>
+      <GeoJSONSource id="air-trails" data={trails as any}>
+        <Layer type="line" id="air-trails-casing" style={{ lineColor: '#FFFFFF', lineWidth: ['+', ['get', 'w'], 2.5] as any, lineOpacity: 0.7, lineCap: 'round', lineJoin: 'round' }} />
+        <Layer type="line" id="air-trails-line" style={{ lineColor: ['get', 'c'] as any, lineWidth: ['get', 'w'] as any, lineOpacity: 0.95, lineCap: 'round', lineJoin: 'round' }} />
+      </GeoJSONSource>
+      {shown.map((p) => {
+        const w = watched(p);
+        const hot = p.spotter || p.circling || !!w;
+        const c = w ? AIR_COLORS.watched : p.spotter ? AIR_COLORS.spotter : p.circling ? AIR_COLORS.circling : p.kind === 'heli' ? AIR_COLORS.heli : AIR_COLORS.plane;
+        const rot = (p.track ?? 0) - mapHeading;
+        return (
+          <Marker key={`air-${p.hex}`} lngLat={[p.lon, p.lat]} anchor="center">
+            <Pressable onPress={() => onPick(p)} hitSlop={10} style={s.wrap} accessibilityRole="button"
+              accessibilityLabel={`${planeTitle(p, w)}${p.circling ? ', circling' : ''}${p.spotter ? ', likely spotter plane' : ''}`}>
+              {hot ? (
+                <Animated.View pointerEvents="none" style={[s.pulse, { borderColor: c, opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.9, 0] }),
+                  transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1.9] }) }] }]} />
+              ) : null}
+              <View style={[s.disc, hot ? { backgroundColor: c, borderColor: '#FFFFFF', width: 34, height: 34, borderRadius: 17 } : null]}>
+                <MaterialCommunityIcons name={p.kind === 'heli' ? 'helicopter' : 'airplane'} size={hot ? 22 : 17}
+                  color={hot ? '#FFFFFF' : c} style={p.kind === 'heli' ? undefined : { transform: [{ rotate: `${rot}deg` }] }} />
+              </View>
+              {hot ? (
+                <View pointerEvents="none" style={[s.tag, { backgroundColor: c }]}>
+                  <Text style={s.tagT} numberOfLines={1}>{w ? w.name : p.spotter ? 'Likely spotter' : 'Circling'} · {altText(p.alt_ft)}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          </Marker>
+        );
+      })}
+    </>
+  );
+}
+
+const noWatch = () => undefined;
+/** Spotter planes are the Pro feature: strip what they add (circling, spotter, loops) for people without Pro. */
+export function lockData(d: AirData): AirData {
+  return { ...d, circling: 0, spotters: 0, trails: {}, planes: d.planes.map((p) => ({ ...p, circling: false, spotter: false, circles: 0 })) };
+}
+
+/** Banner under the top bar: "2 planes circling now" — tap to jump to them one by one. */
+export function AirChip({ data, onJump, locked, gated, onUpsell }: { data: AirData | null; onJump: (p: Plane) => void; locked?: boolean; gated?: boolean; onUpsell?: () => void }) {
+  const st = useSt();
+  const idx = useRef(0);
+  const hot = (data?.planes ?? []).filter((p) => p.circling);
+  if (!data) return null;
+  if (locked) {
+    return (
+      <Pressable onPress={onUpsell} style={({ pressed }) => [st.chip, { borderColor: AIR_COLORS.spotter }, pressed && { opacity: 0.75 }]} accessibilityRole="button" accessibilityLabel="Spotter planes are a Pro feature">
+        <View style={[st.chipDot, { backgroundColor: AIR_COLORS.spotter }]}><Ionicons name="lock-closed" size={14} color="#FFFFFF" /></View>
+        <Text style={st.chipT} numberOfLines={1}>{hot.length ? `${hot.length} plane${hot.length === 1 ? '' : 's'} circling now` : 'See circling spotter planes'}</Text>
+        <View style={st.pro}><Text style={st.proT}>PRO</Text></View>
+      </Pressable>
+    );
+  }
+  const spot = hot.filter((p) => p.spotter).length;
+  const stale = data.age_s != null && data.age_s > 120;
+  return (
+    <Pressable disabled={!hot.length} onPress={() => { const p = hot[idx.current % hot.length]; idx.current += 1; onJump(p); }}
+      style={({ pressed }) => [st.chip, hot.length ? { borderColor: spot ? AIR_COLORS.spotter : AIR_COLORS.circling } : null, pressed && { opacity: 0.75 }]}
+      accessibilityRole="button" accessibilityLabel={hot.length ? `${hot.length} planes circling. Tap to show.` : 'No planes circling'}>
+      <View style={[st.chipDot, { backgroundColor: hot.length ? (spot ? AIR_COLORS.spotter : AIR_COLORS.circling) : colors.faint }]}>
+        <MaterialCommunityIcons name="airplane" size={14} color="#FFFFFF" />
+      </View>
+      <Text style={st.chipT} numberOfLines={1}>
+        {hot.length ? `${hot.length} plane${hot.length === 1 ? '' : 's'} circling${spot ? ` · ${spot} likely spotter${spot === 1 ? '' : 's'}` : ''}`
+          : `${data.count} planes · none circling`}
+        {stale ? ` · ${Math.round((data.age_s ?? 0) / 60)} min old` : ''}
+      </Text>
+      {!gated ? <View style={st.pro}><Text style={st.proT}>PRO · FREE NOW</Text></View> : null}
+      {hot.length ? <Text style={st.chipGo}>Show</Text> : null}
+    </Pressable>
+  );
+}
+
+/** Card when a plane is tapped. */
+export function AirCard({ p, watch, boat, credit, onWatch, onUnwatch, onCenter, onClose, locked, onUpsell }: {
+  p: Plane; watch?: Watch; boat: { lat: number; lon: number } | null; credit: string;
+  onWatch: (name: string) => void; onUnwatch: () => void; onCenter: () => void; onClose: () => void; locked?: boolean; onUpsell?: () => void;
+}) {
+  const st = useSt();
+  const status = p.spotter ? 'Circling low and slow over the water — flying like a fish-spotter plane'
+    : p.circling ? `Circling${p.water ? ' over the water' : ' over land'}`
+    : p.low && p.slow && p.water ? 'Low and slow over the water' : p.kind === 'heli' ? 'Helicopter' : 'Passing through';
+  const c = watch ? AIR_COLORS.watched : p.spotter ? AIR_COLORS.spotter : p.circling ? AIR_COLORS.circling : colors.live;
+  const away = boat ? `${distanceNm(boat.lat, boat.lon, p.lat, p.lon).toFixed(1)} NM ${cardinal(bearingTrue(boat.lat, boat.lon, p.lat, p.lon))} of you` : null;
+  return (
+    <View style={st.card}>
+      <View style={st.head}>
+        <View style={[st.icon, { backgroundColor: c }]}><MaterialCommunityIcons name={p.kind === 'heli' ? 'helicopter' : 'airplane'} size={22} color="#FFFFFF" /></View>
+        <View style={{ flex: 1 }}>
+          <Text style={st.title} numberOfLines={1}>{planeTitle(p, watch)}</Text>
+          <Text style={st.sub} numberOfLines={1}>{[p.reg, p.type, p.callsign && p.callsign !== p.reg ? p.callsign : null].filter(Boolean).join(' · ') || 'No tail number shared'}</Text>
+        </View>
+        <Pressable onPress={onClose} hitSlop={10} style={st.x} accessibilityRole="button" accessibilityLabel="Close"><Ionicons name="close" size={22} color={colors.text} /></Pressable>
+      </View>
+      <View style={[st.status, { borderColor: c }]}><Text style={st.statusT}>{status}</Text></View>
+      <View style={st.grid}>
+        <Stat k="Altitude" v={altText(p.alt_ft)} />
+        <Stat k="Speed" v={p.gs_kt == null ? '—' : `${p.gs_kt} kt`} />
+        <Stat k={p.circling ? 'Circles' : 'Heading'} v={p.circling ? `${p.circles} in ${Math.round(p.loiter_min)} min` : p.track == null ? '—' : `${p.track}°`} />
+      </View>
+      <Text style={st.sub}>{[away, p.age_s > 30 ? `position ${Math.round(p.age_s)} s old` : null].filter(Boolean).join(' · ')}</Text>
+      {locked ? (
+        <Pressable onPress={onUpsell} style={({ pressed }) => [st.lockRow, pressed && { opacity: 0.8 }]} accessibilityRole="button">
+          <Ionicons name="lock-closed" size={16} color={AIR_COLORS.spotter} />
+          <Text style={st.lockT}>See if it's circling (a likely spotter on fish), its loops and alerts — with Pro</Text>
+        </Pressable>
+      ) : null}
+      <View style={st.row}>
+        <Pressable onPress={onCenter} style={({ pressed }) => [st.btn, pressed && { opacity: 0.7 }]} accessibilityRole="button">
+          <Ionicons name="locate" size={18} color={colors.text} /><Text style={st.btnT}>Center</Text>
+        </Pressable>
+        {locked ? null : watch ? (
+          <Pressable onPress={onUnwatch} style={({ pressed }) => [st.btn, pressed && { opacity: 0.7 }]} accessibilityRole="button">
+            <Ionicons name="star" size={18} color={AIR_COLORS.watched} /><Text style={st.btnT}>Watching</Text>
+          </Pressable>
+        ) : (
+          <Pressable style={({ pressed }) => [st.btn, st.btnOn, pressed && { opacity: 0.8 }]} accessibilityRole="button"
+            onPress={() => {
+              const base = p.reg || p.callsign || p.hex.toUpperCase();
+              if (Alert.prompt) Alert.prompt('Watch this plane', 'Give it a name you\'ll recognize. It will always be highlighted on the map.', [
+                { text: 'Cancel', style: 'cancel' }, { text: 'Watch', onPress: (t?: string) => onWatch((t || '').trim() || base) }], 'plain-text', base);
+              else onWatch(base);
+            }}>
+            <Ionicons name="star-outline" size={18} color={colors.accentInk} /><Text style={[st.btnT, { color: colors.accentInk }]}>Watch</Text>
+          </Pressable>
+        )}
+      </View>
+      <Text style={st.credit}>{credit}. Planes show only when their ADS-B is on and a receiver hears them.</Text>
+    </View>
+  );
+}
+
+function Stat({ k, v }: { k: string; v: string }) {
+  const st = useSt();
+  return <View style={st.stat}><Text style={st.statV} numberOfLines={1} adjustsFontSizeToFit>{v}</Text><Text style={st.statK}>{k}</Text></View>;
+}
+
+const s = StyleSheet.create({
+  wrap: { alignItems: 'center', justifyContent: 'center', minWidth: 44, minHeight: 44 },
+  pulse: { position: 'absolute', width: 46, height: 46, borderRadius: 23, borderWidth: 3 },
+  disc: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.92)',
+    borderWidth: 1, borderColor: 'rgba(0,0,0,0.25)' },
+  tag: { position: 'absolute', top: 42, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, borderWidth: 1.5, borderColor: '#FFFFFF', maxWidth: 170 },
+  tagT: { color: '#FFFFFF', fontSize: 11.5, fontWeight: '800' },
+});
+
+const useSt = makeStyles((colors) => ({
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', marginTop: 6, marginHorizontal: 12, minHeight: 40, paddingLeft: 6, paddingRight: 12,
+    borderRadius: 20, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.panelSolid, maxWidth: '94%',
+    shadowColor: colors.shadow, shadowOpacity: 0.15, shadowRadius: 6, shadowOffset: { width: 0, height: 1 }, elevation: 3 },
+  chipDot: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  chipT: { color: colors.text, fontSize: 14, fontWeight: '700', flexShrink: 1 },
+  chipGo: { color: colors.live, fontSize: 14, fontWeight: '800' },
+  pro: { backgroundColor: '#FF5A00', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  proT: { color: '#FFFFFF', fontSize: 10.5, fontWeight: '900', letterSpacing: 0.4 },
+  card: { backgroundColor: colors.panelSolid, borderTopLeftRadius: 18, borderTopRightRadius: 18, borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border, padding: 14, gap: 10 },
+  head: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  icon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  title: { color: colors.text, fontSize: 19, fontWeight: '800' },
+  sub: { color: colors.muted, fontSize: 13.5 },
+  x: { width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  status: { borderLeftWidth: 4, paddingLeft: 10, paddingVertical: 4 },
+  statusT: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  grid: { flexDirection: 'row', gap: 8 },
+  stat: { flex: 1, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.inset, paddingVertical: 8, alignItems: 'center' },
+  statV: { color: colors.text, fontSize: 18, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  statK: { color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: 2 },
+  row: { flexDirection: 'row', gap: 8 },
+  btn: { flex: 1, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', minHeight: touch.min, borderRadius: 12, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.panelSolid },
+  btnOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  btnT: { color: colors.text, fontSize: 15.5, fontWeight: '700' },
+  credit: { color: colors.faint, fontSize: 11.5 },
+  lockRow: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderRadius: 12, borderWidth: 1.5, borderColor: '#FF5A00' },
+  lockT: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '700' },
+}));
