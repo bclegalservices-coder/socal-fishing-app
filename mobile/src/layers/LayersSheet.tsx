@@ -334,7 +334,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
           {Row({ k: "mySpots", icon: "star", tint: SPOT_COLORS.mine, title: "My spots", sub: "Your saved spots · orange stars, only you see them" })}
           {Row({ k: "spots", icon: "map-marker", tint: SPOT_COLORS.known, title: "Known fishing spots", sub: "430 banks, high spots, reefs and kelp · blue dots" })}
           {Row({ k: "catches", icon: "fish", tint: C.blue, title: "Catch reports", sub: "What the community is catching" })}
-          {Row({ k: "air", icon: "airplane", tint: "#FF5A00", title: "Air traffic · spotter planes", sub: "Live small planes. Circling planes flash orange — often a spotter on fish. Spotter highlights are Pro, free for now" })}
+          {Row({ k: "air", icon: "airplane", tint: "#FF5A00", title: "Air traffic · spotter planes", sub: "Planes and helicopters over the water, out past San Clemente. Circling ones flash orange — often a spotter on fish. Pro, free for now" })}
           {Row({ k: "buddies", icon: "account-group", tint: C.purple, title: "My groups", sub: "Buddy boats, pings and shared spots", last: true })}
         </Section>
 

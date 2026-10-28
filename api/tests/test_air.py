@@ -58,8 +58,9 @@ def test_circling_over_land_or_high_is_circling_but_not_a_spotter():
     assert p["circling"] and not p["spotter"]                                # too high for a spotter
     tr2 = Tracker()
     t_end = _feed(tr2, _orbit(0.0, 60))
-    p2 = tr2.snapshot(t_end, depth_lookup=lambda lat, lon: float("nan"))["planes"][0]
-    assert p2["circling"] and not p2["water"] and not p2["spotter"]        # over land (news, police, flight school)
+    assert tr2.snapshot(t_end, depth_lookup=lambda lat, lon: float("nan"))["planes"] == []   # over land: not shown at all
+    p2 = tr2.snapshot(t_end, depth_lookup=lambda lat, lon: float("nan"), include_land=True)["planes"][0]
+    assert p2["circling"] and not p2["water"] and not p2["spotter"]        # (news, police, flight school)
 
 
 def test_airliners_up_high_hidden_unless_asked_and_helicopters_never_spotters():
@@ -92,9 +93,9 @@ def test_one_request_shared_and_falls_back_to_next_source():
         tr = traffic.Tracker()
         asyncio.run(tr.refresh(fetch, now=1_700_000_000.0))
         asyncio.run(tr.refresh(fetch, now=1_700_000_003.0))               # 3 s later: no new request
-        assert len(calls) == 2 and "adsb.lol" in calls[0] and "airplanes.live" in calls[1]
+        assert len(calls) == 3 and "adsb.lol" in calls[0] and "airplanes.live" in calls[1] and "adsb.fi" in calls[2]
         snap = tr.snapshot(1_700_000_003.0, depth_lookup=lambda a, b: 300.0)
-        assert snap["count"] == 1 and snap["source"] == "api.airplanes.live" and snap["error"] is None
+        assert snap["count"] == 1 and snap["source"] == "api.airplanes.live" and "adsb.lol" in (tr.error or "")
     finally:
         os.environ.pop("AIR_ALLOW_NONCOMMERCIAL", None)
     assert all("airplanes.live" not in s for s in traffic.sources())         # off by default (non-commercial terms)
@@ -148,3 +149,34 @@ def test_pro_switch_limits_spotter_alerts_to_pro_members():
     assert {s["user_id"] for s, *_ in decide(subs, [_spotter()], now, premium=False, pro_users=set())} == {"free", "paid"}
     assert {s["user_id"] for s, *_ in decide(subs, [_spotter()], now, premium=True, pro_users={"paid"})} == {"paid"}
     assert decide(subs, [{**_spotter(), "spotter": False}], now, False, set()) == []                        # just circling high: no alert
+
+
+def test_sources_are_merged_freshest_position_wins():
+    import os
+    from air import traffic
+
+    async def fetch(url):
+        if "adsb.lol" in url:      # hears plane A late, not plane B (far offshore)
+            return {"ac": [{"hex": "aaa111", "lat": 33.0, "lon": -118.9, "alt_baro": 900, "gs": 90, "track": 0, "seen_pos": 20}]}
+        if "airplanes.live" in url:
+            return {"ac": [{"hex": "aaa111", "lat": 33.01, "lon": -118.9, "alt_baro": 900, "gs": 90, "track": 0, "seen_pos": 1},
+                           {"hex": "bbb222", "lat": 32.3, "lon": -119.4, "alt_baro": 800, "gs": 85, "track": 90, "seen_pos": 2}]}
+        raise RuntimeError("down")
+
+    os.environ["AIR_ALLOW_NONCOMMERCIAL"] = "1"
+    try:
+        tr = traffic.Tracker()
+        asyncio.run(tr.refresh(fetch, now=2_000_000_000.0))
+    finally:
+        os.environ.pop("AIR_ALLOW_NONCOMMERCIAL", None)
+    assert set(tr.info) == {"aaa111", "bbb222"}
+    assert abs(tr.paths["aaa111"][-1][1] - 33.01) < 1e-9                   # the fresher report was kept
+
+
+def test_planes_past_the_seafloor_map_count_as_over_water():
+    """Cortes / Tanner Bank and beyond San Clemente: outside the seafloor grid, still ocean (used to be dropped as land)."""
+    from air.traffic import is_water
+    assert is_water(32.45, -119.15, lambda lat, lon: None)                # Cortes Bank area, outside the grid
+    assert not is_water(33.0, -116.3, lambda lat, lon: None)              # inland San Diego County
+    assert not is_water(31.9, -116.5, lambda lat, lon: None)              # Baja coast near Ensenada
+    assert is_water(31.9, -116.9, lambda lat, lon: None)                  # off Ensenada

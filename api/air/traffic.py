@@ -19,17 +19,18 @@ import os
 import time
 from collections import deque
 
-CENTER = (33.0, -118.8)            # middle of the SoCal waters
-RADIUS_NM = 180                    # reaches Point Conception, San Diego and past San Clemente Island
+CENTER = (32.8, -119.0)            # middle of the SoCal waters, nudged offshore
+RADIUS_NM = 230                    # Point Conception to the border, and well past San Clemente: Tanner & Cortes Banks
 POLL_S = 9.0                       # never ask the source more often than this
 KEEP_S = 25 * 60                   # how much of each plane's path to remember
 FORGET_S = 10 * 60                 # drop planes not heard for this long
 WATCH_S = 12 * 60                  # window for the circling test
-BBOX = (-121.0, 31.0, -116.6, 35.0)
+BBOX = (-122.3, 30.3, -116.6, 35.0)   # Oct 27: wider, offshore — beyond San Clemente Island and the outer banks
 
 DEFAULT_SOURCES = ["https://api.adsb.lol/v2/point/{lat}/{lon}/{radius}"]
-NONCOMMERCIAL_SOURCES = ["https://api.airplanes.live/v2/point/{lat}/{lon}/{radius}"]
-CREDIT = {"adsb.lol": "Aircraft data: adsb.lol (ODbL)", "airplanes.live": "Aircraft data: airplanes.live"}
+NONCOMMERCIAL_SOURCES = ["https://api.airplanes.live/v2/point/{lat}/{lon}/{radius}",
+                         "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{radius}"]
+CREDIT = {"adsb.lol": "Aircraft data: adsb.lol (ODbL)", "airplanes.live": "Aircraft data: airplanes.live", "adsb.fi": "Aircraft data: adsb.fi"}
 
 HELI_TYPES = ("R22", "R44", "R66", "EC20", "EC30", "EC35", "EC45", "EC55", "EC75", "AS50", "AS55", "AS65", "B06", "B407",
               "B412", "B429", "B505", "H125", "H130", "H135", "H145", "H160", "S76", "S92", "A109", "A119", "A139", "H60", "H47")
@@ -63,6 +64,8 @@ def is_water(lat: float, lon: float, depth_lookup=None) -> bool:
         except Exception:
             pass
     if lon > BBOX[2] or (lat > 34.45 and lon > -120.6):             # inland / north of the Santa Barbara coast
+        return False
+    if lat < 32.55 and lon > -117.12 + (32.53 - lat) * 0.75:         # Baja California coast
         return False
     return True
 
@@ -117,6 +120,7 @@ class Tracker:
         self.last_fetch = 0.0
         self.last_ok = 0.0
         self.source = None
+        self.sources_ok: list[str] = []
         self.error = None
         self._lock = asyncio.Lock()
 
@@ -139,7 +143,8 @@ class Tracker:
         for hx in [h for h, i in self.info.items() if now - i["_t"] > FORGET_S]:
             self.info.pop(hx, None); self.paths.pop(hx, None)
 
-    def snapshot(self, now: float, depth_lookup=None, include_high: bool = False) -> dict:
+    def snapshot(self, now: float, depth_lookup=None, include_high: bool = False, include_land: bool = False) -> dict:
+        """Planes for the app. Oct 27: only over the WATER by default (planes over land aren't useful to fishermen)."""
         planes, trails = [], {}
         for hx, a in self.info.items():
             alt = _alt(a)
@@ -154,6 +159,8 @@ class Tracker:
             path = list(self.paths[hx])
             an = analyze(path, now)
             water = is_water(lat, lon, depth_lookup)
+            if not water and not include_land:
+                continue
             gs = a.get("gs")
             low = alt is not None and alt <= 3000
             slow = gs is not None and 40 <= gs <= 160
@@ -169,8 +176,10 @@ class Tracker:
                 trails[hx] = [[round(p[2], 5), round(p[1], 5)] for p in path if now - p[0] <= 20 * 60][::1]
         planes.sort(key=lambda p: (not p["spotter"], not p["circling"], p["alt_ft"] or 0))
         src = (self.source or "").split("/")[2] if self.source else None
+        names = self.sources_ok or ([src] if src else [])
+        credit = ", ".join(CREDIT.get(n, n).replace("Aircraft data: ", "") for n in names)
         return {"updated": self.last_ok, "age_s": round(now - self.last_ok) if self.last_ok else None,
-                "source": src, "credit": CREDIT.get(src or "", "Aircraft data: ADS-B network"), "error": self.error,
+                "source": src, "sources": names, "credit": f"Aircraft data: {credit}" if credit else "Aircraft data: ADS-B network", "error": self.error,
                 "count": len(planes), "circling": sum(p["circling"] for p in planes), "spotters": sum(p["spotter"] for p in planes),
                 "planes": planes, "trails": trails}
 
@@ -183,21 +192,37 @@ class Tracker:
             if now - self.last_fetch < POLL_S:                       # another request just did it
                 return
             self.last_fetch = now
-            for url in sources():
-                try:
-                    data = await fetch(url.format(lat=CENTER[0], lon=CENTER[1], radius=RADIUS_NM))
-                    ac = data.get("ac") or data.get("aircraft") or []
-                    src_now = data.get("now")                            # the source's clock (ms or s); "seen" counts back from it
-                    if src_now:
-                        src_now = float(src_now) / (1000.0 if float(src_now) > 1e11 else 1.0)
-                        lag = max(0.0, now - src_now) if abs(now - src_now) < 600 else 0.0
-                    else:
-                        lag = 0.0
-                    self.ingest([{**a, "seen_pos": float(a.get("seen_pos", a.get("seen", 0)) or 0) + lag} for a in ac], now)
-                    self.source, self.last_ok, self.error = url, now, None
-                    return
-                except Exception as e:                                # try the next source
-                    self.error = f"{url.split('/')[2]}: {type(e).__name__}"
+            # Ask every configured source at once and merge them: each network has different receivers, so together
+            # they hear more low planes far offshore. A plane heard by several keeps its freshest position.
+            urls = sources()
+            results = await asyncio.gather(*[fetch(u.format(lat=CENTER[0], lon=CENTER[1], radius=RADIUS_NM)) for u in urls], return_exceptions=True)
+            merged: dict[str, dict] = {}
+            ok, errs = [], []
+            for url, data in zip(urls, results):
+                if isinstance(data, BaseException) or not isinstance(data, dict):
+                    errs.append(f"{url.split('/')[2]}: {type(data).__name__}")
+                    continue
+                ok.append(url)
+                ac = data.get("ac") or data.get("aircraft") or []
+                src_now = data.get("now")                                # the source's clock (ms or s); "seen" counts back from it
+                lag = 0.0
+                if src_now:
+                    src_now = float(src_now) / (1000.0 if float(src_now) > 1e11 else 1.0)
+                    lag = max(0.0, now - src_now) if abs(now - src_now) < 600 else 0.0
+                for a in ac:
+                    hx = (a.get("hex") or "").lower().strip()
+                    if not hx or a.get("lat") is None:
+                        continue
+                    a = {**a, "seen_pos": float(a.get("seen_pos", a.get("seen", 0)) or 0) + lag}
+                    if hx not in merged or a["seen_pos"] < merged[hx]["seen_pos"]:
+                        merged[hx] = a
+            if ok:
+                self.ingest(list(merged.values()), now)
+                self.source, self.last_ok = ok[0], now
+                self.sources_ok = [u.split("/")[2] for u in ok]
+                self.error = "; ".join(errs) or None
+                return
+            self.error = "; ".join(errs)
             # every source failed: keep the last planes (each shows its age)
 
 
@@ -246,7 +271,14 @@ def _depth_lookup():
         from conditions.service import latest_grid
         g, _ = latest_grid("bathy")
         if g is not None:
-            fn = lambda lat, lon: float(g.sample(lat, lon))          # noqa: E731
+            la0, la1, lo0, lo1 = float(g.lats[0]), float(g.lats[-1]), float(g.lons[0]), float(g.lons[-1])
+
+            def fn(lat, lon):
+                # Oct 27: past the edge of the seafloor grid (west / south of San Clemente) say "don't know" (None)
+                # so is_water() uses its open-ocean rule — it used to count as land and drop those planes.
+                if not (la0 <= lat <= la1 and lo0 <= lon <= lo1):
+                    return None
+                return float(g.sample(lat, lon))
     except Exception:
         fn = None
     _depth_cache[0], _depth_cache[1] = time.time(), fn
