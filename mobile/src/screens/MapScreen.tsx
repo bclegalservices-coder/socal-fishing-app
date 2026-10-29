@@ -26,6 +26,8 @@ import { exportTrackGPX } from '../io/transfer';
 import { MeasureCard } from '../components/MeasureCard';
 import { AirCard, AirChip, AirMapLayer, useAirTraffic, useWatchList, type Plane } from '../components/AirTraffic';
 import { usePro } from '../pro';
+import { HoopBanner, HoopMapLayer, HoopPanel } from '../components/Hoop';
+import * as H from '../hoop';
 import { deg3 as mDeg3, legs as mLegs, measureFC, type MPt } from '../measure';
 import { fmtDist as uDist, useUnits } from '../units';
 import { SearchSheet, type SearchHit } from '../components/SearchSheet';
@@ -121,6 +123,7 @@ const lineF = (pts: (Pt | TrackPoint)[]) => ({ type: 'Feature' as const, propert
 
 function StayAwake() { useKeepAwake(); return null; }
 const VIEW_KEY = 'map-view:v1';
+const HOOP_KEY = 'hoop-set:v1';
 const START_CENTER: [number, number] = [-118.42, 33.38];   // Santa Catalina Island
 const START_ZOOM = 9.6;
 
@@ -727,6 +730,70 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       setToast(`${watchedPlane(p)?.name ?? 'A plane'} is circling low over the water${where}`);
     }
   }, [air]);
+  // ---- Hoop netting (Oct 28): numbered nets, pulled in soak order (hoop.ts / components/Hoop.tsx) ----
+  const [hoop, setHoopState] = useState<H.HoopSet | null>(null);
+  const hoopUndo = useRef<(H.HoopSet | null)[]>([]);
+  const [hoopNow, setHoopNow] = useState(Date.now());
+  useEffect(() => { AsyncStorage.getItem(HOOP_KEY).then((v) => { if (v) setHoopState(JSON.parse(v)); }).catch(() => {}); }, []);
+  const setHoop = (next: H.HoopSet | null, undoable = true) => {
+    if (undoable) hoopUndo.current = [...hoopUndo.current.slice(-9), hoop];
+    setHoopState(next); setHoopNow(Date.now());
+    if (next) AsyncStorage.setItem(HOOP_KEY, JSON.stringify(next)).catch(() => {}); else AsyncStorage.removeItem(HOOP_KEY).catch(() => {});
+  };
+  useEffect(() => { if (!hoop) return; const t = setInterval(() => setHoopNow(Date.now()), 15000); return () => clearInterval(t); }, [!!hoop]);
+  const hoopArrived = useRef<number | null>(null);
+  useEffect(() => {
+    if (!hoop) return;
+    const at = H.atNet(hoop, here()); const nu = H.nextUp(hoop);
+    if (at && nu && at.no === nu.no && hoopArrived.current !== at.no) { hoopArrived.current = at.no; Vibration.vibrate([0, 300, 150, 300]); }
+    if (!at) hoopArrived.current = null;
+  }, [fix?.lat, fix?.lon, hoop]);
+  const startHoop = () => {
+    if (hoop) { setPanel('none'); return; }
+    Alert.alert('Hoop netting', 'How many people are fishing on the boat? California (south of Point Arguello): a solo operator can use up to 5 hoop nets, and a boat can never have more than 10.', [
+      { text: 'Just me · 5 nets', onPress: () => { setHoop(H.newSet(1, Date.now()), false); track('hoop_started', { crew: 1 }); } },
+      { text: '2 or more · 10 nets', onPress: () => { setHoop(H.newSet(2, Date.now()), false); track('hoop_started', { crew: 2 }); } },
+      { text: 'Cancel', style: 'cancel' }]);
+  };
+  const hoopDrop = () => {
+    if (!hoop) return;
+    const at = here();
+    if (!at) { Alert.alert('Waiting for GPS', 'The net is pinned where the boat is, so the app needs a GPS fix first.'); return; }
+    const sug = H.dropSuggestion(hoop);
+    if (sug.kind === 'full') return;
+    Vibration.vibrate(60);
+    setHoop(sug.kind === 'redrop' ? H.redrop(hoop, sug.no, at, Date.now()) : H.dropNew(hoop, at, Date.now()));
+    setToast(sug.kind === 'redrop' ? `No. ${sug.no} re-dropped — it goes to the back of the line` : `No. ${sug.no} dropped`);
+    track('hoop_drop', { redrop: sug.kind === 'redrop' });
+  };
+  const hoopPull = (no: number) => {
+    if (!hoop) return;
+    const nu = H.nextUp(hoop);
+    const go = () => { Vibration.vibrate(60); setHoop(H.pull(hoop, no, Date.now())); setToast(`No. ${no} is up`); track('hoop_pull'); };
+    if (nu && nu.no !== no) {
+      Alert.alert(`Pull No. ${no} now?`, `No. ${nu.no} has been down longer (${H.soakText(Date.now() - nu.droppedAt)}). Pull No. ${no} anyway?`,
+        [{ text: 'Cancel', style: 'cancel' }, { text: `Pull No. ${no}`, onPress: go }]);
+    } else go();
+  };
+  const hoopPotPress = (p: H.Pot) => {
+    if (!hoop) return;
+    const h = here();
+    const opts: any[] = [];
+    if (p.state === 'down') opts.push({ text: `Pulled No. ${p.no}`, onPress: () => hoopPull(p.no) });
+    if (p.state === 'aboard' && h) opts.push({ text: `Re-drop No. ${p.no} here`, onPress: () => { Vibration.vibrate(60); setHoop(H.redrop(hoop, p.no, h, Date.now())); } });
+    if (h) opts.push({ text: `Move pin No. ${p.no} to the boat`, onPress: () => setHoop(H.movePot(hoop, p.no, h)) });
+    opts.push({ text: `Guide me to No. ${p.no}`, onPress: () => startNav([{ lat: p.lat, lon: p.lon, name: `Hoop net No. ${p.no}` }], `Hoop net No. ${p.no}`) });
+    if (p.state === 'aboard') opts.push({ text: `Done with No. ${p.no} (stays aboard)`, onPress: () => setHoop(H.finish(hoop, p.no)) });
+    opts.push({ text: 'Cancel', style: 'cancel' });
+    Alert.alert(`Net No. ${p.no}`, p.state === 'down' ? `In the water ${H.soakText(Date.now() - p.droppedAt)}${p.drops > 1 ? ` · drop ${p.drops}` : ''}` : 'Aboard', opts);
+  };
+  const hoopEnd = () => {
+    if (!hoop) return;
+    const n = H.down(hoop).length;
+    Alert.alert('End the hoop set?', n ? `${n} net${n === 1 ? ' is' : 's are'} still in the water. Their pins will be removed from the map.` : 'All nets are up. Clears the set from the map.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'End set', style: n ? 'destructive' : 'default', onPress: () => { setHoop(null, false); hoopUndo.current = []; track('hoop_ended', { left_down: n }); } }]);
+  };
   const jumpToPlane = (p: Plane) => { setAirSel(p.hex); setSel(null); camera.current?.setStop({ center: [p.lon, p.lat], zoom: Math.max(view?.zoom ?? 10, 10.5), duration: 700 }).catch(() => {}); track('air_jump'); };
   // Your own spot names show when zoomed in close, so a busy area doesn't fill with text.
   const myLabels = useMemo(() => {
@@ -773,6 +840,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       { key: 'crew', label: 'Send to my crew', sub: 'Come to me / my position', icon: 'megaphone', tint: colors.buddy, hidden: !supabaseReady, onPress: () => { setSel(null); setCrew({ mode: 'me', pt: null }); } },
       { key: 'route', label: 'Routes', sub: `${routes.length} saved · plan a new one`, icon: 'git-commit', onPress: () => setPanel('routes') },
       { key: 'track', label: active ? 'Recording…' : 'Trips', sub: active ? 'Tap to stop and save' : `Record, play back and compare · ${tracks.length} saved`, icon: active ? 'stop-circle' : 'radio-button-on', tint: colors.alert, active: !!active, onPress: () => setPanel('tracks') },
+      { key: 'hoop', label: 'Hoop netting', sub: hoop ? `${H.down(hoop).length} down · next No. ${H.nextUp(hoop)?.no ?? '—'}` : 'Number your nets, pull them in soak order', icon: 'ellipse-outline', tint: '#FF2BD6', active: !!hoop, onPress: () => { setSel(null); startHoop(); } },
       { key: 'measure', label: 'Measure distance', sub: 'Distance and bearing between points', icon: 'resize', onPress: () => { setPanel('none'); setSel(null); setMeasure([]); track('measure_used'); } },
       { key: 'probe', label: probe ? 'Stop reading' : 'Read conditions', sub: 'Water temp & depth under the crosshair', icon: 'scan', onPress: () => { if (!probe) track('probe_used'); setProbe(!probe); setProbeData(null); } },
       { key: 'today', label: "Today's report", sub: "What's biting, water, warnings", icon: 'newspaper', tint: colors.ok, onPress: () => { setToday(true); track('screen_view', { screen: 'today' }); } },
@@ -783,6 +851,12 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       onGo={() => goTo(draftTargets(draft), 'Route')} onCancel={() => setDraft(null)} />;
   } else if (ruleSel) {
     bottom = <RuleCard p={ruleSel} checkedAt={rules?.checked_at ?? null} onClose={() => setRuleSel(null)} />;
+  } else if (hoop && panel === 'none' && !airPlane && !sel) {
+    bottom = <HoopPanel set={hoop} boat={here()} now={hoopNow} canUndo={hoopUndo.current.length > 0} onPull={hoopPull} onDrop={hoopDrop}
+      onUndo={() => { const prev = hoopUndo.current.pop(); setHoop(prev ?? null, false); }}
+      onCrew={() => Alert.alert('People fishing on the boat', 'Solo: up to 5 nets. Two or more: up to 10 nets per boat.', [
+        { text: 'Just me · 5 nets', onPress: () => setHoop({ ...hoop, crew: 1 }) }, { text: '2 or more · 10 nets', onPress: () => setHoop({ ...hoop, crew: 2 }) }, { text: 'Cancel', style: 'cancel' }])}
+      onEnd={hoopEnd} onPotPress={hoopPotPress} />;
   } else if (clusterSel) {
     bottom = <ClusterSheet c={clusterSel} hours={catchHours} onClose={() => setClusterSel(null)} />;
   } else if (buoy) {
@@ -864,7 +938,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
 
   return (
     <View style={st.root}>
-      {awake === 'always' || (awake === 'active' && (nav || active)) ? <StayAwake /> : null}
+      {awake === 'always' || (awake === 'active' && (nav || active || hoop)) ? <StayAwake /> : null}
       <MapView style={StyleSheet.absoluteFill} mapStyle={mapStyle as any} attribution logo={false} compass={false}
         onPress={onMapPress} onLongPress={onLongPress}
         onRegionWillChange={(e: any) => { if (nav && follow && e?.nativeEvent?.userInteraction) setFollow(false); }}
@@ -976,6 +1050,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
             </GeoJSONSource>
           </>
         ) : null}
+        {hoop ? <HoopMapLayer set={hoop} boat={here()} now={hoopNow} onPotPress={(p) => { featurePressAt.current = Date.now(); hoopPotPress(p); }} /> : null}
         {layers.on.air ? <AirMapLayer data={air} view={view} mapHeading={view?.heading ?? 0} watched={watchedPlane} locked={pro.locked}
           onPick={(p) => { featurePressAt.current = Date.now(); setAirSel(p.hex); setSel(null); setBuoy(null); track('air_plane_tap', { circling: p.circling, spotter: p.spotter }); }} /> : null}
         {replay && replayAt ? (
@@ -1040,7 +1115,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
             onUnsilence={() => { setMpaSilence({ until: 0, key: null }); AsyncStorage.removeItem('mpa-silence:v1').catch(() => {}); }} />
         ) : null}
         {!net.online ? <Text style={st.offline}>Offline · showing saved maps and data, each with its age</Text> : null}
-        {layers.on.air && !nav && !replay ? <AirChip data={air} onJump={jumpToPlane} locked={pro.locked} gated={pro.gated} onUpsell={proUpsell} /> : null}
+        {hoop && !nav && !replay ? <HoopBanner set={hoop} boat={here()} heading={heading ?? motion.cogT ?? null} now={hoopNow} /> : null}
+        {layers.on.air && !nav && !replay && !hoop ? <AirChip data={air} onJump={jumpToPlane} locked={pro.locked} gated={pro.gated} onUpsell={proUpsell} /> : null}
         {probe ? (
           <View style={st.probe} pointerEvents="none">
             {probeAt ? <Text style={st.probeC}>{formatLatLon(probeAt.lat, probeAt.lon)}</Text> : <Text style={st.probeL}>Move the map under the crosshair</Text>}

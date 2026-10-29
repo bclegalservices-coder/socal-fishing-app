@@ -17,6 +17,7 @@ import { WindView } from '../weather/WindView';
 import { loadPublicSpots, type SavedSpot } from '../storage';
 import { BoatSheet } from '../weather/BoatSheet';
 import { CondIcon, NowCard, PlaceSearch, hourNow, placeName } from '../weather/Conditions';
+import { ExtendedButton, ExtendedForecast } from '../weather/Extended';
 import { Bars } from '../weather/Charts';
 import {
   addDays, arrow, boatLabel, clock, compass, dayLabel, downsample, hourLabel, isDate, levelColor, levelText, loadBoat, localDate,
@@ -176,6 +177,7 @@ function Forecast({ place, boat, boatIsSet, course, setCourse, onEditBoat }: {
   const [day, setDay] = useState<string | null>(null);
   const [openHour, setOpenHour] = useState<string | null>(null);
   const [showZone, setShowZone] = useState(false);
+  const [extOpen, setExtOpen] = useState(false);
   const path = weatherPath(place.lat, place.lon, boat, course);
 
   const load = async () => {
@@ -228,7 +230,9 @@ function Forecast({ place, boat, boatIsSet, course, setCourse, onEditBoat }: {
         <Text style={st.warn}>No sea forecast for this exact point (it's on land or inside a harbor). Wind and weather are shown; pick a harbor above for seas.</Text>
       ) : null}
 
-      {days.length ? <SectionLabel>Next {days.length} days</SectionLabel> : null}
+      {days.length ? <SectionLabel right={<ExtendedButton onPress={() => { setExtOpen(true); track('weather_extended_open'); }} />}>Next {days.length} days</SectionLabel> : null}
+      <ExtendedForecast visible={extOpen} place={place.label} days={days} hours={f?.hourly ?? []} onClose={() => setExtOpen(false)}
+        onPickDay={(d) => { setDay(d); setOpenHour(null); }} />
       {days.length ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
           {days.map((d) => (

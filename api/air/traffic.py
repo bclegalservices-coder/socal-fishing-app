@@ -167,6 +167,9 @@ class Tracker:
             spotter = bool(an["circling"] and low and slow and water and kind != "heli")
             planes.append({
                 "hex": hx, "callsign": (a.get("flight") or "").strip() or None, "reg": a.get("r"), "type": a.get("t"),
+                # Oct 28: full model name, year built and registered owner/operator when the network knows them
+                "desc": (a.get("desc") or "").strip() or None, "owner": (a.get("ownOp") or "").strip() or None,
+                "year": str(a.get("year")).strip() if a.get("year") else None,
                 "lat": round(lat, 5), "lon": round(lon, 5), "alt_ft": None if alt is None else int(alt),
                 "gs_kt": None if gs is None else round(gs), "track": None if a.get("track") is None else round(a["track"]),
                 "age_s": round(now - a["_t"]), "kind": kind, "water": water, "low": bool(low), "slow": bool(slow),

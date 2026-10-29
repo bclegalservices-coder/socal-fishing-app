@@ -34,7 +34,8 @@ const LOOKS = {
 // big area. Asking for a bigger picture of the same area makes NOAA use its detailed coastline. Text and symbols
 // get a bit smaller when zoomed out — that's the trade. Tune here without an app update:
 //   picture width in meters (web map units) above which a bigger image is requested → image size in pixels
-const HD_STEPS = [[100000, 1536], [50000, 1280]];   // ~zoom 9 and wider → 1536 px; ~zoom 10 → 1280 px; closer → 1024 px
+// Oct 28: also for the middle zooms (harbors, coastline, breakwaters show ~1 zoom level sooner). Was [[100000, 1536], [50000, 1280]].
+const HD_STEPS = [[100000, 1792], [50000, 1536], [25000, 1408], [12500, 1280]];   // ≤ zoom 9 · 10 · 11 · 12; closer → 1024 px
 
 function sizeFor(p) {
   if (p.get('hd') !== '1') return 1024;

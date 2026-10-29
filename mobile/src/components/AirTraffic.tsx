@@ -2,7 +2,7 @@
 // low and slow over the ocean is usually a fish-spotter plane sitting on a school. Data: the server's GET /air
 // (ADS-B, shared by hobbyist receivers), refreshed every 10 s while the layer is on and the app is open.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, AppState, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, AppState, Easing, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { GeoJSONSource, Layer, Marker } from '@maplibre/maplibre-react-native';
@@ -12,6 +12,7 @@ import { distanceNm, bearingTrue, cardinal } from '../geo';
 
 export type Plane = {
   hex: string; callsign: string | null; reg: string | null; type: string | null; lat: number; lon: number;
+  desc?: string | null; owner?: string | null; year?: string | null;
   alt_ft: number | null; gs_kt: number | null; track: number | null; age_s: number; kind: 'small' | 'heli' | 'jet' | 'high';
   water: boolean; low: boolean; slow: boolean; circling: boolean; circles: number; loiter_min: number; spotter: boolean;
 };
@@ -52,6 +53,35 @@ export function useWatchList() {
 }
 
 export const planeTitle = (p: Plane, w?: Watch) => w?.name || p.callsign || p.reg || p.type || 'Aircraft';
+
+/** Common planes over SoCal waters (spotters, patrol, sightseeing), for when the network sends only the type code. */
+const TYPE_NAMES: Record<string, string> = {
+  C150: 'Cessna 150', C152: 'Cessna 152', C170: 'Cessna 170', C172: 'Cessna 172 Skyhawk', C177: 'Cessna 177 Cardinal', C180: 'Cessna 180 Skywagon',
+  C182: 'Cessna 182 Skylane', C185: 'Cessna 185 Skywagon', C206: 'Cessna 206 Stationair', C207: 'Cessna 207', C208: 'Cessna 208 Caravan',
+  C210: 'Cessna 210 Centurion', C310: 'Cessna 310', C337: 'Cessna 337 Skymaster', C340: 'Cessna 340', C414: 'Cessna 414', C421: 'Cessna 421',
+  P28A: 'Piper Cherokee / Archer', P28B: 'Piper Cherokee 235', P28R: 'Piper Arrow', P32R: 'Piper Saratoga', PA32: 'Piper Cherokee Six',
+  PA18: 'Piper Super Cub', PA22: 'Piper Tri-Pacer', PA24: 'Piper Comanche', PA31: 'Piper Navajo', PA34: 'Piper Seneca', PA44: 'Piper Seminole',
+  PA46: 'Piper Malibu', BE35: 'Beechcraft Bonanza (V-tail)', BE36: 'Beechcraft Bonanza', BE55: 'Beechcraft Baron', BE58: 'Beechcraft Baron 58',
+  BE9L: 'Beechcraft King Air 90', BE20: 'Beechcraft King Air 200', SR20: 'Cirrus SR20', SR22: 'Cirrus SR22', S22T: 'Cirrus SR22T',
+  M20P: 'Mooney M20', DA40: 'Diamond DA40', DA42: 'Diamond DA42', CH7A: 'Champion Citabria', CH7B: 'Bellanca Decathlon', AA5: 'Grumman Tiger',
+  GA8: 'GippsAero Airvan', DHC2: 'de Havilland Beaver', DHC6: 'de Havilland Twin Otter', PC12: 'Pilatus PC-12', KODI: 'Kodiak 100',
+  AC50: 'Aero Commander 500', P68: 'Partenavia P68 Observer', LA4: 'Lake Buccaneer (amphibian)', SEAW: 'Seawind (amphibian)',
+  R22: 'Robinson R22 (helicopter)', R44: 'Robinson R44 (helicopter)', R66: 'Robinson R66 (helicopter)', B06: 'Bell 206 JetRanger (helicopter)',
+  B407: 'Bell 407 (helicopter)', AS50: 'Airbus AS350 (helicopter)', EC30: 'Airbus H130 (helicopter)', EC35: 'Airbus H135 (helicopter)',
+  EC45: 'Airbus H145 (helicopter)', H60: 'Black Hawk / Jayhawk (helicopter)', A139: 'Leonardo AW139 (helicopter)', HDJT: 'HondaJet',
+  C130: 'C-130 Hercules', P8: 'P-8 Poseidon (Navy patrol)', C27J: 'C-27J Spartan (Coast Guard)', HU25: 'Falcon / HU-25 Guardian',
+};
+const KEEP_CAPS = new Set(['LLC', 'INC', 'LP', 'LLP', 'USA', 'US', 'II', 'III', 'IV', 'FAA', 'CHP', 'LA', 'SD', 'USCG']);
+const titleCase = (s: string) => s.split(/(\s+)/).map((w) => (/\d/.test(w) || KEEP_CAPS.has(w.toUpperCase().replace(/[.,]/g, '')) ? w.toUpperCase()
+  : w.toLowerCase().replace(/(^|[-/])([a-z])/g, (_m, a, b) => a + b.toUpperCase()))).join('');
+/** "Cessna 182 Skylane" — the network's description when it has one, otherwise our table, otherwise the code. */
+export function planeModel(p: Plane): string | null {
+  if (p.desc) return titleCase(p.desc);
+  if (p.type && TYPE_NAMES[p.type.toUpperCase()]) return TYPE_NAMES[p.type.toUpperCase()];
+  return p.type ?? null;
+}
+/** FAA registry page for US tail numbers (N…): owner, model, year — all public. */
+export const faaLink = (reg: string | null) => (reg && /^N[0-9A-Z]{1,5}$/i.test(reg) ? `https://registry.faa.gov/AircraftInquiry/Search/NNumberResult?nNumberTxt=${encodeURIComponent(reg.slice(1))}` : null);
 const altText = (ft: number | null) => (ft == null ? '—' : `${Math.round(ft / 50) * 50 >= 1000 ? (Math.round(ft / 50) * 50).toLocaleString() : Math.round(ft / 50) * 50} ft`);
 
 /** One shared pulse for every circling plane (a soft ring growing and fading). */
@@ -188,7 +218,8 @@ export function AirCard({ p, watch, boat, credit, onWatch, onUnwatch, onCenter, 
         <View style={[st.icon, { backgroundColor: c }]}><MaterialCommunityIcons name={p.kind === 'heli' ? 'helicopter' : 'airplane'} size={22} color="#FFFFFF" /></View>
         <View style={{ flex: 1 }}>
           <Text style={st.title} numberOfLines={1}>{planeTitle(p, watch)}</Text>
-          <Text style={st.sub} numberOfLines={1}>{[p.reg, p.type, p.callsign && p.callsign !== p.reg ? p.callsign : null].filter(Boolean).join(' · ') || 'No tail number shared'}</Text>
+          <Text style={st.model} numberOfLines={1}>{planeModel(p) ?? 'Aircraft type not shared'}</Text>
+          <Text style={st.sub} numberOfLines={1}>{[p.reg ?? 'No tail number shared', p.year ? `built ${p.year}` : null, p.callsign && p.callsign !== p.reg ? p.callsign : null].filter(Boolean).join(' · ')}</Text>
         </View>
         <Pressable onPress={onClose} hitSlop={10} style={st.x} accessibilityRole="button" accessibilityLabel="Close"><Ionicons name="close" size={22} color={colors.text} /></Pressable>
       </View>
@@ -198,7 +229,13 @@ export function AirCard({ p, watch, boat, credit, onWatch, onUnwatch, onCenter, 
         <Stat k="Speed" v={p.gs_kt == null ? '—' : `${p.gs_kt} kt`} />
         <Stat k={p.circling ? 'Circles' : 'Heading'} v={p.circling ? `${p.circles} in ${Math.round(p.loiter_min)} min` : p.track == null ? '—' : `${p.track}°`} />
       </View>
+      {p.owner ? <Text style={st.sub} numberOfLines={1}>Registered to {titleCase(p.owner)}</Text> : null}
       <Text style={st.sub}>{[away, p.age_s > 30 ? `position ${Math.round(p.age_s)} s old` : null].filter(Boolean).join(' · ')}</Text>
+      {faaLink(p.reg) ? (
+        <Pressable onPress={() => Linking.openURL(faaLink(p.reg)!).catch(() => {})} accessibilityRole="link" style={({ pressed }) => [st.faa, pressed && { opacity: 0.6 }]}>
+          <Ionicons name="document-text-outline" size={16} color={colors.live} /><Text style={st.faaT}>Full FAA record for {p.reg} (owner, model, year)</Text>
+        </Pressable>
+      ) : null}
       {locked ? (
         <Pressable onPress={onUpsell} style={({ pressed }) => [st.lockRow, pressed && { opacity: 0.8 }]} accessibilityRole="button">
           <Ionicons name="lock-closed" size={16} color={AIR_COLORS.spotter} />
@@ -257,6 +294,9 @@ const useSt = makeStyles((colors) => ({
   head: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   icon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   title: { color: colors.text, fontSize: 19, fontWeight: '800' },
+  model: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  faa: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 32 },
+  faaT: { color: colors.live, fontSize: 14, fontWeight: '700' },
   sub: { color: colors.muted, fontSize: 13.5 },
   x: { width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   status: { borderLeftWidth: 4, paddingLeft: 10, paddingVertical: 4 },

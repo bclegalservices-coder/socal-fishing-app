@@ -12,7 +12,7 @@ export function MapActions({ actions, onClose }: { actions: MapAction[]; onClose
   return (
     <Sheet maxHeight={560}>
       <View style={st.head}>
-        <Text style={st.title}>What do you want to do?</Text>
+        <Text style={st.title}>Tools</Text>
         <Pressable onPress={onClose} hitSlop={10} accessibilityRole="button" accessibilityLabel="Close"><Ionicons name="close-circle" size={28} color={colors.faint} /></Pressable>
       </View>
       <View style={st.grid}>
