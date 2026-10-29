@@ -45,7 +45,7 @@ function sizeFor(p) {
   return 1024;
 }
 
-function chartUrl(p) {
+function chartUrl(p, blue = p.get('wb') === '1') {
   const look = LOOKS[p.get('look')] || (p.get('fd') === '1' ? LOOKS.full : null);
   const params = {
     ECDISParameters: {
@@ -56,6 +56,9 @@ function chartUrl(p) {
           { name: 'ColorScheme', value: ONE(p.get('cs'), [0, 1, 2], 0) },
           { name: 'PointSymbolizationType', value: ONE(p.get('ps'), [1, 2], 2) },
           ...(look ? [{ name: 'DisplayCategory', value: look.DisplayCategory }, { name: 'HonorScamin', value: look.HonorScamin }] : []),
+          // Oct 28 (wb=1): blue water everywhere. NOAA paints water deeper than its "deep contour" (30 m) white; moving
+          // the deep contour to 9000 m makes all offshore water the pale blue "medium-deep" shade instead.
+          ...(blue ? [{ name: 'DeepContour', value: 9000 }] : []),
         ],
       },
     },
@@ -71,9 +74,9 @@ function reliefUrl(p) {
     + `&renderingRule=${encodeURIComponent(JSON.stringify({ rasterFunction: 'ColorHillshade' }))}`;
 }
 
-async function tile(url) {
+async function tile(url, fallback) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const r = await fetch(url, { headers: { 'User-Agent': 'ChannelNav-chart-helper' }, cf: { cacheTtl: 604800, cacheEverything: true } });
+    const r = await fetch(attempt === 1 && fallback ? fallback : url, { headers: { 'User-Agent': 'ChannelNav-chart-helper' }, cf: { cacheTtl: 604800, cacheEverything: true } });
     const type = r.headers.get('content-type') || '';
     if (r.ok && type.startsWith('image/')) {
       return new Response(r.body, { headers: { 'content-type': type, 'cache-control': 'public, max-age=604800', 'access-control-allow-origin': '*' } });
@@ -89,7 +92,8 @@ export default {
     const p = u.searchParams;
     if (u.pathname === '/' || u.pathname === '/health') return new Response('Channel Nav chart helper: ok');
     if (!BBOX.test(p.get('bbox') || '')) return new Response('bad bbox', { status: 400 });
-    if (u.pathname === '/chart') return tile(chartUrl(p));
+    // If NOAA ever refuses the blue-water setting, the retry asks for the normal chart (never a blank square).
+    if (u.pathname === '/chart') return tile(chartUrl(p), p.get('wb') === '1' ? chartUrl(p, false) : null);
     if (u.pathname === '/relief') return tile(reliefUrl(p));
     return new Response('not found', { status: 404 });
   },

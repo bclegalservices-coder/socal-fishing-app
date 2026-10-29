@@ -33,7 +33,7 @@ export function noaaChartTiles(show: Record<ChartDetail, boolean> & { lightCircl
   const ids = [0, 1, 2, ...(Object.keys(CHART_DETAIL_LAYER) as ChartDetail[]).filter((k) => show[k]).map((k) => CHART_DETAIL_LAYER[k])].sort((a, b) => a - b);
   if (CHART_SETTINGS_AVAILABLE && !helperOff) {
     // ls = light sectors (1 off, 2 on) · cs = color scheme (0 day, 2 night) · ps = symbols (1 simple, 2 paper)
-    return `${CHART_HELPER}/chart?bbox={bbox-epsg-3857}&layers=${ids.join(',')}&ls=${show.lightCircles ? 2 : 1}&cs=${night ? 2 : 0}&ps=${show.simpleSymbols ? 1 : 2}&look=${show.look ?? 'standard'}&hd=1`;
+    return `${CHART_HELPER}/chart?bbox={bbox-epsg-3857}&layers=${ids.join(',')}&ls=${show.lightCircles ? 2 : 1}&cs=${night ? 2 : 0}&ps=${show.simpleSymbols ? 1 : 2}&look=${show.look ?? 'standard'}&hd=1&wb=1`;   // wb=1: blue (not white) deep water (Oct 28)
   }
   return `${NOAA_CHART_TILES}&layers=show:${ids.join(',')}`;
 }
