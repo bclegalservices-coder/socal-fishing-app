@@ -298,27 +298,96 @@ def straighten(nd: NavData, path: list, safety_ft: float, sea_room_m: float = SE
 
 # ------------------------------------------------------------------ public
 
+# Backup launch ramps / marinas (Oct 28) in case the weekly harbor file is missing or thin. Pins only need to be
+# close: each one is moved to the nearest water deep enough before routing.
+BUILTIN_LAUNCHES = [
+    {"name": "Cabrillo Beach launch ramp (San Pedro)", "kind": "ramp", "lat": 33.7110, "lon": -118.2790},
+    {"name": "Cabrillo Marina (San Pedro)", "kind": "marina", "lat": 33.7200, "lon": -118.2780},
+    {"name": "Long Beach Shoreline Marina", "kind": "marina", "lat": 33.7590, "lon": -118.1930},
+    {"name": "Davies launch ramp (Long Beach)", "kind": "ramp", "lat": 33.7590, "lon": -118.1270},
+    {"name": "Alamitos Bay Marina", "kind": "marina", "lat": 33.7520, "lon": -118.1130},
+    {"name": "Huntington Harbour", "kind": "marina", "lat": 33.7220, "lon": -118.0560},
+    {"name": "King Harbor (Redondo)", "kind": "marina", "lat": 33.8460, "lon": -118.3960},
+    {"name": "Marina del Rey launch ramp", "kind": "ramp", "lat": 33.9780, "lon": -118.4460},
+    {"name": "Newport Dunes launch ramp", "kind": "ramp", "lat": 33.6190, "lon": -117.8920},
+    {"name": "Dana Point Harbor launch ramp", "kind": "ramp", "lat": 33.4610, "lon": -117.6950},
+    {"name": "Oceanside Harbor launch ramp", "kind": "ramp", "lat": 33.2070, "lon": -117.3930},
+    {"name": "Shelter Island launch ramp (San Diego)", "kind": "ramp", "lat": 32.7150, "lon": -117.2270},
+    {"name": "Mission Bay launch ramp", "kind": "ramp", "lat": 32.7640, "lon": -117.2360},
+    {"name": "Channel Islands Harbor", "kind": "marina", "lat": 34.1640, "lon": -119.2240},
+    {"name": "Ventura Harbor launch ramp", "kind": "ramp", "lat": 34.2440, "lon": -119.2630},
+    {"name": "Santa Barbara Harbor", "kind": "marina", "lat": 34.4040, "lon": -119.6900},
+]
+
+
+def _water_near(nd: NavData, p, safety_ft: float, max_m: float):
+    """The closest water (deep enough to route through) to a point, within max_m. Returns (lat, lon) or None."""
+    from scipy import ndimage
+    for m in [x for x in (400, 1200, 3000, 8000) if x <= max_m] or [max_m]:
+        r = m / 111_000 * 1.15
+        win = nd.fine(p[1] - r / 0.83, p[0] - r, p[1] + r / 0.83, p[0] + r, step=_fine_step(2 * r, 2 * r / 0.83))
+        cost = _cost(win, safety_ft)
+        bad = ~np.isfinite(cost)
+        if bad.all():
+            continue
+        ij = win.cell(*p)
+        if not bad[ij]:
+            return (p[0], p[1])                                     # already on the water: keep the exact pin
+        _, (ii, jj) = ndimage.distance_transform_edt(bad, return_indices=True)
+        c = (int(ii[ij]), int(jj[ij]))
+        q = win.center(*c)
+        if dist_nm(p, q) * 1852 <= m:
+            return q
+    return None
+
+
+def _start_label(l: dict) -> str:
+    return l.get("name") or {"ramp": "Launch ramp", "marina": "Marina", "fuel": "Fuel dock"}.get(l.get("kind"), "Harbor")
+
+
 def route(nd: NavData, pts: list[tuple[float, float]], safety_ft: float = 8.0, launches: list[dict] | None = None) -> dict:
     """pts: [(lat, lon), …] start, optional via points, end. Returns the turn points and notes.
     launches: launch ramps / marinas [{name, kind, lat, lon}]. If the start is on land (you're at home, planning),
-    the route starts from the nearest one that has a water path, and says so (`start_from`)."""
+    the route starts from the nearest launch ramp / marina that has a water path — or, failing that, from the water
+    closest to you — and says so (`start_from`)."""
     if len(pts) < 2:
         raise NoRoute("need a start and an end")
     try:
         return _route(nd, pts, safety_ft)
     except NoRoute as e:
-        if "start isn't on or near the water" not in str(e) or not launches:
+        if "start isn't on or near the water" not in str(e) or launches is None:
             raise
     a = pts[0]
-    near = sorted((l for l in launches if dist_nm(a, (l["lat"], l["lon"])) < 40), key=lambda l: dist_nm(a, (l["lat"], l["lon"])))
-    for l in near[:8]:                     # closest first; skip any whose pin isn't really at the water
+    cands = [l for l in list(launches) + BUILTIN_LAUNCHES if dist_nm(a, (l["lat"], l["lon"])) < 40]
+    cands.sort(key=lambda l: dist_nm(a, (l["lat"], l["lon"])))
+    tried, seen = 0, []
+    for l in cands:
+        if tried >= 10:
+            break
+        if any(dist_nm((l["lat"], l["lon"]), s) < 0.15 for s in seen):    # same harbor already tried
+            continue
+        seen.append((l["lat"], l["lon"]))
+        tried += 1
         try:
-            r = _route(nd, [(l["lat"], l["lon"])] + list(pts[1:]), safety_ft)
+            w = _water_near(nd, (l["lat"], l["lon"]), safety_ft, 1200)  # ramp / marina pins are often on the lot
+            if w is None:
+                continue
+            r = _route(nd, [w] + list(pts[1:]), safety_ft)
         except NoRoute:
             continue
-        r["start_from"] = {"name": l.get("name") or ("Launch ramp" if l.get("kind") == "ramp" else "Marina"), "kind": l.get("kind"),
-                           "lat": l["lat"], "lon": l["lon"], "distance_nm": round(dist_nm(a, (l["lat"], l["lon"])), 1)}
+        r["start_from"] = {"name": _start_label(l), "kind": l.get("kind"), "lat": w[0], "lon": w[1],
+                           "distance_nm": round(dist_nm(a, (l["lat"], l["lon"])), 1)}
         return r
+    # Last resort: start from the water closest to you.
+    w = _water_near(nd, a, safety_ft, 8000)
+    if w is not None:
+        try:
+            r = _route(nd, [w] + list(pts[1:]), safety_ft)
+            r["start_from"] = {"name": "the closest water to you", "kind": "water", "lat": w[0], "lon": w[1],
+                               "distance_nm": round(dist_nm(a, w), 1)}
+            return r
+        except NoRoute:
+            pass
     raise NoRoute("the start isn't on or near the water, and no launch ramp or marina nearby had a water path")
 
 
@@ -327,7 +396,7 @@ def launch_points(fc: dict) -> list[dict]:
     out = []
     for f in (fc or {}).get("features", []):
         p, g = f.get("properties") or {}, f.get("geometry") or {}
-        if p.get("kind") in ("ramp", "marina") and g.get("type") == "Point":
+        if p.get("kind") in ("ramp", "marina", "fuel") and g.get("type") == "Point":
             lon, lat = g["coordinates"][:2]
             out.append({"name": p.get("name"), "kind": p.get("kind"), "lat": float(lat), "lon": float(lon)})
     return out

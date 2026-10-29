@@ -148,6 +148,13 @@ def test_start_on_land_uses_nearest_launch():
     assert r["start_from"]["name"] == "Channel Marina"
     pts = [(p["lat"], p["lon"]) for p in r["points"]]
     assert abs(pts[0][0] - 33.750) < 1e-6 and _all_water(n, pts) and _crosses_gap(pts)
+    # Pins on the parking lot (not in the water) still work: they're moved to the water next to them.
+    lot = [{"name": "Lot ramp", "kind": "ramp", "lat": 33.750 + 0.004, "lon": -118.29}]
+    r2 = route(n, [home, (33.62, -118.30)], safety_ft=8, launches=lot)
+    assert r2["start_from"]["kind"] in ("ramp", "marina", "water") and _all_water(n, [(p["lat"], p["lon"]) for p in r2["points"]])
+    # No ramp file at all: still starts from somewhere on the water near you (never just "you're on land").
+    r3 = route(n, [home, (33.62, -118.30)], safety_ft=8, launches=[])
+    assert r3.get("start_from") and _all_water(n, [(p["lat"], p["lon"]) for p in r3["points"]])
     try:
         route(n, [home, (33.62, -118.30)], safety_ft=8)            # without launches: the clear "on land" message
         assert False
