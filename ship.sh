@@ -40,14 +40,14 @@ fi
 cd "$APPDIR"
 # Expo now builds updates ONLY from the settings stored on expo.dev ("production" environment), not from the .env file.
 # If they're missing, the update would reach phones without the server address (no water temp, no relief map...).
-if ! npx eas-cli@latest env:list --environment production 2>/dev/null | grep -q "EXPO_PUBLIC_API_URL"; then
+if ! npx --yes eas-cli@latest env:list --environment production 2>/dev/null | grep -q "EXPO_PUBLIC_API_URL"; then
   echo "     ✗ Stopped: the app settings aren't on expo.dev yet, so nothing was sent to phones."
   echo "       Fix (one time), in this window:"
-  echo "         cd $(pwd) && npx eas-cli@latest env:push --environment production --path .env"
+  echo "         cd $(pwd) && npx --yes eas-cli@latest env:push --environment production --path .env"
   echo "       Then run ship.sh again."
   exit 1
 fi
-CI=1 npx eas-cli@latest update --channel production --environment production --message "$MSG" --non-interactive
+CI=1 npx --yes eas-cli@latest update --channel production --environment production --message "$MSG" --non-interactive
 
 echo "4/4  Done."
 echo ""

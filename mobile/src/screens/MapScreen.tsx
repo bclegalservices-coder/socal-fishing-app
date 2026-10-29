@@ -1086,6 +1086,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
 
       {replay && replayAt ? <ReplayHud name={replay.meta.name} m={replayAt} onClose={() => { setReplay(null); }} /> : null}
       <SafeAreaView style={[st.top, replay ? { display: 'none' } : null]} edges={['top']} pointerEvents="box-none">
+        {/* Hoop netting (Oct 28 v2): the slim hoop bar replaces the search row + GPS card so the map stays visible */}
+        {hoop && !nav ? null : <>
         <View style={st.searchRow}>
           <Pressable style={st.search} onPress={() => setPanel('search')} accessibilityRole="search" accessibilityLabel="Search spots">
             <Ionicons name="search" size={19} color={colors.muted} />
@@ -1109,13 +1111,14 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
             onEnd: () => { setNav(null); track('go_to_ended'); },
             onSkip: nav.leg < nav.points.length - 1 ? () => setNav({ ...nav, leg: nav.leg + 1, legStart: here() ?? nav.points[nav.leg] }) : undefined,
           } : null} />
+        </>}
         {layers.on.rules && mpaHere.length && mpaDismissed !== mpaKey ? (
           <MpaBanner areas={mpaHere} silenced={mpaSilenced} onSilence={silenceMpa}
             onRules={() => { const a = mpaHere.find((x) => x.properties?.take === 'no_take') ?? mpaHere[0]; setRuleSel({ ...a.properties, geom: a.geometry }); }}
             onUnsilence={() => { setMpaSilence({ until: 0, key: null }); AsyncStorage.removeItem('mpa-silence:v1').catch(() => {}); }} />
         ) : null}
         {!net.online ? <Text style={st.offline}>Offline · showing saved maps and data, each with its age</Text> : null}
-        {hoop && !nav && !replay ? <HoopBanner set={hoop} boat={here()} heading={heading ?? motion.cogT ?? null} now={hoopNow} /> : null}
+        {hoop && !nav && !replay ? <HoopBanner set={hoop} boat={here()} heading={heading ?? motion.cogT ?? null} now={hoopNow} sogKt={motion.sogKt} /> : null}
         {layers.on.air && !nav && !replay && !hoop ? <AirChip data={air} onJump={jumpToPlane} locked={pro.locked} gated={pro.gated} onUpsell={proUpsell} /> : null}
         {probe ? (
           <View style={st.probe} pointerEvents="none">
