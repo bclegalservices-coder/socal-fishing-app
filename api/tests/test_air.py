@@ -60,7 +60,22 @@ def test_circling_over_land_or_high_is_circling_but_not_a_spotter():
     t_end = _feed(tr2, _orbit(0.0, 60))
     assert tr2.snapshot(t_end, depth_lookup=lambda lat, lon: float("nan"))["planes"] == []   # over land: not shown at all
     p2 = tr2.snapshot(t_end, depth_lookup=lambda lat, lon: float("nan"), include_land=True)["planes"][0]
-    assert p2["circling"] and not p2["water"] and not p2["spotter"]        # (news, police, flight school)
+    assert not p2["water"] and not p2["spotter"] and not p2["circling"]    # (news, police, flight school): not highlighted
+
+
+def test_no_spotters_near_the_beach_or_over_the_harbor_training_area():
+    from air.traffic import Tracker
+    from air.coast import offshore_nm, quiet_zone
+    assert offshore_nm(33.709, -118.25) < 2 and quiet_zone(33.70, -118.20)           # Angels Gate / San Pedro Bay
+    assert offshore_nm(33.345, -118.32) > 15                                          # Avalon counts as offshore
+    for lat0, lon0 in ((33.70, -118.20), (33.83, -118.43)):                           # harbor; 2 NM off Redondo
+        tr = Tracker()
+        t_end = _feed(tr, _orbit(0.0, 60, lat0=lat0, lon0=lon0))
+        p = tr.snapshot(t_end, depth_lookup=lambda lat, lon: 300.0)["planes"][0]
+        assert not p["spotter"] and not p["circling"] and not p["offshore"]
+    tr = Tracker()                                                                     # off Catalina: still a spotter
+    t_end = _feed(tr, _orbit(0.0, 60, lat0=33.30, lon0=-118.45))
+    assert tr.snapshot(t_end, depth_lookup=lambda lat, lon: 300.0)["planes"][0]["spotter"]
 
 
 def test_airliners_up_high_hidden_unless_asked_and_helicopters_never_spotters():

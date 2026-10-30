@@ -164,6 +164,16 @@ class Tracker:
             gs = a.get("gs")
             low = alt is not None and alt <= 3000
             slow = gs is not None and 40 <= gs <= 160
+            # Oct 29: the spotter feature only looks ≥ 5 NM off the mainland and outside the harbor training area,
+            # and the loops themselves must be out there too (not circling over land or along the beach)
+            from .coast import spotter_waters
+            offshore = water and spotter_waters(lat, lon)
+            if offshore and an["circling"]:
+                recent = [q for q in path if now - q[0] <= WATCH_S][::3]
+                ok = sum(1 for q in recent if is_water(q[1], q[2], depth_lookup) and spotter_waters(q[1], q[2]))
+                offshore = ok >= 0.75 * max(1, len(recent))
+            if not offshore:
+                an = {**an, "circling": False}                          # no orange highlight / loops near shore
             spotter = bool(an["circling"] and low and slow and water and kind != "heli")
             planes.append({
                 "hex": hx, "callsign": (a.get("flight") or "").strip() or None, "reg": a.get("r"), "type": a.get("t"),
@@ -173,9 +183,9 @@ class Tracker:
                 "lat": round(lat, 5), "lon": round(lon, 5), "alt_ft": None if alt is None else int(alt),
                 "gs_kt": None if gs is None else round(gs), "track": None if a.get("track") is None else round(a["track"]),
                 "age_s": round(now - a["_t"]), "kind": kind, "water": water, "low": bool(low), "slow": bool(slow),
-                "circling": an["circling"], "circles": an["circles"], "loiter_min": an["loiter_min"], "spotter": spotter,
+                "circling": an["circling"], "circles": an["circles"], "loiter_min": an["loiter_min"], "spotter": spotter, "offshore": bool(offshore),
             })
-            if an["circling"] or (low and slow and water and kind == "small"):
+            if an["circling"] or (low and slow and offshore and kind == "small"):
                 trails[hx] = [[round(p[2], 5), round(p[1], 5)] for p in path if now - p[0] <= 20 * 60][::1]
         planes.sort(key=lambda p: (not p["spotter"], not p["circling"], p["alt_ft"] or 0))
         src = (self.source or "").split("/")[2] if self.source else None

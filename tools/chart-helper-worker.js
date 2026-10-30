@@ -45,7 +45,7 @@ function sizeFor(p) {
   return 1024;
 }
 
-function chartUrl(p, blue = p.get('wb') === '1') {
+function chartUrl(p, blue = ({ '1': 1, '2': 2 })[p.get('wb')] || 0) {
   const look = LOOKS[p.get('look')] || (p.get('fd') === '1' ? LOOKS.full : null);
   const params = {
     ECDISParameters: {
@@ -56,9 +56,11 @@ function chartUrl(p, blue = p.get('wb') === '1') {
           { name: 'ColorScheme', value: ONE(p.get('cs'), [0, 1, 2], 0) },
           { name: 'PointSymbolizationType', value: ONE(p.get('ps'), [1, 2], 2) },
           ...(look ? [{ name: 'DisplayCategory', value: look.DisplayCategory }, { name: 'HonorScamin', value: look.HonorScamin }] : []),
-          // Oct 28 (wb=1): blue water everywhere. NOAA paints water deeper than its "deep contour" (30 m) white; moving
-          // the deep contour to 9000 m makes all offshore water the pale blue "medium-deep" shade instead.
-          ...(blue ? [{ name: 'DeepContour', value: 9000 }] : []),
+          // Blue water everywhere. NOAA paints water deeper than its "deep contour" (30 m) white.
+          //  wb=1 (Oct 28): deep contour → 9000 m: offshore water becomes the pale "medium-deep" blue.
+          //  wb=2 (Oct 29): safety contour → 9000 m too: offshore water becomes the same blue NOAA uses along the
+          //  coast ("medium-shallow"); the very shallow strip right at the shore stays a shade darker.
+          ...(blue === 2 ? [{ name: 'SafetyContour', value: 9000 }, { name: 'DeepContour', value: 9001 }] : blue ? [{ name: 'DeepContour', value: 9000 }] : []),
         ],
       },
     },
@@ -93,7 +95,7 @@ export default {
     if (u.pathname === '/' || u.pathname === '/health') return new Response('Channel Nav chart helper: ok');
     if (!BBOX.test(p.get('bbox') || '')) return new Response('bad bbox', { status: 400 });
     // If NOAA ever refuses the blue-water setting, the retry asks for the normal chart (never a blank square).
-    if (u.pathname === '/chart') return tile(chartUrl(p), p.get('wb') === '1' ? chartUrl(p, false) : null);
+    if (u.pathname === '/chart') return tile(chartUrl(p), p.get('wb') ? chartUrl(p, 0) : null);
     if (u.pathname === '/relief') return tile(reliefUrl(p));
     return new Response('not found', { status: 404 });
   },
