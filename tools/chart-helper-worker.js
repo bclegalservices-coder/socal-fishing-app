@@ -75,7 +75,7 @@ function chartUrl(p, blue = ({ '1': 1, '2': 2 })[p.get('wb')] || 0) {
 // The chart is asked for as an 8-bit (palette) PNG, so the repaint only touches the color list (a few hundred bytes) —
 // no pixels are decoded, which keeps the helper well inside Cloudflare's free CPU limit. Anything unexpected → the
 // picture is sent unchanged.
-const VERSION = '2026-10-29c';
+const VERSION = '2026-10-29d';
 const WATER_TARGET = [170, 218, 255];            // #AADAFF — every normal water blue becomes exactly this
 const WATER_SHADE_FROM = 190;                     // NOAA blues darker than this (the very shallow strip) stay a bit darker
 function isWater(r, g, b) { return b - r >= 18 && b >= g - 6 && r >= 70 && b >= 160; }
@@ -154,8 +154,17 @@ export default {
     // Open https://<this helper>/check in a browser: draws one chart square off Catalina and reports what happened.
     if (u.pathname === '/check') {
       const q = new URLSearchParams('bbox=-13190000,3930000,-13170000,3950000&layers=0,1,2&ls=1&cs=0&ps=2&look=standard&hd=1&wb=2&wc=1');
-      const info = { version: VERSION };
-      try { await tile(chartUrl(q), chartUrl(q, 0), true, info); } catch (e) { info.error = String(e).slice(0, 120); }
+      const info = { version: VERSION, water: {} };
+      try { await tile(chartUrl(q), chartUrl(q, 0), true, info.water); } catch (e) { info.water.error = String(e).slice(0, 120); }
+      // what NOAA sends for each picture format (so we know which one can be recolored cheaply)
+      info.formats = {};
+      for (const fmt of ['png8', 'png', 'png24', 'png32']) {
+        try {
+          const r = await fetch(chartUrl(q).replace(/format=png8?/, `format=${fmt}`), { headers: { 'User-Agent': 'ChannelNav-chart-helper' } });
+          const b = new Uint8Array(await r.arrayBuffer());
+          info.formats[fmt] = { status: r.status, type: r.headers.get('content-type'), bytes: b.length, pngColorType: b[0] === 0x89 ? b[25] : null };
+        } catch (e) { info.formats[fmt] = { error: String(e).slice(0, 80) }; }
+      }
       return new Response(JSON.stringify(info, null, 2), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
     }
     if (!BBOX.test(p.get('bbox') || '')) return new Response('bad bbox', { status: 400 });
