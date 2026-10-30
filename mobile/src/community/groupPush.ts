@@ -7,11 +7,13 @@ export type GroupOpen =
   | { type: 'goto'; lat: number; lon: number; label: string; kind: string }
   | { type: 'show'; lat: number; lon: number; label: string; kind: string }
   | { type: 'groups'; groupId?: string }
-  | { type: 'spotter'; lat: number; lon: number; hex: string; label: string };
+  | { type: 'spotter'; lat: number; lon: number; hex: string; label: string }
+  | { type: 'sci' };
 
 /** What tapping a notification should do (pure — tested). */
 export function routeNotification(data: any): GroupOpen | null {
   if (!data || typeof data !== 'object') return null;
+  if (data.type === 'sci') return { type: 'sci' };                 // San Clemente closure: show the island
   if (data.type === 'spotter' && typeof data.lat === 'number' && typeof data.lon === 'number') {
     return { type: 'spotter', lat: data.lat, lon: data.lon, hex: String(data.hex ?? ''), label: data.label ?? 'Spotter plane' };
   }

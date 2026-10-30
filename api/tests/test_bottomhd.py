@@ -75,3 +75,78 @@ def test_restore_points_the_app_back_at_an_earlier_build():
     assert m["tiles"].startswith("https://data.example/tiles/bottomhd/pilot/{z}/{x}/{y}.png?v=") and m["style"] == "legacy"
     assert not restore(st, "pilot", "v3", log=lambda *a: None)            # nothing saved for v3 → nothing changed
     assert json.loads(st.get("manifests/bottomhd.json"))["style"] == "legacy"
+
+
+def _faceted(res_m=16.0, n=592, px=1.0, seed=1):
+    """A survey of `res_m` cells (with survey noise) stretched onto 1 m pixels with bilinear blending — exactly what
+    made the 'boxes': every cell becomes a flat tilted plate."""
+    from scipy import ndimage
+    rng = np.random.default_rng(seed)
+    k = int(n * px / res_m) + 3
+    cy, cx = np.mgrid[0:k, 0:k] * res_m
+    grid = -(8 + 0.01 * cy + 4 / (1 + np.exp(-(cx * 0.6 - cy * 0.8 + 50) / 6))) + rng.normal(0, 0.12, (k, k))
+    c = (np.arange(n) + 0.5) * px / res_m - 0.5
+    yy, xx = np.meshgrid(c, c, indexing="ij")
+    return ndimage.map_coordinates(grid, [yy, xx], order=1).astype(np.float32)
+
+
+def _roughness(img):
+    """Pixel-to-pixel creases in the shading (the edges of the 'boxes'): mean |Laplacian| of brightness."""
+    from scipy import ndimage
+    lum = img[..., :3].astype(np.float64).mean(axis=2)
+    return float(np.abs(ndimage.laplace(lum))[8:-8, 8:-8].mean())
+
+
+def test_v5_has_no_survey_boxes():
+    import ocean.bottomhd as B
+    from PIL import Image
+    from ocean.hdrender import MARGIN, draw as draw_v5
+    dem = _faceted()                                            # 512 + 2·40 px at about 1 m (zoom 16)
+    new = draw_v5(dem, np.full(dem.shape, 16.0, np.float32), 16, 33.7, MARGIN, lines=False)
+    keep = B.hd_lines
+    B.hd_lines = lambda shaded, *a: np.array(Image.fromarray(shaded, "RGBA").resize((512, 512), Image.BILINEAR))
+    try:
+        old = B.draw_v4(dem[MARGIN:-MARGIN:2, MARGIN:-MARGIN:2], 16, 33.7)     # the old shading, without lines
+    finally:
+        B.hd_lines = keep
+    assert new.shape == (512, 512, 4) and (new[..., 3] == 255).all()
+    assert _roughness(new) < 0.6 * _roughness(old)            # measured Oct 29: 0.25 vs 0.53
+
+
+def test_neighbouring_squares_join_without_a_seam():
+    from ocean.hdrender import MARGIN, READ, draw
+    big = _faceted(n=READ * 2 + 2 * MARGIN)
+    res = np.full((READ + 2 * MARGIN,) * 2, 16.0, np.float32)
+    left = draw(big[:READ + 2 * MARGIN, :READ + 2 * MARGIN], res, 16, 33.7, MARGIN, lines=False)
+    right = draw(big[:READ + 2 * MARGIN, READ:2 * READ + 2 * MARGIN], res, 16, 33.7, MARGIN, lines=False)
+    jump = np.abs(left[:, -1, :3].astype(int) - right[:, 0, :3].astype(int)).mean()
+    inside = np.abs(left[:, -2, :3].astype(int) - left[:, -1, :3].astype(int)).mean()
+    assert jump <= inside + 1.5                                  # the edge looks like any other pixel step
+
+
+def test_fine_survey_keeps_its_detail():
+    from ocean.hdrender import smooth_by_resolution
+    a = np.zeros((200, 200)); a[:, 100:] = np.sin(np.arange(100) * 2 * np.pi / 16)[None, :]   # 16 m sand waves, right half
+    res = np.full(a.shape, 2.0); res[:, :100] = 16.0
+    out = smooth_by_resolution(-10 + a * 0.0 + a, res, 1.0)
+    fine = out[:, 140:180].std(); assert fine > 0.4               # fine 2 m survey: sand waves kept
+    coarse = smooth_by_resolution(-10 + a, np.full(a.shape, 16.0), 1.0)[:, 140:180].std()
+    assert coarse < fine / 3                                      # a coarse survey would smooth them away
+
+
+def test_preview_sheet_is_a_picture():
+    from ocean.bottomhd import preview_sheet
+    img = np.zeros((512, 512, 4), np.uint8); img[..., 2] = 200; img[..., 3] = 255
+    data = preview_sheet([{"name": "Test spot", "res": "8 m", "imgs": [img, img, img, None]}], "title")
+    assert data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) > 1000
+
+
+def test_surveys_feather_instead_of_a_cliff():
+    from ocean.bottomhd import blend_surveys
+    fine = np.full((100, 200), -20.0, np.float32); fine[:, 120:] = np.nan          # 4 m survey on the left
+    coarse = np.full((100, 200), -20.8, np.float32)                                 # 16 m survey reads 0.8 m deeper
+    dem, res = blend_surveys([(fine, 4.0), (coarse, 16.0)], 1.0, (100, 200))
+    steps = np.abs(np.diff(dem[50]))
+    assert steps.max() < 0.05                                    # no sudden 0.8 m step (it ramps over ~48 m)
+    assert dem[50, 10] == -20.0 and abs(dem[50, 150] + 20.8) < 1e-6
+    assert res[50, 10] == 4.0 and res[50, 150] == 16.0

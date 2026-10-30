@@ -52,10 +52,10 @@ const C = { blue: '#0A84FF', teal: '#30B0C7', green: '#34C759', mint: '#00C7BE',
 const LABELS: Record<LayerKey, string> = {
   sst: 'Water temp', breaks: 'Temp breaks', chl: 'Chlorophyll', chlEdges: 'Color edges', radar: 'Radar', wind: 'Wind', buoys: 'Buoys',
   spots: 'Known spots', mySpots: 'My spots', air: 'Air traffic', catches: 'Catch reports', buddies: 'My groups', marinas: 'Marinas', docks: 'Docks', fuel: 'Fuel', bait: 'Bait',
-  pumpout: 'Pump-outs', ramps: 'Ramps', bathy: 'Relief', bathyHd: 'HD bottom', contours: 'Contours', rules: 'MPAs', hazards: 'Hazards',
+  pumpout: 'Pump-outs', ramps: 'Ramps', bathy: 'Relief', bathyHd: 'HD bottom', contours: 'Contours', rules: 'MPAs', hazards: 'Hazards', sci: 'San Clemente',
 };
 const CHIP_ORDER: LayerKey[] = ['sst', 'breaks', 'chl', 'chlEdges', 'bathyHd', 'bathy', 'contours', 'radar', 'wind', 'buoys', 'mySpots', 'spots', 'air', 'catches', 'buddies',
-  'marinas', 'docks', 'fuel', 'bait', 'pumpout', 'ramps', 'rules', 'hazards'];
+  'marinas', 'docks', 'fuel', 'bait', 'pumpout', 'ramps', 'rules', 'sci', 'hazards'];
 
 // ---------------------------------------------------------------- building blocks (top level = stable)
 
@@ -348,7 +348,8 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
         </Section>
 
         <Section title="Safety" foot={rulesChecked ? `CDFW boundaries checked ${new Date(rulesChecked).toLocaleDateString()}. You're alerted when entering an MPA, even offline.` : "You're alerted when entering an MPA, even offline."}>
-          {Row({ k: "rules", icon: "shield-alert-outline", tint: C.red, title: "Marine protected areas", sub: "Solid = no take · dashed = limited take", last: !s.on.hazards })}
+          {Row({ k: "rules", icon: "shield-alert-outline", tint: C.red, title: "Marine protected areas", sub: "Solid = no take · dashed = limited take" })}
+          {Row({ k: "sci", icon: "alert-octagon-outline", tint: C.red, title: "San Clemente Island closures", sub: "Navy safety-zone sections · red = closed now", last: !s.on.hazards })}
           {s.on.hazards ? Row({ k: "hazards", icon: "alert-outline", tint: C.orange, title: "Extra hazard markers", sub: "Wreck and buoy dots", last: true }) : null}
         </Section>
 

@@ -130,14 +130,14 @@ async function signIn() {
   $('#ver').onclick = async () => { const { error } = await sb.auth.verifyOtp({ email: $('#em').value.trim(), token: $('#code').value.trim(), type: 'email' }); if (error) $('#msg').textContent = error.message; else location.reload(); };
 }
 
-const TABS = { Overview: overview, Audience: audience, Engagement: engagement, 'Ads & reports': adsReports, 'Media kit': mediaKit, Sponsors: sponsors, Users: users, Moderation: moderation, Spots: spots, Categories: categories, Broadcast: broadcast, Announcements: announcements, Settings: settings, 'Feedback & crashes': feedback, 'Data health': health, 'Audit log': audit };
+const TABS = { Overview: overview, Audience: audience, Engagement: engagement, 'Ads & reports': adsReports, 'Media kit': mediaKit, Sponsors: sponsors, Users: users, Moderation: moderation, Spots: spots, Categories: categories, Broadcast: broadcast, 'San Clemente': sanClemente, Announcements: announcements, Settings: settings, 'Feedback & crashes': feedback, 'Data health': health, 'Audit log': audit };
 // Sections, grouped like a phone settings app. On a phone: a bottom tab bar (the four you use most + More);
 // on a computer: a left sidebar. Every number card on Overview is a button that opens the section behind it.
 const GROUPS = [
   ['Today', ['Overview', 'Moderation', 'Feedback & crashes']],
   ['People', ['Users', 'Audience', 'Engagement']],
   ['Sponsors & ads', ['Sponsors', 'Ads & reports', 'Media kit']],
-  ['Content', ['Spots', 'Categories', 'Announcements', 'Broadcast']],
+  ['Content', ['San Clemente', 'Spots', 'Categories', 'Announcements', 'Broadcast']],
   ['System', ['Settings', 'Data health', 'Audit log']],
 ];
 const TABBAR = [['Overview', 'Overview'], ['Moderation', 'Moderation'], ['Sponsors', 'Sponsors'], ['Feedback & crashes', 'Feedback']];
@@ -154,6 +154,7 @@ const IC = {
   Spots: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/>',
   Categories: '<path d="M4 6h16M4 12h16M4 18h10"/>',
   Announcements: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  'San Clemente': '<path d="M12 3l9 16H3z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".6"/>',
   Broadcast: '<path d="M5 12a7 7 0 0 1 14 0M8.5 12a3.5 3.5 0 0 1 7 0"/><circle cx="12" cy="12" r="1"/><path d="M12 13v8"/>',
   Settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15.1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 4.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   'Data health': '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
@@ -430,6 +431,49 @@ async function broadcast() {
   document.querySelectorAll('[data-cancel]').forEach((b) => (b.onclick = async () => { must(await sb.from('broadcasts').update({ status: 'cancelled' }).eq('id', b.dataset.cancel)); broadcast(); }));
 }
 
+// ---------- San Clemente Island closures (Oct 28) ----------
+// Sets app_config.sci_closures. Phones show it on the map within ~5 minutes; people with "San Clemente closures"
+// alerts get a push within ~1 minute (server: api/sci/alerts.py). Section G and Wilson Cove are always restricted.
+async function sanClemente() {
+  const row = must(await sb.from('app_config').select('value').eq('key', 'sci_closures').maybeSingle());
+  if (!row) { $('#main').innerHTML = '<div class="card bad">Run db/migrations/014_san_clemente.sql in Supabase first (SQL Editor → paste → Run).</div>'; return; }
+  const cfg = row.value || {}; const secs = cfg.sections || {};
+  const WHERE = { A: 'Northwest end · Northwest Harbor', B: 'East side · north half', C: 'East side · south half', D: 'South end · Pyramid Cove / China Point', E: 'West side · south', F: 'West side · middle' };
+  const local = (iso) => { if (!iso) return ''; const d = new Date(iso); if (isNaN(d)) return ''; const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
+  const now = Date.now();
+  const stat = (k) => { const s = secs[k] || {}; if (!s.closed) return ['open', 'good']; if (s.until && now >= Date.parse(s.until)) return ['open (closure ended)', 'good']; if (s.from && now < Date.parse(s.from)) return ['scheduled', 'warn']; return ['CLOSED', 'bad']; };
+  $('#main').innerHTML = `<h2>San Clemente Island</h2>
+  <div class="card"><p class="muted">Tick a section when the Navy closes it (Navy schedule, VHF 16, a captain's report). "From" empty = closed now. "Until" empty = until you untick it. When "Until" passes it opens again by itself. Phones show it on the map within ~5 minutes, and everyone with <b>San Clemente closures</b> alerts gets a push within about a minute (plus a heads-up 18 hours before a scheduled closure). Section G and Wilson Cove are always restricted — nothing to set.</p>
+  <div class="toolbar"><button class="act" id="sc_all">Tick all A–F</button><button class="act" id="sc_none">Open everything</button></div>
+  <table><tr><th>Section</th><th>Closed</th><th>From (optional)</th><th>Until (optional)</th><th>Now</th></tr>
+  ${['A', 'B', 'C', 'D', 'E', 'F'].map((k) => { const s = secs[k] || {}; const [t, c] = stat(k); return `<tr><td><b>${k}</b><div class="muted">${esc(WHERE[k])}</div></td>
+    <td><input type="checkbox" data-sc="${k}" style="width:auto" ${s.closed ? 'checked' : ''}></td>
+    <td><input type="datetime-local" data-from="${k}" value="${local(s.from)}"></td><td><input type="datetime-local" data-until="${k}" value="${local(s.until)}"></td>
+    <td class="${c}">${esc(t)}</td></tr>`; }).join('')}
+  </table>
+  <label>Note shown in the app and the alert (optional, e.g. "Navy shore bombardment, Pyramid Cove")</label><input id="sc_note" maxlength="120" value="${esc(cfg.note || '')}">
+  <button class="act primary" id="sc_save">Save &amp; send</button>
+  <p class="muted">${cfg.updated_at ? `Last saved ${esc(new Date(cfg.updated_at).toLocaleString())}` : 'Not set yet.'}</p></div>
+  <div class="card"><h3>Where to check</h3><p class="muted">Navy schedule: scisland.org · FACSFAC San Diego 619-545-4742 / VHF 16 · Coast Guard Local Notice to Mariners (District 11). Rule: 33 CFR 165.1141.</p></div>`;
+  $('#sc_all').onclick = () => document.querySelectorAll('[data-sc]').forEach((x) => (x.checked = true));
+  $('#sc_none').onclick = () => document.querySelectorAll('[data-sc]').forEach((x) => (x.checked = false));
+  $('#sc_save').onclick = async () => {
+    const iso = (v) => (v ? new Date(v).toISOString() : null);
+    const sections = {};
+    for (const k of ['A', 'B', 'C', 'D', 'E', 'F']) {
+      const closed = document.querySelector(`[data-sc="${k}"]`).checked;
+      const from = iso(document.querySelector(`[data-from="${k}"]`).value), until = iso(document.querySelector(`[data-until="${k}"]`).value);
+      if (from && until && Date.parse(until) <= Date.parse(from)) return alert(`Section ${k}: "Until" must be after "From".`);
+      if (closed) sections[k] = { closed: true, from, until };
+    }
+    const list = Object.keys(sections);
+    if (!confirm(list.length ? `Save: Section${list.length > 1 ? 's' : ''} ${list.join(', ')} closed. People with San Clemente alerts get a push. OK?` : 'Save: everything open. People with San Clemente alerts get a "reopened" push if anything was closed. OK?')) return;
+    const value = { sections, note: $('#sc_note').value.trim() || null, updated_at: new Date().toISOString() };
+    must(await sb.from('app_config').update({ value, updated_at: value.updated_at }).eq('key', 'sci_closures'));
+    sanClemente();
+  };
+}
+
 // ---------- Settings: app switches, store numbers, export ----------
 async function settings() {
   const [cfgRows, store] = await Promise.all([sb.from('app_config').select('*').order('key').then(must), sb.from('store_stats').select('*').order('day', { ascending: false }).limit(60).then(must)]);
@@ -439,12 +483,12 @@ async function settings() {
   const KILL = [['wind', 'Wind map'], ['radar', 'Radar'], ['sst', 'Water temperature'], ['chl', 'Chlorophyll / water color'], ['breaks', 'Temperature breaks'],
     ['bathy', 'Seafloor shading'], ['contours', 'Depth contours'], ['buoys', 'Buoys'], ['catches', 'Catch map'], ['buddies', 'Crew / buddy boats'],
     ['spots', 'Preloaded spots'], ['marinas', 'Marinas'], ['docks', 'Docks & piers'], ['fuel', 'Fuel docks'], ['pumpout', 'Pump-outs'], ['ramps', 'Launch ramps'], ['bait', 'Bait'],
-    ['rules', 'MPAs & rules'], ['hazards', 'Hazards'], ['relief', 'Relief map style'], ['satellite', 'Satellite map style'], ['chart_helper', 'Chart helper (falls back to the plain NOAA chart)'], ['layer_order', 'Map layer order (boat always on top) — takes effect next app start'], ['bathyHd', 'HD bottom']];
+    ['rules', 'MPAs & rules'], ['sci', 'San Clemente closures'], ['hazards', 'Hazards'], ['relief', 'Relief map style'], ['satellite', 'Satellite map style'], ['chart_helper', 'Chart helper (falls back to the plain NOAA chart)'], ['layer_order', 'Map layer order (boat always on top) — takes effect next app start'], ['bathyHd', 'HD bottom']];
   $('#main').innerHTML = `<h2>Settings</h2>
   <div class="card"><h3>🚨 Emergency off-switches</h3><p class="muted">If one feature starts crashing or showing bad data after launch, tick it here: it switches off on every phone within ~10 minutes (when the app is next opened or brought back to the screen) — no app update needed. Users see "Temporarily off while we fix it". Untick when fixed.</p>
   <div class="grid">${KILL.map(([k, l]) => `<label style="display:flex;gap:8px;align-items:center;color:var(--text);font-size:14px;margin:2px 0"><input type="checkbox" data-kill="${k}" style="width:auto" ${off.includes(k) ? 'checked' : ''}>${esc(l)}</label>`).join('')}</div>
   <p id="killmsg" class="${off.length ? 'warn' : 'good'}">${off.length ? `Switched off right now: ${esc(off.join(', '))}` : 'Everything is on.'}</p></div>
-  <div class="card"><h3>App switches (apply to every phone)</h3><table>${cfgRows.filter((r) => r.key !== 'features_off').map((r) => `<tr><td><b>${esc(r.key)}</b><div class="muted">${esc(r.description || '')}</div></td><td style="width:45%">${input(r)}</td></tr>`).join('')}</table>
+  <div class="card"><h3>App switches (apply to every phone)</h3><table>${cfgRows.filter((r) => r.key !== 'features_off' && r.key !== 'sci_closures').map((r) => `<tr><td><b>${esc(r.key)}</b><div class="muted">${esc(r.description || '')}</div></td><td style="width:45%">${input(r)}</td></tr>`).join('')}</table>
   <p class="muted">Changes take effect the next time each phone opens the app.</p></div>
   <div class="card"><h3>Store numbers</h3><p class="muted">Downloads only exist in App Store Connect (Trends) and Google Play Console (Statistics). Type them here — one row per day, or paste a CSV: <code>2026-10-01,ios,downloads,42</code></p>
   <div class="grid"><input type="date" id="st_d"><select id="st_p"><option>ios</option><option>android</option></select><select id="st_m">${['downloads', 'updates', 'uninstalls', 'rating_avg', 'ratings_count', 'store_page_views'].map((m) => `<option>${m}</option>`).join('')}</select><input id="st_v" placeholder="Value"></div>

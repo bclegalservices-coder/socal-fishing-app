@@ -344,12 +344,12 @@ def verify():
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("job", choices=["sst", "chl", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "bottomhd", "bottomhd-rebuild", "bottomhd-restore", "bottomhd-restore-v3", "bottomhd-restore-v4", "crm", "crm-rebuild", "all", "discover", "verify"])
+    p.add_argument("job", choices=["sst", "chl", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "bottomhd", "bottomhd-rebuild", "bottomhd-preview", "bottomhd-restore", "bottomhd-restore-v3", "bottomhd-restore-v4", "bottomhd-restore-v5", "crm", "crm-rebuild", "all", "discover", "verify"])
     p.add_argument("--region", default="socal")
     p.add_argument("--days", default="0,1,2,3,7")
     p.add_argument("--file", default=None, help="local seafloor file for `bathy`")
     p.add_argument("--force", action="store_true", help="navmask: rebuild every tile instead of continuing")
-    p.add_argument("--version", default="legacy", help="bottomhd-restore: which saved build to show (legacy, v3, v4)")
+    p.add_argument("--version", default="legacy", help="bottomhd-restore: which saved build to show (legacy, v3, v4, v5)")
     p.add_argument("--area", default="pilot", help="bottomhd: which area to draw (see ocean/bottomhd.py AREAS)")
     a = p.parse_args(argv)
     days = [int(x) for x in a.days.split(",") if x.strip()]
@@ -363,6 +363,11 @@ def main(argv=None):
         from .bottomhd import restore
         version = a.job[len("bottomhd-restore-"):] if a.job.startswith("bottomhd-restore-") else a.version
         return None if restore(get_store(), a.area, version, log) else sys.exit(1)
+    if a.job == "bottomhd-preview":   # side-by-side picture of the old vs new HD bottom at real spots (app unchanged)
+        from .bottomhd import preview
+        http = httpx.Client(timeout=300, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})
+        preview(get_store(), a.area, http, log, out_path="bottomhd-preview.png")
+        return None
     if a.job in ("bottomhd", "bottomhd-rebuild"):   # HD bottom: sharp relief + dense contours (resumable)
         from .bottomhd import run as run_bottomhd
         http = httpx.Client(timeout=300, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})

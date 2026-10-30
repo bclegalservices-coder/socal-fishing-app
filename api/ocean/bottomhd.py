@@ -37,7 +37,7 @@ AREAS = {
     "pilot": (-118.65, 33.25, -118.05, 33.85),
 }
 TOP_Z, MAX_Z = 11, 16
-HD_VERSION = "v4"            # Oct 24: smooth chart-style lines at 512 px (see contourdraw.py)
+HD_VERSION = "v5"            # Oct 29: smooth seafloor, no survey "boxes" (see hdrender.py). v4 = Oct 24 lines
 SIZE = 256
 M_TO_FT = 3.28084
 EARTH = 40075016.685578488
@@ -147,8 +147,8 @@ def levels_for(z: int) -> tuple[np.ndarray, set]:
     return levels("hd", z)
 
 
-def draw(dem_m: np.ndarray, z: int, lat: float) -> np.ndarray | None:
-    """RGBA (SIZE×SIZE) from elevation in meters (negative = under water, NaN = no data). None = nothing to draw."""
+def draw_v4(dem_m: np.ndarray, z: int, lat: float) -> np.ndarray | None:
+    """(Before Oct 29 — kept for the side-by-side preview.) RGBA (SIZE×SIZE) from elevation in meters (negative = under water, NaN = no data). None = nothing to draw."""
     from scipy import ndimage
     water = np.isfinite(dem_m) & (dem_m < 0)
     if not water.any():
@@ -182,6 +182,22 @@ def draw(dem_m: np.ndarray, z: int, lat: float) -> np.ndarray | None:
     out[..., :3] = np.clip(rgb, 0, 255).astype(np.uint8)
     out[..., 3] = np.where(water, 255, 0)
     return hd_lines(out, dem_m, z, lat)
+
+
+def draw(dem_m: np.ndarray, z: int, lat: float, res_m: np.ndarray | None = None, pad: int = 0) -> np.ndarray | None:
+    """v5 drawing (hdrender.py): RGBA 512×512. dem_m may be a 256 px square (it's smoothly enlarged) or a 512 px
+    square with `pad` extra pixels read around it."""
+    from scipy import ndimage
+    from .hdrender import READ, draw as draw_v5
+    if dem_m.shape[0] - 2 * pad != READ:
+        k = READ / (dem_m.shape[0] - 2 * pad)
+        ok = np.isfinite(dem_m)
+        big = ndimage.zoom(np.where(ok, dem_m, 0.0), k, order=1)
+        bok = ndimage.zoom(ok.astype(np.float32), k, order=1) > 0.5
+        dem_m = np.where(bok, big, np.nan).astype(np.float32)
+        res_m = None if res_m is None else ndimage.zoom(res_m, k, order=0)
+        pad = int(round(pad * k))
+    return draw_v5(dem_m, res_m, z, lat, pad)
 
 
 def hd_lines(shaded: np.ndarray, dem_m: np.ndarray, z: int, lat: float) -> np.ndarray:
@@ -233,6 +249,33 @@ def tile_bounds_3857(z, x, y):
     return x0, y1 - s, x0 + s, y1
 
 
+def blend_surveys(layers: list, pxm: float, shape: tuple):
+    """Surveys (finest first) → one depth grid + the cell size behind each pixel. Where a coarser survey takes over
+    from a finer one, the two are feathered over a band of ~3 coarse cells instead of switching (no fake cliff)."""
+    from scipy import ndimage
+    acc = np.full(shape, np.nan, dtype=np.float32)
+    res = np.full(shape, np.nan, dtype=np.float32)
+    for tmp, r in layers:
+        have, new = np.isfinite(acc), np.isfinite(tmp)
+        if not have.any():
+            acc, res = tmp.astype(np.float32), np.where(new, r, np.nan).astype(np.float32)
+            continue
+        seam = ~have & new                                       # where this coarser survey takes over
+        if not seam.any():
+            continue
+        band = max(6.0, 3 * r / pxm)
+        d = ndimage.distance_transform_edt(~seam)
+        wf = np.clip(d / band, 0, 1).astype(np.float32)          # 0 at the seam → 1 deep inside the finer survey
+        both = have & new
+        acc = np.where(both, wf * acc + (1 - wf) * tmp, acc)
+        res = np.where(both, wf * res + (1 - wf) * r, res)
+        acc = np.where(seam, tmp, acc).astype(np.float32)
+        res = np.where(seam, r, res).astype(np.float32)
+        if np.isfinite(acc).all():
+            break
+    return acc, res
+
+
 class Surveys:
     """The downloaded BlueTopo GeoTIFFs, read straight onto web-map squares (finest survey wins)."""
 
@@ -254,45 +297,87 @@ class Surveys:
         mb = sum(os.path.getsize(os.path.join(folder, f)) for f in os.listdir(folder)) / 1e6
         log(f"bottomhd: {len(self.ds)} BlueTopo survey tiles ready ({mb:.0f} MB, {sorted({i['res_m'] for i in self.items})} m)")
 
-    def square(self, z: int, x: int, y: int) -> np.ndarray:
+    def square(self, z: int, x: int, y: int, size: int | None = None, margin: int | None = None):
+        """(depth m, survey cell size m) for map square z/x/y at `size` px plus `margin` px all round.
+        Surveys are blended finest first; where a coarser survey takes over, the two are feathered together over a
+        band of a few coarse cells instead of switching (no fake cliff along the seam). Land / no data = NaN."""
         from rasterio.transform import from_bounds
         from rasterio.warp import Resampling, reproject
+        from .hdrender import MARGIN, READ
         from .tiles import tile_bounds
+        size = READ if size is None else size
+        margin = MARGIN if margin is None else margin
+        full = size + 2 * margin
+        x0, y0, x1, y1 = tile_bounds_3857(z, x, y)
+        m = (x1 - x0) / size * margin
+        tr = from_bounds(x0 - m, y0 - m, x1 + m, y1 + m, full, full)
         w, s, e, n = tile_bounds(z, x, y)
-        dst = np.full((SIZE, SIZE), np.nan, dtype=np.float32)
-        tr = from_bounds(*tile_bounds_3857(z, x, y), SIZE, SIZE)
+        dw = (e - w) * margin / size
+        pxm = (x1 - x0) / size * math.cos(math.radians((s + n) / 2))
+        layers, covered = [], np.zeros((full, full), bool)
         for it, ds in zip(self.items, self.ds):
             b = it["bounds"]
-            if b[2] < w or b[0] > e or b[3] < s or b[1] > n:
+            if b[2] < w - dw or b[0] > e + dw or b[3] < s - dw or b[1] > n + dw:
                 continue
-            tmp = np.full((SIZE, SIZE), np.nan, dtype=np.float32)
+            tmp = np.full((full, full), np.nan, dtype=np.float32)
             reproject(source=__import__("rasterio").band(ds, 1), destination=tmp, src_transform=ds.transform, src_crs=ds.crs,
                       src_nodata=ds.nodata if ds.nodata is not None else np.nan, dst_transform=tr, dst_crs="EPSG:3857",
                       dst_nodata=np.nan, resampling=Resampling.bilinear)
-            fill = np.isnan(dst) & np.isfinite(tmp)
-            dst[fill] = tmp[fill]
-            if np.isfinite(dst).all():
-                break
-        return dst
+            if np.isfinite(tmp).any():
+                layers.append((tmp, it["res_m"]))
+                covered |= np.isfinite(tmp)
+                if covered.all():
+                    break
+        return blend_surveys(layers, pxm, (full, full))
 
 
 # ------------------------------------------------------------------ the job
 
-def build_tree(read_square, put, z: int, x: int, y: int, bbox: tuple, stats: dict) -> np.ndarray:
-    """Depth (m) for square (z, x, y), drawing it and every square under it down to MAX_Z."""
+def _norm_read(got):
+    """read_square may give (depth, res) padded at READ + 2·MARGIN, or a plain depth square (tests)."""
+    from scipy import ndimage
+    from .hdrender import MARGIN, READ
+    dem, res = got if isinstance(got, tuple) else (got, None)
+    if res is None:
+        res = np.full(dem.shape, 8.0, np.float32)
+    if dem.shape[0] == READ + 2 * MARGIN:
+        return dem, res, MARGIN
+    k = READ / dem.shape[0]
+    ok = np.isfinite(dem)
+    big = ndimage.zoom(np.where(ok, dem, 0.0), k, order=1)
+    bok = ndimage.zoom(ok.astype(np.float32), k, order=1) > 0.5
+    return np.where(bok, big, np.nan).astype(np.float32), ndimage.zoom(res, k, order=0), 0
+
+
+def half_res(a: np.ndarray) -> np.ndarray:
+    h, w = a.shape
+    b = a.reshape(h // 2, 2, w // 2, 2)
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        return np.nanmax(b, axis=(1, 3)).astype(np.float32)
+
+
+def build_tree(read_square, put, z: int, x: int, y: int, bbox: tuple, stats: dict):
+    """(depth m, survey cell m) for square (z, x, y) at 512 px, drawing it and every square under it down to MAX_Z."""
+    from .hdrender import READ
     from .tiles import tile_bounds
     w, s, e, n = tile_bounds(z, x, y)
     if e < bbox[0] or w > bbox[2] or n < bbox[1] or s > bbox[3]:
-        return np.full((SIZE, SIZE), np.nan, dtype=np.float32)
+        return np.full((READ, READ), np.nan, dtype=np.float32), np.full((READ, READ), np.nan, dtype=np.float32)
     if z == MAX_Z:
-        dem = read_square(z, x, y)
+        dem_p, res_p, pad = _norm_read(read_square(z, x, y))
+        img = draw(dem_p, z, (s + n) / 2, res_p, pad)
+        core = (slice(pad, pad + READ), slice(pad, pad + READ))
+        dem, res = dem_p[core], res_p[core]
     else:
         q = [build_tree(read_square, put, z + 1, 2 * x + dx, 2 * y + dy, bbox, stats) for dy in (0, 1) for dx in (0, 1)]
-        dem = half(np.block([[q[0], q[1]], [q[2], q[3]]]))
-    img = draw(dem, z, (s + n) / 2)
+        dem = half(np.block([[q[0][0], q[1][0]], [q[2][0], q[3][0]]]))
+        res = half_res(np.block([[q[0][1], q[1][1]], [q[2][1], q[3][1]]]))
+        img = draw(dem, z, (s + n) / 2, res, 0)
     if img is not None:
         put(f"{z}/{x}/{y}.png", png(img)); stats["tiles"] += 1
-    return dem
+    return dem, res
 
 
 def run(store, area: str, http, log=print, budget_s: float = 48 * 60, force: bool = False):
@@ -351,13 +436,13 @@ def restore(store, area: str, version: str, log=print) -> bool:
     """Point the app back at an earlier HD bottom build — nothing is redrawn. Every build since Oct 24 lives in its own
     folder: "legacy" = the build from before the smooth-line versions (tiles/bottomhd/<area>/), "v3", "v4" = the newer ones."""
     folders = {"legacy": (f"tiles/bottomhd/{area}", f"work/bottomhd/{area}/done.json")}
-    for v in ("v3", "v4"):
+    for v in ("v3", "v4", "v5"):
         folders[v] = (f"tiles/bottomhd/{area}/{v}", f"work/bottomhd/{area}/{v}/done.json")
     for v, (_, wk) in folders.items():
         n = len(json.loads(store.get(wk) or b"[]"))
         log(f"bottomhd-restore: build '{v}': {n} blocks drawn" + ("  <- restoring this one" if v == version else ""))
     if version not in folders:
-        log(f"bottomhd-restore: unknown version '{version}' — use legacy, v3 or v4"); return False
+        log(f"bottomhd-restore: unknown version '{version}' — use legacy, v3, v4 or v5"); return False
     base, wk = folders[version]
     if not json.loads(store.get(wk) or b"[]"):
         log(f"bottomhd-restore: build '{version}' has nothing saved, so nothing was changed"); return False
@@ -370,3 +455,84 @@ def restore(store, area: str, version: str, log=print) -> bool:
     store.put("manifests/bottomhd.json", json.dumps(manifest).encode(), "application/json")
     log(f"bottomhd-restore: the app now shows the '{version}' HD bottom (phones pick it up within a few minutes)")
     return True
+
+
+# ------------------------------------------------------------------ preview (check it before it ships)
+
+PREVIEW_SPOTS = [
+    ("LA Harbor · Angels Gate", 33.7105, -118.2470),
+    ("Long Beach breakwater", 33.7230, -118.1700),
+    ("Palos Verdes · Point Vicente", 33.7410, -118.4130),
+    ("Catalina · Ship Rock / Isthmus", 33.4630, -118.4920),
+    ("Catalina · Avalon", 33.3480, -118.3220),
+]
+
+
+def preview_sheet(rows: list[dict], title: str) -> bytes:
+    """One picture: for each spot, NOW vs NEW at zoom 14 and zoomed right in (zoom 16 shown at 2× like zoom 17)."""
+    from PIL import Image, ImageDraw, ImageFont
+    cell, gap, head = 380, 12, 64
+    try:
+        f = ImageFont.truetype("DejaVuSans-Bold.ttf", 20); fs = ImageFont.truetype("DejaVuSans.ttf", 16)
+    except OSError:
+        f = fs = ImageFont.load_default()
+    cols = ["NOW · zoom 14", "NEW · zoom 14", "NOW · zoomed in (17)", "NEW · zoomed in (17)"]
+    W = gap + 4 * (cell + gap)
+    H = 70 + len(rows) * (cell + head + gap)
+    sheet = Image.new("RGB", (W, H), (236, 240, 244)); d = ImageDraw.Draw(sheet)
+    d.text((gap, 18), title, fill=(10, 30, 50), font=f)
+    y = 70
+    for r in rows:
+        d.text((gap, y + 6), f"{r['name']}  —  NOAA survey cells here: {r['res']}", fill=(10, 30, 50), font=f)
+        for i, (lab, im) in enumerate(zip(cols, r["imgs"])):
+            x = gap + i * (cell + gap)
+            d.text((x, y + 36), lab, fill=(70, 80, 90), font=fs)
+            tile = Image.new("RGB", (cell, cell), (245, 236, 200))                       # land color behind
+            if im is not None:
+                pic = Image.fromarray(im, "RGBA")
+                if i >= 2:                                                                # zoomed: middle quarter at 2×
+                    w = pic.width
+                    pic = pic.crop((w // 4, w // 4, 3 * w // 4, 3 * w // 4))
+                pic = pic.resize((cell, cell), Image.BICUBIC)
+                tile.paste(pic, (0, 0), pic)
+            sheet.paste(tile, (x, y + head))
+        y += cell + head + gap
+    import io as _io
+    buf = _io.BytesIO(); sheet.save(buf, "PNG", optimize=True)
+    return buf.getvalue()
+
+
+def preview(store, area: str, http, log=print, out_path: str | None = None) -> str:
+    """`python -m ocean.jobs bottomhd-preview`: draws a few real spots the old way and the new way from NOAA's real
+    surveys, saves one comparison picture to the data bucket (link printed in the log) and to bottomhd-preview.png
+    (downloadable from the GitHub run page, under Artifacts). Nothing in the app changes."""
+    from .tiles import lonlat_to_tile
+    key = latest_scheme_key(http)
+    r = http.get(f"{BUCKET}/{key}"); r.raise_for_status()
+    near = 0.02
+    rows = []
+    folder = tempfile.mkdtemp(prefix="bluetopo-prev-")
+    for name, lat, lon in PREVIEW_SPOTS:
+        items = scheme_tiles(r.content, (lon - near, lat - near, lon + near, lat + near))
+        if not items:
+            log(f"bottomhd-preview: no NOAA survey at {name}"); continue
+        sv = Surveys(items, folder, http, log)
+        imgs = []
+        for z, zoomed in ((14, False), (16, True)):
+            x, y = lonlat_to_tile(lon, lat, z)
+            old_dem, _ = sv.square(z, x, y, size=SIZE, margin=0)
+            dem, res = sv.square(z, x, y)
+            from .hdrender import MARGIN
+            imgs.append((draw_v4(old_dem, z, lat), draw(dem, z, lat, res, MARGIN), res))
+        cells = [v for v in np.unique(np.round(imgs[1][2][np.isfinite(imgs[1][2])])) if v > 0]
+        rows.append({"name": name, "res": ", ".join(f"{int(c)} m" for c in cells) or "—",
+                     "imgs": [imgs[0][0], imgs[0][1], imgs[1][0], imgs[1][1]]})
+        log(f"bottomhd-preview: {name} drawn (survey cells {rows[-1]['res']})")
+    data = preview_sheet(rows, f"HD bottom — now vs new ({HD_VERSION}) · {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC · from NOAA BlueTopo")
+    k = f"previews/bottomhd-{HD_VERSION}-{datetime.now(timezone.utc):%Y%m%d%H%M}.png"
+    store.put(k, data, "image/png")
+    if out_path:
+        with open(out_path, "wb") as fh:
+            fh.write(data)
+    log(f"bottomhd-preview: picture saved → {store.url(k)}")
+    return store.url(k)

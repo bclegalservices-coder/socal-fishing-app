@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "sst, chl, bathy, wind, rules, harbors, navmask / navmask-rebuild (auto-route water map), bottomhd (HD bottom), bottomhd-restore (go back to the HD bottom from before the smooth-line builds; -v3 / -v4 for those), crm (sharper seafloor + contour detail), all, verify or discover"
+        description: "sst, chl, bathy, wind, rules, harbors, navmask / navmask-rebuild (auto-route water map), bottomhd (HD bottom), bottomhd-preview (picture of old vs new HD bottom, changes nothing), bottomhd-restore (go back to the HD bottom from before the smooth-line builds; -v3 / -v4 / -v5 for those), crm (sharper seafloor + contour detail), all, verify or discover"
         default: "all"
 
 jobs:
@@ -54,3 +54,10 @@ jobs:
           elif [ "${{ github.event.schedule }}" = "30 15 * * 1" ]; then JOB=rules;
           else JOB=all; fi
           python -m ocean.jobs $JOB
+      - name: Save the HD bottom preview picture (bottomhd-preview only)
+        if: ${{ always() && github.event.inputs.job == 'bottomhd-preview' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bottomhd-preview
+          path: api/bottomhd-preview.png
+          if-no-files-found: warn

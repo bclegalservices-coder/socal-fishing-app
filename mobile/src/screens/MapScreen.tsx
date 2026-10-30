@@ -56,7 +56,9 @@ import { LogCatchSheet } from '../components/LogCatchSheet';
 import { catchMap, syncQueue } from '../community/catchApi';
 import * as groupsApi from '../community/groupsApi';
 import { TIME_WINDOWS } from '../community/species';
-import { supabaseReady } from '../supabase';
+import { supabase, supabaseReady } from '../supabase';
+import { SciCard, SciChip, SciMapLayer } from '../components/SanClemente';
+import * as SCI from '../sci';
 import { MpaBanner, RuleCard, RulesLayers } from '../components/Rules';
 import { TodaySheet } from '../components/TodaySheet';
 import { loadRules, protectedIndex, refreshRules, type RulesData } from '../offline/rules';
@@ -115,7 +117,7 @@ let goToWarned = false, autoWarned = false;
 
 type Selected = { kind: 'spot' | 'pin' | 'saved'; pt: Pt & { subtitle?: string; id?: string; saveName?: string; sponsor?: string; sponsorTags?: string[] } } | null;
 type Panel = 'none' | 'routes' | 'tracks' | 'layers' | 'search' | 'actions';
-export type PickRequest = { kind: 'spot' | 'saved'; pt: Pt & { subtitle?: string; id?: string }; go?: boolean; route?: Pt[]; air?: string } | null;
+export type PickRequest = { kind: 'spot' | 'saved'; pt: Pt & { subtitle?: string; id?: string }; go?: boolean; route?: Pt[]; air?: string; sci?: boolean } | null;
 
 const fc = (features: any[]) => ({ type: 'FeatureCollection' as const, features });
 const pointF = (p: Pt, props: Record<string, unknown> = {}) => ({ type: 'Feature' as const, properties: props, geometry: { type: 'Point' as const, coordinates: [p.lon, p.lat] } });
@@ -209,6 +211,20 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const [airSel, setAirSel] = useState<string | null>(null);
   const [rules, setRules] = useState<RulesData | null>(null);
   const [ruleSel, setRuleSel] = useState<any | null>(null);
+  // San Clemente Island Navy closures (Oct 28): status from Admin → San Clemente (app_config sci_closures), checked every 5 min
+  const [sci, setSci] = useState<SCI.SciClosures | null>(config().sci_closures ?? null);
+  const [sciSel, setSciSel] = useState<SCI.SectionId | null>(null);
+  const [sciNow, setSciNow] = useState(Date.now());
+  useEffect(() => onConfig((c) => setSci(c.sci_closures ?? null)), []);
+  useEffect(() => {
+    const check = () => {
+      setSciNow(Date.now());
+      if (supabaseReady) supabase.from('app_config').select('value').eq('key', 'sci_closures').maybeSingle()
+        .then(({ data }) => { if (data) setSci((data as any).value ?? null); }, () => {});
+    };
+    const t = setInterval(check, 5 * 60000);
+    return () => clearInterval(t);
+  }, []);
   const [mpaHere, setMpaHere] = useState<any[]>([]);
   const [mpaDismissed, setMpaDismissed] = useState<string | null>(null);
   const [today, setToday] = useState(false);
@@ -315,6 +331,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   useEffect(() => {
     if (!pick) return;
     setPanel('none'); setCrew(null);
+    if (pick.sci) { showSci(); setSciNow(Date.now()); clearPick(); return; }   // tapped a San Clemente closure notification
     if (pick.air) {                                                    // tapped a spotter-plane notification: show the plane
       setLayersSafe((p) => ({ ...p, on: { ...p.on, air: true } })); setSel(null); setAirSel(pick.air);
       camera.current?.setStop({ center: [pick.pt.lon, pick.pt.lat], zoom: 10.5, duration: 700 }).catch(() => {});
@@ -682,7 +699,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     if (measure) { setMeasure([...measure, lngLatOf(e)]); return; }
     if (Date.now() - featurePressAt.current < 350) return;
     if (draft) { setDraft([...draft, lngLatOf(e)]); return; }
-    setSel(null); setBuoy(null); setClusterSel(null); setRuleSel(null);
+    setSel(null); setBuoy(null); setClusterSel(null); setRuleSel(null); setSciSel(null);
   };
   const onLongPress = (e: any) => {
     if (measure) { setMeasure([...measure, lngLatOf(e)]); return; }
@@ -730,6 +747,25 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       setToast(`${watchedPlane(p)?.name ?? 'A plane'} is circling low over the water${where}`);
     }
   }, [air]);
+  // San Clemente: buzz + warn once if the boat is inside a section that's closed right now
+  const sciWarned = useRef<string | null>(null);
+  useEffect(() => {
+    if (!fix) return;
+    const id = SCI.sectionAt(fix.lat, fix.lon);
+    const st2 = id ? SCI.statusOf(id, sci, Date.now()) : null;
+    const key = id && st2 === 'closed' ? `${id}-${sci?.updated_at ?? ''}` : null;
+    if (key && sciWarned.current !== key) {
+      sciWarned.current = key; Vibration.vibrate([0, 500, 200, 500]);
+      setToast(`You're inside San Clemente ${SCI.SECTIONS[id!].name} — CLOSED for Navy training. Leave the area or call FACSFAC ${SCI.FACSFAC_PHONE_TEXT} / VHF 16.`);
+      track('sci_inside_closed', { section: id ?? '' });
+    }
+    if (!key) sciWarned.current = null;
+  }, [fix?.lat, fix?.lon, sci]);
+  const showSci = () => {
+    setLayersSafe((p) => ({ ...p, on: { ...p.on, sci: true } })); setSel(null);
+    camera.current?.setStop({ center: [SCI.SCI_CENTER.lon, SCI.SCI_CENTER.lat], zoom: 9.6, duration: 700 }).catch(() => {});
+  };
+
   // ---- Hoop netting (Oct 28): numbered nets, pulled in soak order (hoop.ts / components/Hoop.tsx) ----
   const [hoop, setHoopState] = useState<H.HoopSet | null>(null);
   const hoopUndo = useRef<(H.HoopSet | null)[]>([]);
@@ -849,6 +885,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   } else if (draft) {
     bottom = <RouteDraft points={draft} sogKt={motion.sogKt} onUndo={() => setDraft(draft.slice(0, -1))} onSave={saveDraft}
       onGo={() => goTo(draftTargets(draft), 'Route')} onCancel={() => setDraft(null)} />;
+  } else if (sciSel) {
+    bottom = <SciCard id={sciSel} data={sci} now={Date.now()} onClose={() => setSciSel(null)} />;
   } else if (ruleSel) {
     bottom = <RuleCard p={ruleSel} checkedAt={rules?.checked_at ?? null} onClose={() => setRuleSel(null)} />;
   } else if (hoop && panel === 'none' && !airPlane && !sel) {
@@ -957,7 +995,9 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         </SafeLayer> : null}
         {/* MPAs on top of every overlay so they're never hidden under relief or satellite */}
         {orderOn !== null ? <RulesLayers data={rules} showProtected={layers.on.rules} showHazards={layers.on.hazards}
-          onPress={(p, geom) => { featurePressAt.current = Date.now(); setSel(null); setClusterSel(null); setRuleSel({ ...p, geom }); }} /> : null}
+          onPress={(p, geom) => { featurePressAt.current = Date.now(); setSel(null); setClusterSel(null); setSciSel(null); setRuleSel({ ...p, geom }); }} /> : null}
+        {orderOn !== null && layers.on.sci ? <SciMapLayer data={sci} now={sciNow} labels={(view?.zoom ?? 0) >= 8.6}
+          onPress={(id) => { featurePressAt.current = Date.now(); setSel(null); setClusterSel(null); setRuleSel(null); setSciSel(id); track('sci_section_tap', { section: id }); }} /> : null}
         <UserLocation heading />
         {layers.on.catches ? <CatchMarkers clusters={clusters} windowHours={catchHours} onPress={(c) => { setSel(null); setBuoy(null); setClusterSel(c); track('cluster_open', { species: c.species_code }); }} /> : null}
         {layers.on.buddies ? <BuddyMarkers buddies={buddyList} rotation={view?.heading ?? 0}
@@ -1119,6 +1159,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         ) : null}
         {!net.online ? <Text style={st.offline}>Offline · showing saved maps and data, each with its age</Text> : null}
         {hoop && !nav && !replay ? <HoopBanner set={hoop} boat={here()} heading={heading ?? motion.cogT ?? null} now={hoopNow} sogKt={motion.sogKt} /> : null}
+        {!nav && !replay && !hoop && layers.on.sci ? <SciChip data={sci} now={sciNow} onPress={() => { showSci(); track('sci_chip_tap'); }} /> : null}
         {layers.on.air && !nav && !replay && !hoop ? <AirChip data={air} onJump={jumpToPlane} locked={pro.locked} gated={pro.gated} onUpsell={proUpsell} /> : null}
         {probe ? (
           <View style={st.probe} pointerEvents="none">

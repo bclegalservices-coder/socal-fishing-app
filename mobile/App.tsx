@@ -57,6 +57,7 @@ function AppInner() {
   useEffect(() => setupGroupNotifications((o) => {
     if (o.type === 'goto') { goToOnMap(o.lat, o.lon, o.label); track('group_pin_open', { kind: o.kind, from: 'push' }); }
     else if (o.type === 'show') { showOnMap(o.lat, o.lon, o.label); track('group_pin_open', { kind: o.kind, from: 'push' }); }
+    else if (o.type === 'sci') { setPick({ kind: 'spot', pt: { lat: 32.9, lon: -118.5, name: 'San Clemente Island' }, sci: true }); setTab('map'); track('sci_push_open'); }
     else if (o.type === 'spotter') { setPick({ kind: 'spot', pt: { lat: o.lat, lon: o.lon, name: o.label }, air: o.hex }); setTab('map'); track('spotter_push_open'); }
     else { setOpenGroup({ id: o.groupId ?? null, at: Date.now() }); setTab('crew'); }
   }), []);

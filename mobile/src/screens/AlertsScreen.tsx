@@ -27,6 +27,7 @@ const KINDS = [
   { key: 'sst', title: 'Water temp alert', sub: 'Your temperature range shows up in an area (once a day)' },
   { key: 'weather', title: 'Marine warning', sub: 'New NWS warning or advisory for an area' },
   { key: 'spotter', title: 'Spotter plane', sub: 'A plane starts circling low over the water in your area (usually a spotter on fish)' },
+  { key: 'sci', title: 'San Clemente closures', sub: 'The Navy closes or reopens sections of San Clemente Island, plus a heads-up the day before' },
 ] as const;
 
 export async function registerPush(): Promise<string | null> {
@@ -63,7 +64,8 @@ export function AlertsScreen({ onBack }: { onBack: () => void }) {
   useEffect(() => { load(); registerPush().then((t) => setPushOk(!!t)).catch(() => setPushOk(false)); }, []);
 
   const add = async () => {
-    const params: any = { center: area.center, radius_nm: radius, label: area.label };
+    const params: any = kind === 'sci' ? { center: [-118.5, 32.9], radius_nm: 3, label: 'San Clemente Island' } : { center: area.center, radius_nm: radius, label: area.label };
+    if (kind === 'sci' && subs.some((s) => s.kind === 'sci')) { Alert.alert('Already on', 'You already have San Clemente closure alerts.'); return; }
     if (kind === 'species' || kind === 'activity') params.species = species;
     if (kind === 'species') params.verified_only = verified;
     if (kind === 'sst') { params.min_f = Number(minF); params.max_f = Number(maxF); }
@@ -74,7 +76,7 @@ export function AlertsScreen({ onBack }: { onBack: () => void }) {
     const p = s.params ?? {};
     const sp = (p.species ?? []).join(', ');
     return { species: `${p.verified_only ? 'Verified ' : ''}${sp || 'any fish'} reports`, activity: `${sp || 'Any'} bite picking up`,
-      sst: `Water ${p.min_f}–${p.max_f}°F`, weather: 'Marine warnings', spotter: 'Spotter planes circling' }[s.kind as string] + ` · ${p.label} (${p.radius_nm} NM)`;
+      sst: `Water ${p.min_f}–${p.max_f}°F`, weather: 'Marine warnings', spotter: 'Spotter planes circling', sci: 'San Clemente Island closures' }[s.kind as string] + (s.kind === 'sci' ? '' : ` · ${p.label} (${p.radius_nm} NM)`);
   };
 
   const needSpecies = kind === 'species' || kind === 'activity';
@@ -121,12 +123,14 @@ export function AlertsScreen({ onBack }: { onBack: () => void }) {
             })}
           </View>
 
+          {kind === 'sci' ? <Text style={st.sub}>Sent when the Navy closes or reopens any section around San Clemente Island, and the day before a scheduled closure. Free for everyone.</Text> : <>
           <Text style={st.step}>2 · Where</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
             {[...(here ? [here] : []), ...AREAS].map((a) => <Chip key={a.label} label={a.label} icon={a.label === 'Near me' ? 'navigate-outline' : 'location-outline'} on={area.label === a.label} onPress={() => setArea(a)} />)}
           </ScrollView>
           <Text style={st.lbl}>Within</Text>
           <Segmented value={String(radius)} onChange={(v) => setRadius(Number(v))} options={[5, 10, 15, 25, 40].map((r) => ({ key: String(r), label: `${r} NM` }))} />
+          </>}
 
           {needSpecies ? (
             <>
@@ -155,7 +159,7 @@ export function AlertsScreen({ onBack }: { onBack: () => void }) {
   );
 }
 
-const KIND_ICON: Record<string, string> = { species: 'fish-outline', activity: 'trending-up', sst: 'thermometer-outline', weather: 'warning-outline', spotter: 'airplane-outline' };
+const KIND_ICON: Record<string, string> = { species: 'fish-outline', activity: 'trending-up', sst: 'thermometer-outline', weather: 'warning-outline', spotter: 'airplane-outline', sci: 'boat-outline' };
 
 const useSt = makeStyles((colors) => ({
   root: { flex: 1, backgroundColor: colors.bg },

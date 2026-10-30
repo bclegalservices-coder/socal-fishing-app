@@ -41,8 +41,12 @@ async def lifespan(app: FastAPI):
     import asyncio
     from air.alerts import loop as spotter_loop
     watcher = asyncio.create_task(spotter_loop(pool))
+    # Oct 28: San Clemente Island closure alerts (sci/alerts.py)
+    from sci.alerts import loop as sci_loop
+    sci_watcher = asyncio.create_task(sci_loop(pool))
     yield
     watcher.cancel()
+    sci_watcher.cancel()
     if pool:
         await pool.close()
 

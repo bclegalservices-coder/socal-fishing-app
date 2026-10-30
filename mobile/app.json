@@ -68,8 +68,8 @@
         "android.permission.RECORD_AUDIO"
       ],
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
-        "backgroundColor": "#0B2A40"
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundColor": "#0E2D52"
       }
     },
     "plugins": [
