@@ -75,9 +75,15 @@ function chartUrl(p, blue = ({ '1': 1, '2': 2 })[p.get('wb')] || 0) {
 // The chart is asked for as an 8-bit (palette) PNG, so the repaint only touches the color list (a few hundred bytes) —
 // no pixels are decoded, which keeps the helper well inside Cloudflare's free CPU limit. Anything unexpected → the
 // picture is sent unchanged.
-const WATER_TARGET = [170, 218, 255];            // #AADAFF
-const WATER_REF = [152, 200, 236];               // a typical NOAA water blue; lighter/darker shades keep their difference
-function isWater(r, g, b) { return b - r >= 25 && b >= g - 6 && r >= 80 && b >= 165; }
+const VERSION = '2026-10-29c';
+const WATER_TARGET = [170, 218, 255];            // #AADAFF — every normal water blue becomes exactly this
+const WATER_SHADE_FROM = 190;                     // NOAA blues darker than this (the very shallow strip) stay a bit darker
+function isWater(r, g, b) { return b - r >= 18 && b >= g - 6 && r >= 70 && b >= 160; }
+function waterColor(r, g, b) {
+  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+  const dark = Math.max(0, WATER_SHADE_FROM - lum) * 0.8;
+  return WATER_TARGET.map((c) => Math.max(0, Math.round(c - dark)));
+}
 let CRC_T = null;
 function crc32(bytes) {
   if (!CRC_T) { CRC_T = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; CRC_T[n] = c >>> 0; } }
@@ -85,21 +91,25 @@ function crc32(bytes) {
   for (let i = 0; i < bytes.length; i++) c = CRC_T[(c ^ bytes[i]) & 255] ^ (c >>> 8);
   return (c ^ 0xffffffff) >>> 0;
 }
-function recolorPng(buf) {
+function recolorPng(buf, stats = {}) {
   const u = new Uint8Array(buf);
   const dv = new DataView(u.buffer, u.byteOffset, u.byteLength);
-  if (u.length < 33 || dv.getUint32(0) !== 0x89504e47) return buf;
-  if (u[25] !== 3) return buf;                     // only palette PNGs (color type 3)
+  if (u.length < 33 || dv.getUint32(0) !== 0x89504e47) { stats.skip = 'not a PNG'; return buf; }
+  stats.colorType = u[25];
+  if (u[25] !== 3) { stats.skip = 'not a palette PNG'; return buf; }   // only palette PNGs (color type 3)
   let off = 8;
   while (off + 12 <= u.length) {
     const len = dv.getUint32(off);
     const type = String.fromCharCode(u[off + 4], u[off + 5], u[off + 6], u[off + 7]);
     if (type === 'PLTE') {
       const d = off + 8;
+      stats.palette = len / 3; stats.recolored = 0; stats.samples = [];
       for (let i = 0; i + 2 < len; i += 3) {
         const r = u[d + i], g = u[d + i + 1], b = u[d + i + 2];
         if (!isWater(r, g, b)) continue;
-        for (let k = 0; k < 3; k++) u[d + i + k] = Math.max(0, Math.min(255, Math.round(WATER_TARGET[k] + (u[d + i + k] - WATER_REF[k]) * 0.6)));
+        const c = waterColor(r, g, b);
+        if (stats.samples.length < 6) stats.samples.push(`${r},${g},${b} → ${c.join(',')}`);
+        u[d + i] = c[0]; u[d + i + 1] = c[1]; u[d + i + 2] = c[2]; stats.recolored++;
       }
       dv.setUint32(d + len, crc32(u.subarray(off + 4, d + len)));
       return u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength);
@@ -115,17 +125,21 @@ function reliefUrl(p) {
     + `&renderingRule=${encodeURIComponent(JSON.stringify({ rasterFunction: 'ColorHillshade' }))}`;
 }
 
-async function tile(url, fallback, recolor = false) {
+async function tile(url, fallback, recolor = false, info = null) {
   for (let attempt = 0; attempt < 2; attempt++) {
     const r = await fetch(attempt === 1 && fallback ? fallback : url, { headers: { 'User-Agent': 'ChannelNav-chart-helper' }, cf: { cacheTtl: 604800, cacheEverything: true } });
     const type = r.headers.get('content-type') || '';
+    if (info) { info.attempt = attempt + 1; info.usedFallback = attempt === 1 && !!fallback; info.status = r.status; info.contentType = type; }
     if (r.ok && type.startsWith('image/')) {
       let body = r.body;
+      const stats = {};
       if (recolor && type.includes('png')) {
-        try { body = recolorPng(await r.arrayBuffer()); } catch (e) { body = null; }
+        try { body = recolorPng(await r.arrayBuffer(), stats); } catch (e) { stats.error = String(e).slice(0, 80); body = null; }
         if (body === null) continue;                // couldn't read it: try once more (plain)
       }
-      return new Response(body, { headers: { 'content-type': type, 'cache-control': 'public, max-age=604800', 'access-control-allow-origin': '*' } });
+      if (info) Object.assign(info, stats);
+      return new Response(body, { headers: { 'content-type': type, 'cache-control': 'public, max-age=604800', 'access-control-allow-origin': '*',
+        'x-channelnav-water': JSON.stringify(stats).slice(0, 300) } });
     }
     await new Promise((res) => setTimeout(res, 400));   // NOAA busy: wait a moment and try once more
   }
@@ -136,7 +150,14 @@ export default {
   async fetch(request) {
     const u = new URL(request.url);
     const p = u.searchParams;
-    if (u.pathname === '/' || u.pathname === '/health') return new Response('Channel Nav chart helper: ok');
+    if (u.pathname === '/' || u.pathname === '/health') return new Response(`Channel Nav chart helper: ok · version ${VERSION}`);
+    // Open https://<this helper>/check in a browser: draws one chart square off Catalina and reports what happened.
+    if (u.pathname === '/check') {
+      const q = new URLSearchParams('bbox=-13190000,3930000,-13170000,3950000&layers=0,1,2&ls=1&cs=0&ps=2&look=standard&hd=1&wb=2&wc=1');
+      const info = { version: VERSION };
+      try { await tile(chartUrl(q), chartUrl(q, 0), true, info); } catch (e) { info.error = String(e).slice(0, 120); }
+      return new Response(JSON.stringify(info, null, 2), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+    }
     if (!BBOX.test(p.get('bbox') || '')) return new Response('bad bbox', { status: 400 });
     // If NOAA ever refuses the blue-water setting, the retry asks for the normal chart (never a blank square).
     if (u.pathname === '/chart') return tile(chartUrl(p), p.get('wb') ? chartUrl(p, 0) : null, p.get('wc') === '1');

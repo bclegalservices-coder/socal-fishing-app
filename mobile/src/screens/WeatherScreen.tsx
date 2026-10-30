@@ -105,8 +105,9 @@ export function WeatherScreen({ at, mySpots }: { at: WeatherPlace | null; mySpot
         <IconButton icon="search" label="Search a place or spot" onPress={() => setSearching(true)} />
       </View>
       {/* Closest harbors as clear buttons, and every harbor one tap away */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={st.nearRow}>
-        {nearest(place, 3).map((h) => {
+      {/* Oct 29 v2: two closest harbors + "All", equal widths in one tidy row (nothing cut off at the edge) */}
+      <View style={st.nearRow}>
+        {nearest(place, 2).map((h) => {
           const on = place?.label === h.label;
           return (
             <Pressable key={h.label} onPress={() => go(h)} style={[st.near, on && st.nearOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
@@ -117,9 +118,9 @@ export function WeatherScreen({ at, mySpots }: { at: WeatherPlace | null; mySpot
         })}
         <Pressable onPress={() => setPicking(true)} style={[st.near, st.nearAll]} accessibilityRole="button">
           <MaterialCommunityIcons name="format-list-bulleted" size={15} color={colors.text} />
-          <Text style={st.nearT}>All harbors</Text>
+          <Text style={st.nearT} numberOfLines={1}>All harbors</Text>
         </Pressable>
-      </ScrollView>
+      </View>
       <Modal visible={picking} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setPicking(false)}>
         <View style={st.pick}>
           <View style={st.pickHead}>
@@ -469,11 +470,11 @@ function Tides({ place }: { place: WeatherPlace }) {
 }
 
 const useSt = makeStyles((colors) => ({
-  nearRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 },   // Oct 29: one even row (scrolls), no ragged wrap
-  near: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, paddingHorizontal: 12, borderRadius: 18, backgroundColor: colors.panelSolid, borderWidth: 1, borderColor: colors.border },
+  nearRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14 },
+  near: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 40, paddingHorizontal: 10, borderRadius: 18, backgroundColor: colors.panelSolid, borderWidth: 1, borderColor: colors.border },
   nearOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   nearAll: { backgroundColor: colors.inset },
-  nearT: { color: colors.text, fontSize: 14, fontWeight: '600', maxWidth: 140 },
+  nearT: { color: colors.text, fontSize: 14, fontWeight: '700', flexShrink: 1 },
   nearTOn: { color: colors.accentInk },
   pick: { flex: 1, backgroundColor: colors.bg, paddingTop: 8 },
   pickHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 12 },
@@ -484,9 +485,9 @@ const useSt = makeStyles((colors) => ({
   pickName: { flex: 1, color: colors.text, fontSize: 16.5 },
   pickDist: { color: colors.muted, fontSize: 14, fontVariant: ['tabular-nums'] },
   root: { flex: 1, backgroundColor: colors.bg },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10, backgroundColor: colors.panelSolid, borderBottomWidth: 1, borderColor: colors.border },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14, backgroundColor: colors.panelSolid, borderBottomWidth: 1, borderColor: colors.border },
   title: { color: colors.text, fontSize: 28, fontWeight: '800', letterSpacing: -0.3 },
-  coords: { color: colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] },
+  coords: { color: colors.muted, fontSize: 13, fontVariant: ['tabular-nums'], marginTop: 2 },
   hBtn: { width: touch.min, height: touch.min, borderRadius: 14, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   hBtnT: { fontSize: 20 },
   harbors: { gap: 6, paddingHorizontal: 16, paddingVertical: 8 },
@@ -494,7 +495,7 @@ const useSt = makeStyles((colors) => ({
   pillOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   pillT: { color: colors.text, fontSize: 14, fontWeight: '700' },
   pillOnT: { color: colors.accentInk },
-  seg: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 4, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, borderRadius: 12, overflow: 'hidden' },
+  seg: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 2, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, borderRadius: 12, overflow: 'hidden' },
   segSmall: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   segI: { flex: 1, minHeight: 42, alignItems: 'center', justifyContent: 'center' },
   segOn: { backgroundColor: colors.panelSolid },
