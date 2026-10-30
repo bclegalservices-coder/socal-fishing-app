@@ -222,7 +222,7 @@ export function Dial({ dir, kt, size = 128 }: { dir: number | null; kt: number |
 }
 
 const useSt = makeStyles((colors) => ({
-  body: { padding: 14, gap: 12, paddingBottom: 40 },
+  body: { padding: 14, gap: 12, paddingBottom: 120 },
   err: { color: colors.muted, fontSize: 15, textAlign: 'center', marginTop: 40, paddingHorizontal: 20 },
   hero: { flexDirection: 'row', alignItems: 'center', gap: 16, backgroundColor: colors.panelSolid, borderRadius: 18, padding: 14, borderWidth: 1, borderColor: colors.border },
   when: { color: colors.muted, fontSize: 12.5, fontWeight: '800', letterSpacing: 0.4, textTransform: 'uppercase' },

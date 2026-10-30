@@ -116,9 +116,9 @@ export function WeatherScreen({ at, mySpots }: { at: WeatherPlace | null; mySpot
             </Pressable>
           );
         })}
-        <Pressable onPress={() => setPicking(true)} style={[st.near, st.nearAll]} accessibilityRole="button">
-          <MaterialCommunityIcons name="format-list-bulleted" size={15} color={colors.text} />
-          <Text style={st.nearT} numberOfLines={1}>All harbors</Text>
+        <Pressable onPress={() => setPicking(true)} style={[st.nearAllBtn]} accessibilityRole="button" accessibilityLabel="All harbors">
+          <MaterialCommunityIcons name="format-list-bulleted" size={18} color={colors.text} />
+          <Text style={st.nearAllT}>All</Text>
         </Pressable>
       </View>
       <Modal visible={picking} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setPicking(false)}>
@@ -437,11 +437,11 @@ function Tides({ place }: { place: WeatherPlace }) {
   return (
     <ScrollView contentContainerStyle={st.body} keyboardShouldPersistTaps="handled">
       <View style={st.dateRow}>
-        <Btn label="Week" icon="play-back-outline" onPress={() => setDate(addDays(date, -7))} />
+        <IconButton icon="play-back-outline" label="Back a week" onPress={() => setDate(addDays(date, -7))} />
         <Btn label="Day" icon="chevron-back" onPress={() => setDate(addDays(date, -1))} />
-        <Btn label="Today" onPress={() => setDate(today)} />
+        <Btn label="Today" kind={date === today ? 'primary' : 'plain'} onPress={() => setDate(today)} />
         <Btn label="Day" icon="chevron-forward" onPress={() => setDate(addDays(date, 1))} />
-        <Btn label="Week" icon="play-forward-outline" onPress={() => setDate(addDays(date, 7))} />
+        <IconButton icon="play-forward-outline" label="Ahead a week" onPress={() => setDate(addDays(date, 7))} />
       </View>
       <View style={st.dateRow}>
         <TextInput value={typed} onChangeText={setTyped} placeholder="Any date: YYYY-MM-DD" placeholderTextColor={colors.muted}
@@ -470,8 +470,10 @@ function Tides({ place }: { place: WeatherPlace }) {
 }
 
 const useSt = makeStyles((colors) => ({
-  nearRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14 },
-  near: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 40, paddingHorizontal: 10, borderRadius: 18, backgroundColor: colors.panelSolid, borderWidth: 1, borderColor: colors.border },
+  nearRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10 },
+  nearAllBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 38, paddingHorizontal: 12, borderRadius: 18, backgroundColor: colors.inset, borderWidth: 1, borderColor: colors.border },
+  nearAllT: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  near: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, height: 38, paddingHorizontal: 8, borderRadius: 18, backgroundColor: colors.panelSolid, borderWidth: 1, borderColor: colors.border },
   nearOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   nearAll: { backgroundColor: colors.inset },
   nearT: { color: colors.text, fontSize: 14, fontWeight: '700', flexShrink: 1 },
@@ -485,7 +487,7 @@ const useSt = makeStyles((colors) => ({
   pickName: { flex: 1, color: colors.text, fontSize: 16.5 },
   pickDist: { color: colors.muted, fontSize: 14, fontVariant: ['tabular-nums'] },
   root: { flex: 1, backgroundColor: colors.bg },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14, backgroundColor: colors.panelSolid, borderBottomWidth: 1, borderColor: colors.border },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10, backgroundColor: colors.panelSolid, borderBottomWidth: 1, borderColor: colors.border },
   title: { color: colors.text, fontSize: 28, fontWeight: '800', letterSpacing: -0.3 },
   coords: { color: colors.muted, fontSize: 13, fontVariant: ['tabular-nums'], marginTop: 2 },
   hBtn: { width: touch.min, height: touch.min, borderRadius: 14, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
@@ -495,13 +497,13 @@ const useSt = makeStyles((colors) => ({
   pillOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   pillT: { color: colors.text, fontSize: 14, fontWeight: '700' },
   pillOnT: { color: colors.accentInk },
-  seg: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 2, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, borderRadius: 12, overflow: 'hidden' },
+  seg: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 8, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, borderRadius: 12, overflow: 'hidden' },
   segSmall: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   segI: { flex: 1, minHeight: 42, alignItems: 'center', justifyContent: 'center' },
   segOn: { backgroundColor: colors.panelSolid },
   segT: { color: colors.muted, fontWeight: '700', fontSize: 14 },
   segOnT: { color: colors.text },
-  body: { padding: 16, gap: 12, paddingBottom: 40 },
+  body: { padding: 16, gap: 12, paddingBottom: 120 },   // room to scroll past the tab bar
   boat: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.panelSolid, borderRadius: 12, borderWidth: 1.5, borderColor: colors.border, padding: 12, minHeight: 50 },
   boatK: { color: colors.muted, fontSize: 12 },
   boatV: { color: colors.text, fontSize: 15, fontWeight: '700' },

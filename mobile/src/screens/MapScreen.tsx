@@ -6,7 +6,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { useAwakeMode } from '../screenAwake';
 import { Camera, GeoJSONSource, Layer, LogManager, Map as MapView, Marker, UserLocation } from '@maplibre/maplibre-react-native';
 import type { CameraRef } from '@maplibre/maplibre-react-native';
-import { API_URL, CHART_ATTRIBUTION, DEFAULT_CENTER, DEFAULT_ZOOM, CHART_TILE_SIZE, NOAA_CHART_MAXZOOM, NOAA_CHART_MINZOOM, noaaChartTiles } from '../config';
+import { API_URL, CHART_ATTRIBUTION, DEFAULT_CENTER, DEFAULT_ZOOM, CHART_TILE_SIZE, NOAA_CHART_MAXZOOM, NOAA_CHART_MINZOOM, noaaChartTiles, noaaDepthTiles } from '../config';
 import { boatColor, cardStyle, colors, makeStyles, routeColor, setThemePosition, touch, useTheme } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { bearingTrue, cardinal, distanceNm, formatLatLon } from '../geo';
@@ -95,14 +95,18 @@ LogManager.onLog((e) => {
 // The NOAA chart is the bottom layer of the map style itself, so everything else (water temp, breaks, spots, MPAs)
 // always draws on top of it. Changing chart details or night mode rebuilds the style; the map then re-adds the
 // other layers in their normal order. (Oct 20: "slot" placeholder layers + beforeId crashed MapLibre on iOS.)
-function buildMapStyle(chartUrl: string) {
+function buildMapStyle(chartUrl: string, depthUrl: string | null) {
   return {
     version: 8,
     sources: {
       noaa: { type: 'raster', tiles: [chartUrl], tileSize: CHART_TILE_SIZE, minzoom: NOAA_CHART_MINZOOM, maxzoom: NOAA_CHART_MAXZOOM, attribution: CHART_ATTRIBUTION },
+      ...(depthUrl ? { noaaDepths: { type: 'raster', tiles: [depthUrl], tileSize: CHART_TILE_SIZE, minzoom: NOAA_CHART_MINZOOM, maxzoom: NOAA_CHART_MAXZOOM } } : {}),
     },
     layers: [
       { id: 'water', type: 'background', paint: { 'background-color': colors.water } },
+      // Oct 29 v2: the baby-blue "water" background shows through the chart (its water fill is left out), and NOAA's
+      // depth numbers + lines are drawn on top of it
+      ...(depthUrl ? [{ id: 'noaa-depths', type: 'raster', source: 'noaaDepths', paint: { 'raster-fade-duration': 100 } }] : []),
       { id: 'noaa-chart', type: 'raster', source: 'noaa', paint: { 'raster-fade-duration': 100 } },
       // Invisible markers that fix the layer order (see layers/order.ts): shading goes below the first,
       // lines and dots below the second, and the boat / route / waypoints are always added above both.
@@ -172,7 +176,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   useEffect(() => onConfig((c) => setKilled(c.features_off ?? [])), []);
   useEffect(() => { setLayers((p) => applyKillSwitch(p, killed)); }, [killed.join(','), layers.on, layers.overlay]);
   const chartUrl = useMemo(() => noaaChartTiles({ ...DEFAULT_LAYERS.chart, ...layers.chart }, theme.mode === 'night', killed.includes('chart_helper')), [layers.chart, theme.mode, killed.join(',')]);
-  const mapStyle = useMemo(() => buildMapStyle(chartUrl), [chartUrl]);
+  const depthUrl = useMemo(() => noaaDepthTiles({ ...DEFAULT_LAYERS.chart, ...layers.chart }, theme.mode === 'night', killed.includes('chart_helper')), [layers.chart, theme.mode, killed.join(',')]);
+  const mapStyle = useMemo(() => buildMapStyle(chartUrl, depthUrl), [chartUrl, depthUrl]);
   // 3D view (Map options): tip the camera back; flat again when switched off.
   useEffect(() => { camera.current?.setStop({ pitch: layers.tilt ? 55 : 0, duration: 600 }).catch(() => {}); }, [layers.tilt]);
   const [compareOffset, setCompareOffset] = useState<number | null>(null);

@@ -113,7 +113,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 const useSt = makeStyles((colors) => ({
-  body: { padding: 12, gap: 12, paddingBottom: 40 },
+  body: { padding: 12, gap: 12, paddingBottom: 120 },   // room to scroll past the tab bar
   dateRow: { flexDirection: 'row', gap: 8, justifyContent: 'center' },
   hero: { backgroundColor: '#0E1A2B', borderRadius: 22, padding: 18, alignItems: 'center' },
   heroDate: { color: 'rgba(255,255,255,0.75)', fontSize: 14, fontWeight: '700' },

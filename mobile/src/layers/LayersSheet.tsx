@@ -175,6 +175,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
   };
 
   const chartRows = ([
+    ...(CHART_SETTINGS_AVAILABLE ? [['depths', 'numeric', C.blue, 'Depth numbers & lines']] as const : []),
     ['navaids', 'lighthouse', C.pink, 'Buoys, lights & radio towers'],
     ...(CHART_SETTINGS_AVAILABLE ? [['lightCircles', 'circle-double', C.yellow, 'Lighthouse circles']] as const : []),
     ['lanes', 'ferry', C.indigo, 'Shipping lanes'],
@@ -356,9 +357,9 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
 
         <Section title="NOAA chart symbols" foot="These are drawn on the official chart. Turn off what you don't need.">
           {chartRows.map(([k, icon, tint, title], i) => {
-            const on = s.chart?.[k] ?? DEFAULT_LAYERS.chart[k];
+            const on = (s.chart as any)?.[k] ?? (DEFAULT_LAYERS.chart as any)[k] ?? true;
             return <LayerRow key={k} icon={icon as Icon} tint={tint} title={title} on={on} last={i === chartRows.length - 1}
-              onPress={() => set((p) => ({ ...p, chart: { ...p.chart, [k]: !(p.chart?.[k] ?? DEFAULT_LAYERS.chart[k]) } }))} />;
+              onPress={() => set((p) => ({ ...p, chart: { ...p.chart, [k]: !((p.chart as any)?.[k] ?? (DEFAULT_LAYERS.chart as any)[k] ?? true) } }))} />;
           })}
         </Section>
 

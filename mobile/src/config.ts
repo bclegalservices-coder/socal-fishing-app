@@ -30,12 +30,24 @@ export const CHART_HELPER = (process.env.EXPO_PUBLIC_CHART_HELPER ?? '').replace
 export const CHART_SETTINGS_AVAILABLE = CHART_HELPER.startsWith('https://');
 
 export function noaaChartTiles(show: Record<ChartDetail, boolean> & { lightCircles?: boolean; simpleSymbols?: boolean; look?: 'clean' | 'standard' | 'full' }, night = false, helperOff = false): string {
-  const ids = [0, 1, 2, ...(Object.keys(CHART_DETAIL_LAYER) as ChartDetail[]).filter((k) => show[k]).map((k) => CHART_DETAIL_LAYER[k])].sort((a, b) => a - b);
+  const details = (Object.keys(CHART_DETAIL_LAYER) as ChartDetail[]).filter((k) => show[k]).map((k) => CHART_DETAIL_LAYER[k]);
   if (CHART_SETTINGS_AVAILABLE && !helperOff) {
+    // Oct 29 v2: NO group 2 here. Group 2 ("depths") is what paints NOAA's pale water fill; without it the water is
+    // clear and the map's own baby-blue background shows through. Depth numbers + lines come back on top from
+    // noaaDepthTiles() (group 2 drawn without its fill).
+    const ids = [0, 1, ...details].sort((a, b) => a - b);
     // ls = light sectors (1 off, 2 on) · cs = color scheme (0 day, 2 night) · ps = symbols (1 simple, 2 paper)
-    return `${CHART_HELPER}/chart?bbox={bbox-epsg-3857}&layers=${ids.join(',')}&ls=${show.lightCircles ? 2 : 1}&cs=${night ? 2 : 0}&ps=${show.simpleSymbols ? 1 : 2}&look=${show.look ?? 'standard'}&hd=1&wb=2&wc=1`;   // wb=2: all water one blue (no white) · wc=1: repainted a soft Google-Maps baby blue (Oct 29)
+    return `${CHART_HELPER}/chart?bbox={bbox-epsg-3857}&layers=${ids.join(',')}&ls=${show.lightCircles ? 2 : 1}&cs=${night ? 2 : 0}&ps=${show.simpleSymbols ? 1 : 2}&look=${show.look ?? 'standard'}&hd=1&v=w2`;
   }
-  return `${NOAA_CHART_TILES}&layers=show:${ids.join(',')}`;
+  return `${NOAA_CHART_TILES}&layers=show:${[0, 1, 2, ...details].sort((a, b) => a - b).join(',')}`;
+}
+
+/** NOAA depth numbers and depth lines only (chart group 2 without the water fill), drawn over the baby-blue water.
+ *  null = off (Layers → NOAA chart symbols → "Depth numbers & lines"), or no chart helper (then the plain chart keeps
+ *  its own depths). */
+export function noaaDepthTiles(show: { depths?: boolean; look?: 'clean' | 'standard' | 'full' }, night = false, helperOff = false): string | null {
+  if (!CHART_SETTINGS_AVAILABLE || helperOff || show.depths === false) return null;
+  return `${CHART_HELPER}/chart?bbox={bbox-epsg-3857}&layers=2&ls=1&cs=${night ? 2 : 0}&ps=2&look=${show.look === 'full' ? 'depthsfull' : 'depths'}&hd=1`;
 }
 
 /** Backup chlorophyll when our server has none: NASA's ready-made daily picture tiles (VIIRS satellite pass,

@@ -28,6 +28,10 @@ const LOOKS = {
   clean: { DisplayCategory: '1,2', HonorScamin: 2 },
   standard: { DisplayCategory: '1,2,4', HonorScamin: 2 },
   full: { DisplayCategory: '1,2,4', HonorScamin: 1 },
+  // Oct 29 v2: depth numbers + depth lines only (chart group 2 WITHOUT "display base", which is where NOAA's water
+  // fill lives). The app draws this over its own baby-blue water.
+  depths: { DisplayCategory: '2,4', HonorScamin: 2 },
+  depthsfull: { DisplayCategory: '2,4', HonorScamin: 1 },
 };
 
 // Zoomed-out detail (hd=1). NOAA picks a coarse "overview" chart (rounded, blobby islands) when a picture covers a
@@ -75,7 +79,7 @@ function chartUrl(p, blue = ({ '1': 1, '2': 2 })[p.get('wb')] || 0) {
 // The chart is asked for as an 8-bit (palette) PNG, so the repaint only touches the color list (a few hundred bytes) —
 // no pixels are decoded, which keeps the helper well inside Cloudflare's free CPU limit. Anything unexpected → the
 // picture is sent unchanged.
-const VERSION = '2026-10-29d';
+const VERSION = '2026-10-29e';
 const WATER_TARGET = [170, 218, 255];            // #AADAFF — every normal water blue becomes exactly this
 const WATER_SHADE_FROM = 190;                     // NOAA blues darker than this (the very shallow strip) stay a bit darker
 function isWater(r, g, b) { return b - r >= 18 && b >= g - 6 && r >= 70 && b >= 160; }
