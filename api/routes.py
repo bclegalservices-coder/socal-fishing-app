@@ -49,6 +49,9 @@ async def layers():
     hd = store.get("manifests/bottomhd.json")             # HD bottom (sharp relief + dense contours), where built
     if hd:
         out.append(json.loads(hd))
+    hd_wide = store.get("manifests/bottomhd-socal.json")  # Oct 29: HD bottom for all of SoCal (to zoom 14), under the pilot
+    if hd_wide:
+        out.append(json.loads(hd_wide))
     harbors = store.get("manifests/harbors.json")
     if harbors:
         out.append({"key": "harbors", **json.loads(harbors)})
@@ -309,3 +312,23 @@ async def auto_route(pts: str = Query(..., description="lat,lon;lat,lon[;…] �
     if r is None:
         return JSONResponse(status_code=503, content={"detail": "Auto route isn't ready yet — the water map is still being built."})
     return r
+
+
+# Oct 30 (Map Studio): looks saved with Map Studio's "Send to app" (app_config "hd_style" / "map_style"), read by the
+# HD bottom builder in GitHub Actions and by Map Studio itself. Public: these are just display settings.
+STUDIO_KEYS = {"hd_style", "map_style"}
+
+
+@router.get("/config/{key}")
+async def public_config(key: str, request: Request):
+    if key not in STUDIO_KEYS:
+        raise HTTPException(404, "unknown setting")
+    pool = getattr(request.app.state, "pool", None)
+    if pool is None:
+        return {"key": key, "value": None}
+    async with pool.connection() as conn:
+        row = await (await conn.execute("select value, updated_at from app_config where key = %s", (key,))).fetchone()
+    if not row:
+        return {"key": key, "value": None}
+    v, t = (row["value"], row["updated_at"]) if isinstance(row, dict) else (row[0], row[1])
+    return {"key": key, "value": v, "updated_at": t.isoformat() if t else None}

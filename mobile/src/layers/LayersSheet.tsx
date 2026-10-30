@@ -14,7 +14,7 @@ import { ageText } from '../api';
 import { colors, makeStyles, useTheme } from '../theme';
 import { CHART_SETTINGS_AVAILABLE } from '../config';
 import type { Catalog } from '../types';
-import { external, grid, harborsOf, hdBottom, wind } from './catalog';
+import { external, grid, harborsOf, hdBottom, hdBottomWide, wind } from './catalog';
 import { SPOT_COLORS } from './spotColors';
 import { CHART_LOOKS, DEFAULT_LAYERS, PRESETS, type ChartLook, type LayerKey, type LayerState, type MapOverlay } from './state';
 import { track } from '../analytics';
@@ -163,6 +163,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
   const hc: Record<string, number> | undefined = harborsOf(catalog)?.counts;
   const sst = grid(catalog, 'sst'), chl = grid(catalog, 'chl'), bathy = grid(catalog, 'bathy'), w = wind(catalog), radar = external(catalog, 'radar');
   const hd = hdBottom(catalog);
+  const hdWide = hdBottomWide(catalog);
   const latest = (l?: { dates?: { observed_at?: string | null }[]; available?: boolean }) =>
     !l || l.available === false || !l.dates?.length ? 'Not available yet' : `Satellite · ${ageText(l.dates[0].observed_at ?? null)}`;
 
@@ -175,7 +176,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
   };
 
   const chartRows = ([
-    ...(CHART_SETTINGS_AVAILABLE ? [['depths', 'numeric', C.blue, 'Depth numbers & lines']] as const : []),
+    ...(CHART_SETTINGS_AVAILABLE ? [['noaaDepths', 'numeric', C.blue, 'Depth lines & numbers']] as const : []),
     ['navaids', 'lighthouse', C.pink, 'Buoys, lights & radio towers'],
     ...(CHART_SETTINGS_AVAILABLE ? [['lightCircles', 'circle-double', C.yellow, 'Lighthouse circles']] as const : []),
     ['lanes', 'ferry', C.indigo, 'Shipping lanes'],
@@ -277,7 +278,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
         </Section>
 
         <Section title="Seafloor" foot="For fishing, not navigation.">
-          {Row({ k: "bathyHd", icon: "terrain", tint: '#0E7C86', title: "HD bottom", sub: hd ? `Sharp rocks, ledges and dense contours · ${hd.complete === false ? 'still being drawn · ' : ''}Catalina, Palos Verdes, LA–Long Beach for now` : 'Coming soon — being built', disabled: !hd })}
+          {Row({ k: "bathyHd", icon: "terrain", tint: '#0E7C86', title: "HD bottom", sub: hd || hdWide ? `Sharp rocks, ledges and dense contours · ${hdWide ? (hdWide.complete === false ? 'all of SoCal (still being drawn)' : 'all of SoCal') : 'Catalina, Palos Verdes, LA–Long Beach'}${hdWide && hd ? ' · sharpest around Catalina & Palos Verdes' : ''}` : 'Coming soon — being built', disabled: !hd && !hdWide })}
           {s.on.bathyHd ? <Strength value={s.opacity.bathyHd ?? 0.95} onPick={(v) => opacity('bathyHd', v)} /> : null}
           {Row({ k: "bathy", icon: "image-filter-hdr", tint: C.brown, title: "Relief & structure", sub: "Drop-offs and canyon walls", disabled: !bathy?.dates?.length })}
           {s.on.bathy ? <Strength value={s.opacity.bathy} onPick={(v) => opacity('bathy', v)} /> : null}

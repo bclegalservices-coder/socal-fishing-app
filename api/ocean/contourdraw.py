@@ -195,7 +195,7 @@ def _label_spots(lines_by_level, major: set, n: int, pad: int, room: float = 180
 
 
 def render(depth_ft: np.ndarray, z: int, density: str, *, slope_px: np.ndarray | None = None, labels: bool | None = None,
-           color=LINE, base: np.ndarray | None = None, halo=(255, 255, 255)) -> np.ndarray | None:
+           color=LINE, base: np.ndarray | None = None, halo=(255, 255, 255), wscale: float = 1.0, ascale: float = 1.0) -> np.ndarray | None:
     """Contour lines for one square. depth_ft: (n+2·PAD)² image-px depths (ft, positive down, NaN = land), already smoothed.
     Returns an RGBA n×n image (transparent background, or drawn over `base` when given)."""
     from PIL import Image, ImageDraw
@@ -215,8 +215,8 @@ def render(depth_ft: np.ndarray, z: int, density: str, *, slope_px: np.ndarray |
     big = Image.new("L", (n * SS, n * SS), 0)
     d = ImageDraw.Draw(big)
     for lv in sorted(lines, key=lambda v: v in major):            # index lines on top
-        wd = (MAJOR_W if lv in major else MINOR_W) * SS
-        a = MAJOR_A if lv in major else MINOR_A
+        wd = (MAJOR_W if lv in major else MINOR_W) * SS * wscale
+        a = int(min(255, (MAJOR_A if lv in major else MINOR_A) * ascale))
         for p in lines[lv]:
             q = _chaikin(p, 2)
             pts = [((x - PAD) * SS, (y - PAD) * SS) for x, y in q]

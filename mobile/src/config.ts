@@ -45,9 +45,11 @@ export function noaaChartTiles(show: Record<ChartDetail, boolean> & { lightCircl
 /** NOAA depth numbers and depth lines only (chart group 2 without the water fill), drawn over the baby-blue water.
  *  null = off (Layers → NOAA chart symbols → "Depth numbers & lines"), or no chart helper (then the plain chart keeps
  *  its own depths). */
-export function noaaDepthTiles(show: { depths?: boolean; look?: 'clean' | 'standard' | 'full' }, night = false, helperOff = false): string | null {
-  if (!CHART_SETTINGS_AVAILABLE || helperOff || show.depths === false) return null;
-  return `${CHART_HELPER}/chart?bbox={bbox-epsg-3857}&layers=2&ls=1&cs=${night ? 2 : 0}&ps=2&look=${show.look === 'full' ? 'depthsfull' : 'depths'}&hd=1`;
+export function noaaDepthTiles(show: { noaaDepths?: boolean; look?: 'clean' | 'standard' | 'full' }, night = false, helperOff = false, look: { dlw?: number; daw?: number } = {}): string | null {
+  // Oct 30 v2: on by default again. The helper now draws every chart's depth lines when zoomed out (look=depths), so
+  // they no longer stop at chart edges. Toggle: Layers → NOAA chart symbols → "Depth lines & numbers".
+  if (!CHART_SETTINGS_AVAILABLE || helperOff || !show.noaaDepths) return null;
+  return `${CHART_HELPER}/chart?bbox={bbox-epsg-3857}&layers=2&ls=1&cs=${night ? 2 : 0}&ps=2&look=${show.look === 'full' ? 'depthsfull' : 'depths'}&hd=1&v=d2${look.dlw !== undefined ? `&dlw=${look.dlw}` : ''}${look.daw !== undefined ? `&daw=${look.daw}` : ''}`;
 }
 
 /** Backup chlorophyll when our server has none: NASA's ready-made daily picture tiles (VIIRS satellite pass,

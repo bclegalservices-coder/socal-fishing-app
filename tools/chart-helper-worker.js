@@ -49,8 +49,29 @@ function sizeFor(p) {
   return 1024;
 }
 
+// Oct 30 v2: why depth lines stopped along a line offshore when zoomed out. NOAA's chart is a patchwork of charts at
+// different scales, and each chart says from which zoom its depth lines appear ("SCAMIN"). The big-area chart shows
+// them early, the harbor-approach charts (LA/LB, San Diego…) only when zoomed in — so zoomed out, the approach charts'
+// water was empty. For the depth layer, zoomed out, we switch SCAMIN off: every chart draws its lines.
+//   map squares wider than DEPTH_LINES_ONLY_W (zoom ≤ 11): all depth LINES, no numbers (numbers would be a carpet)
+//   wider than DEPTH_ALL_W (zoom 12):                      all lines + numbers
+//   closer:                                                as NOAA intends (numbers thin out / fill in with zoom)
+const DEPTH_LINES_ONLY_W = 15000;
+const DEPTH_ALL_W = 7500;
+function depthLook(p, look) {
+  if (look !== LOOKS.depths && look !== LOOKS.depthsfull) return look;
+  const [x0, , x1] = p.get('bbox').split(',').map(Number);
+  const w = Math.abs(x1 - x0);
+  // Map Studio can try other switch points: &dlw=<m> &daw=<m> (0 = never)
+  const num = (k, d) => { const v = Number(p.get(k)); return p.get(k) !== null && Number.isFinite(v) && v >= 0 ? v : d; };
+  const linesOnly = num('dlw', DEPTH_LINES_ONLY_W), all = num('daw', DEPTH_ALL_W);
+  if (linesOnly > 0 && w >= linesOnly) return { DisplayCategory: '2', HonorScamin: 1 };
+  if (all > 0 && w >= all) return { DisplayCategory: '2,4', HonorScamin: 1 };
+  return look;
+}
+
 function chartUrl(p, blue = ({ '1': 1, '2': 2 })[p.get('wb')] || 0) {
-  const look = LOOKS[p.get('look')] || (p.get('fd') === '1' ? LOOKS.full : null);
+  const look = depthLook(p, LOOKS[p.get('look')] || (p.get('fd') === '1' ? LOOKS.full : null));
   const params = {
     ECDISParameters: {
       version: '10.9.1',
@@ -79,7 +100,7 @@ function chartUrl(p, blue = ({ '1': 1, '2': 2 })[p.get('wb')] || 0) {
 // The chart is asked for as an 8-bit (palette) PNG, so the repaint only touches the color list (a few hundred bytes) —
 // no pixels are decoded, which keeps the helper well inside Cloudflare's free CPU limit. Anything unexpected → the
 // picture is sent unchanged.
-const VERSION = '2026-10-29e';
+const VERSION = '2026-10-30c';
 const WATER_TARGET = [170, 218, 255];            // #AADAFF — every normal water blue becomes exactly this
 const WATER_SHADE_FROM = 190;                     // NOAA blues darker than this (the very shallow strip) stay a bit darker
 function isWater(r, g, b) { return b - r >= 18 && b >= g - 6 && r >= 70 && b >= 160; }
@@ -151,10 +172,10 @@ async function tile(url, fallback, recolor = false, info = null) {
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env, ctx) {
     const u = new URL(request.url);
     const p = u.searchParams;
-    if (u.pathname === '/' || u.pathname === '/health') return new Response(`Channel Nav chart helper: ok · version ${VERSION}`);
+    if (u.pathname === '/' || u.pathname === '/health') return new Response(`Channel Nav chart helper: ok · version ${VERSION} · speed cache ${env && env.TILES ? 'ON' : 'off'}`);
     // Open https://<this helper>/check in a browser: draws one chart square off Catalina and reports what happened.
     if (u.pathname === '/check') {
       const q = new URLSearchParams('bbox=-13190000,3930000,-13170000,3950000&layers=0,1,2&ls=1&cs=0&ps=2&look=standard&hd=1&wb=2&wc=1');
@@ -173,9 +194,28 @@ export default {
     }
     if (!BBOX.test(p.get('bbox') || '')) return new Response('bad bbox', { status: 400 });
     // If NOAA ever refuses the blue-water setting, the retry asks for the normal chart (never a blank square).
-    if (u.pathname === '/chart') return tile(chartUrl(p), p.get('wb') ? chartUrl(p, 0) : null, p.get('wc') === '1');
-    if (u.pathname === '/relief') return tile(reliefUrl(p));
-    return new Response('not found', { status: 404 });
+    if (u.pathname !== '/chart' && u.pathname !== '/relief') return new Response('not found', { status: 404 });
+    // Oct 30 speed-up: every chart square NOAA has drawn once is kept in an R2 bucket (binding name TILES) for 30 days,
+    // so the next angler gets it in a fraction of a second instead of waiting 1–4 s on NOAA. No bucket bound = works as before.
+    const key = `v2${u.pathname}?${[...p.entries()].sort().map(([k, v]) => `${k}=${v}`).join('&')}`;
+    const r2 = env && env.TILES;
+    if (r2) {
+      try {
+        const hit = await r2.get(key);
+        if (hit && Date.now() - hit.uploaded.getTime() < 30 * 86400e3) {
+          return new Response(hit.body, { headers: { 'content-type': hit.httpMetadata?.contentType || 'image/png', 'cache-control': 'public, max-age=604800',
+            'access-control-allow-origin': '*', 'x-channelnav-cache': 'hit' } });
+        }
+      } catch (e) { /* bucket trouble: just draw it */ }
+    }
+    const res = u.pathname === '/chart'
+      ? await tile(chartUrl(p), p.get('wb') ? chartUrl(p, 0) : null, p.get('wc') === '1')
+      : await tile(reliefUrl(p));
+    if (!r2 || res.status !== 200) return res;
+    const bytes = await res.arrayBuffer();
+    const type = res.headers.get('content-type') || 'image/png';
+    if (ctx) ctx.waitUntil(r2.put(key, bytes, { httpMetadata: { contentType: type } }).catch(() => {}));
+    return new Response(bytes, { headers: { 'content-type': type, 'cache-control': 'public, max-age=604800', 'access-control-allow-origin': '*', 'x-channelnav-cache': 'miss' } });
   },
   // Keep-awake: Render's free server sleeps after 15 quiet minutes, and the next angler waits ~1 minute.
   // Add a Cron Trigger "*/10 * * * *" to this Worker (Settings → Triggers) and it pings the API every 10 minutes.

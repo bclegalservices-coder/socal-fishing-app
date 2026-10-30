@@ -73,7 +73,7 @@ export function SpotterHistoryLayer({ data, hours, labels, onPick }: { data: Spo
   );
 }
 
-/** The bar under the top of the map: what's on, the color key, and 3 / 6 / 12 / 24 h. */
+/** The bar under the top of the map (Oct 30: one slim row): what's on, 3 / 6 / 12 / 24 h, and a thin color key. */
 export function SpotterHistoryBar({ data, hours, setHours, locked, gated, onUpsell }: {
   data: SpotHistory | null; hours: number; setHours: (h: number) => void; locked: boolean; gated: boolean; onUpsell: () => void;
 }) {
@@ -82,36 +82,33 @@ export function SpotterHistoryBar({ data, hours, setHours, locked, gated, onUpse
   if (locked) {
     return (
       <Pressable onPress={onUpsell} style={st.bar} accessibilityRole="button">
-        <View style={st.row}><Ionicons name="lock-closed" size={15} color="#FF20D6" /><Text style={st.title}>Spotter activity · last 12–24 h</Text><View style={st.pro}><Text style={st.proT}>PRO</Text></View></View>
-        <Text style={st.sub}>Where spotter planes circled today — their real flight paths, colored by time.</Text>
+        <View style={st.row}><Ionicons name="lock-closed" size={14} color="#FF20D6" /><Text style={st.title} numberOfLines={1}>Spotter activity · Pro</Text></View>
       </Pressable>
     );
   }
-  const watchedH = data?.watching_since ? (now - data.watching_since) / 3600 : null;
+  const list = data?.sessions.filter((x) => inWindow(x, now, hours)) ?? [];
+  const live = list.filter((x) => x.active).length;
+  const text = !data ? 'Loading…' : list.length ? `${list.length} spot${list.length === 1 ? '' : 's'} worked${live ? ` · ${live} now` : ''}` : 'None yet';
   return (
     <View style={st.bar}>
       <View style={st.row}>
-        <MaterialCommunityIcons name="airplane-marker" size={17} color="#FF20D6" />
-        <Text style={st.title} numberOfLines={1}>{data ? summaryText(data.sessions, now, hours) : 'Loading spotter activity…'}</Text>
+        <MaterialCommunityIcons name="airplane-marker" size={16} color="#FF20D6" />
+        <Text style={st.title} numberOfLines={1}>{text}</Text>
+        <View style={st.seg}>
+          {HOURS.map((h) => {
+            const on = h === hours;
+            return (
+              <Pressable key={h} onPress={() => setHours(h)} hitSlop={4} style={[st.segI, on && st.segOn]} accessibilityRole="button"
+                accessibilityLabel={`Last ${h} hours${h === 24 && gated ? ' (Pro)' : ''}`} accessibilityState={{ selected: on }}>
+                <Text style={[st.segT, on && st.segTOn]}>{h}h</Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
       <View style={st.ramp}>
-        {Array.from({ length: 24 }, (_, i) => <View key={i} style={{ flex: 1, backgroundColor: ageColor((i + 0.5) / 24 * hours) }} />)}
+        {Array.from({ length: 16 }, (_, i) => <View key={i} style={{ flex: 1, backgroundColor: ageColor((i + 0.5) / 16 * hours) }} />)}
       </View>
-      <View style={st.rampLab}>
-        <Text style={st.lab}>Now</Text><Text style={st.lab}>{Math.round(hours / 2)} h</Text><Text style={st.lab}>{hours} h ago</Text>
-      </View>
-      <View style={st.chips}>
-        {HOURS.map((h) => {
-          const on = h === hours;
-          const pro = h === 24 && gated;
-          return (
-            <Pressable key={h} onPress={() => setHours(h)} style={[st.chip, on && st.chipOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
-              <Text style={[st.chipT, on && st.chipTOn]}>{h} h{pro ? ' · Pro' : ''}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      {watchedH != null && watchedH < hours ? <Text style={st.note}>{watchedH < 0.1 ? 'Recording just started' : `Recording started ${agoText(now - data!.watching_since!)}`} — earlier hours fill in as it keeps watching.</Text> : null}
     </View>
   );
 }
@@ -181,22 +178,17 @@ const m = StyleSheet.create({
 });
 
 const useSt = makeStyles((colors) => ({
-  bar: { marginTop: 6, marginHorizontal: 12, padding: 10, borderRadius: 16, backgroundColor: colors.panelSolid, borderWidth: 1, borderColor: colors.border, gap: 6,
+  bar: { marginTop: 6, marginHorizontal: 12, paddingHorizontal: 10, paddingTop: 7, paddingBottom: 6, borderRadius: 14, backgroundColor: colors.panelSolid, borderWidth: 1, borderColor: colors.border, gap: 5,
     shadowColor: colors.shadow, shadowOpacity: 0.15, shadowRadius: 6, shadowOffset: { width: 0, height: 1 }, elevation: 3 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  title: { color: colors.text, fontSize: 14, fontWeight: '800', flexShrink: 1 },
+  title: { color: colors.text, fontSize: 13.5, fontWeight: '800', flexShrink: 1, flex: 1 },
   sub: { color: colors.muted, fontSize: 13 },
-  note: { color: colors.muted, fontSize: 11.5 },
-  pro: { backgroundColor: '#FF20D6', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1, marginLeft: 'auto' },
-  proT: { color: '#FFFFFF', fontSize: 11, fontWeight: '900' },
-  ramp: { flexDirection: 'row', height: 9, borderRadius: 5, overflow: 'hidden' },
-  rampLab: { flexDirection: 'row', justifyContent: 'space-between' },
-  lab: { color: colors.muted, fontSize: 11, fontWeight: '700' },
-  chips: { flexDirection: 'row', gap: 6 },
-  chip: { flex: 1, minHeight: 34, borderRadius: 17, borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
-  chipOn: { backgroundColor: '#FF20D6', borderColor: '#FF20D6' },
-  chipT: { color: colors.text, fontSize: 13, fontWeight: '800' },
-  chipTOn: { color: '#FFFFFF' },
+  seg: { flexDirection: 'row', borderRadius: 9, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
+  segI: { minWidth: 34, height: 26, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  segOn: { backgroundColor: '#FF20D6' },
+  segT: { color: colors.text, fontSize: 12, fontWeight: '800' },
+  segTOn: { color: '#FFFFFF' },
+  ramp: { flexDirection: 'row', height: 4, borderRadius: 2, overflow: 'hidden' },
   card: { backgroundColor: colors.panelSolid, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border, padding: 14, gap: 9 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   icon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },

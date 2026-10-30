@@ -51,6 +51,11 @@ export const hdBottom = (c: Catalog | null): HdBottomLayer | undefined => {
   const l = c?.layers.find((x) => x.key === 'bottomhd') as HdBottomLayer | undefined;
   return l && typeof l.tiles === 'string' && l.tiles.startsWith('http') ? l : undefined;
 };
+/** Oct 29: HD bottom for all of SoCal (to zoom 14), drawn under the sharper pilot area. */
+export const hdBottomWide = (c: Catalog | null): HdBottomLayer | undefined => {
+  const l = c?.layers.find((x) => x.key === 'bottomhd_socal') as HdBottomLayer | undefined;
+  return l && typeof l.tiles === 'string' && l.tiles.startsWith('http') ? l : undefined;
+};
 export const harborsOf = (c: Catalog | null) => (c?.layers.find((l) => l.key === 'harbors') as any) ?? undefined;
 export const wind = (c: Catalog | null) => (c?.layers.find((l) => l.key === 'wind') as WindLayer | undefined) ?? undefined;
 export const external = (c: Catalog | null, key: string) => (c?.layers.find((l) => l.key === key) as ExternalLayer | undefined) ?? undefined;

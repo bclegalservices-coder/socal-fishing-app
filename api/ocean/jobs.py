@@ -344,7 +344,7 @@ def verify():
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("job", choices=["sst", "chl", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "bottomhd", "bottomhd-rebuild", "bottomhd-preview", "bottomhd-restore", "bottomhd-restore-v3", "bottomhd-restore-v4", "bottomhd-restore-v5", "crm", "crm-rebuild", "all", "discover", "verify"])
+    p.add_argument("job", choices=["sst", "chl", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "bottomhd", "bottomhd-socal", "bottomhd-rebuild", "bottomhd-preview", "bottomhd-overview", "bottomhd-restore", "bottomhd-restore-v3", "bottomhd-restore-v4", "bottomhd-restore-v5", "bottomhd-restore-v6", "crm", "crm-rebuild", "all", "discover", "verify"])
     p.add_argument("--region", default="socal")
     p.add_argument("--days", default="0,1,2,3,7")
     p.add_argument("--file", default=None, help="local seafloor file for `bathy`")
@@ -363,15 +363,20 @@ def main(argv=None):
         from .bottomhd import restore
         version = a.job[len("bottomhd-restore-"):] if a.job.startswith("bottomhd-restore-") else a.version
         return None if restore(get_store(), a.area, version, log) else sys.exit(1)
+    if a.job == "bottomhd-overview":   # zoomed-out HD squares for pilot + all-SoCal (fast; nothing redrawn)
+        from .bottomhd import overview_only
+        st = get_store()
+        return overview_only(st, "pilot", log) | overview_only(st, "socal", log)
     if a.job == "bottomhd-preview":   # side-by-side picture of the old vs new HD bottom at real spots (app unchanged)
         from .bottomhd import preview
         http = httpx.Client(timeout=300, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})
         preview(get_store(), a.area, http, log, out_path="bottomhd-preview.png")
         return None
-    if a.job in ("bottomhd", "bottomhd-rebuild"):   # HD bottom: sharp relief + dense contours (resumable)
+    if a.job in ("bottomhd", "bottomhd-socal", "bottomhd-rebuild"):   # HD bottom (resumable; keeps going run after run)
         from .bottomhd import run as run_bottomhd
         http = httpx.Client(timeout=300, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})
-        return run_bottomhd(get_store(), a.area, http, log, force=a.force or a.job == "bottomhd-rebuild")
+        area = "socal" if a.job == "bottomhd-socal" else a.area
+        return run_bottomhd(get_store(), area, http, log, force=a.force or a.job == "bottomhd-rebuild")
     if a.job in ("navmask", "navmask-rebuild"):   # water map for auto routing (resumable; "-rebuild" starts over)
         from navroute.build import run as run_navmask
         http = httpx.Client(timeout=120, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})

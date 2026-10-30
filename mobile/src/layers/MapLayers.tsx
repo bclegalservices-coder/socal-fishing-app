@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { GeoJSONSource, Layer, RasterSource } from '@maplibre/maplibre-react-native';
 import { API_URL, okTile, RADAR_ATTRIBUTION, radarAt, CHART_SETTINGS_AVAILABLE, CHART_TILE_SIZE, RELIEF_ATTRIBUTION, RELIEF_TILES, SATELLITE_ATTRIBUTION, SATELLITE_BASE_ATTRIBUTION, SATELLITE_BASE_TILES, SATELLITE_DETAIL_MINZOOM, SATELLITE_TILES } from '../config';
 import type { Catalog } from '../types';
-import { DAY_OFFSETS, external, grid, hdBottom, pickDate, wind } from './catalog';
+import { DAY_OFFSETS, external, grid, hdBottom, hdBottomWide, pickDate, wind } from './catalog';
 import type { LayerState } from './state';
 import { FEATURES_TOP, SHADING_TOP, below } from './order';
 
@@ -18,6 +18,7 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
   const chl = pickDate(grid(catalog, 'chl')?.dates, offset);
   const bathy = grid(catalog, 'bathy')?.dates?.[0];
   const hd = hdBottom(catalog);
+  const hdWide = hdBottomWide(catalog);
   const detail = s.contourDetail ?? 'std';
   const contourTiles = okTile(bathy?.contour_tiles?.[detail]) ? bathy!.contour_tiles![detail]! : null;
   const w = wind(catalog);
@@ -87,6 +88,12 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
       {keep('bathy', s.on.bathy) && bathy && okTile(bathy.tiles) ? (
         <RasterSource key={`bathy-${idOf(bathy.tiles)}`} id={`bathy-${idOf(bathy.tiles)}`} tiles={[bathy.tiles]} tileSize={256} minzoom={5} maxzoom={12}>
           <Layer beforeId={below(SHADING_TOP)} type="raster" id={`bathy-${idOf(bathy.tiles)}-layer`} style={{ visibility: vis(s.on.bathy), rasterOpacity: s.opacity.bathy, rasterFadeDuration: 0 }} />
+        </RasterSource>
+      ) : null}
+      {/* HD bottom for all of SoCal (zoom 10–14, enlarged smoothly beyond), under the sharper pilot area */}
+      {keep('bathyHd', s.on.bathyHd) && hdWide && okTile(hdWide.tiles) ? (
+        <RasterSource key={`bathyhdw-${idOf(hdWide.tiles)}`} id={`bathyhdw-${idOf(hdWide.tiles)}`} tiles={[hdWide.tiles]} tileSize={256} minzoom={hdWide.minzoom ?? 10} maxzoom={hdWide.maxzoom ?? 14}>
+          <Layer beforeId={below(SHADING_TOP)} type="raster" id={`bathyhdw-${idOf(hdWide.tiles)}-layer`} style={{ visibility: vis(s.on.bathyHd), rasterOpacity: s.opacity.bathyHd ?? 0.95, rasterFadeDuration: 0 }} />
         </RasterSource>
       ) : null}
       {/* HD bottom: sharp relief + dense contours (NOAA BlueTopo), on top of the coarse relief where it's built */}

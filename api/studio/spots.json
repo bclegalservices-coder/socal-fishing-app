@@ -1,0 +1,58 @@
+[
+ {
+  "name": "San Pedro Channel \u00b7 deep slope",
+  "lat": 33.63,
+  "lon": -118.3,
+  "zoom": 13,
+  "note": "deep-water triangles"
+ },
+ {
+  "name": "LA Harbor \u00b7 Angels Gate",
+  "lat": 33.7105,
+  "lon": -118.247,
+  "zoom": 14,
+  "note": ""
+ },
+ {
+  "name": "Long Beach breakwater",
+  "lat": 33.723,
+  "lon": -118.17,
+  "zoom": 14,
+  "note": ""
+ },
+ {
+  "name": "Palos Verdes \u00b7 Point Vicente",
+  "lat": 33.741,
+  "lon": -118.413,
+  "zoom": 14,
+  "note": "rocky reef detail"
+ },
+ {
+  "name": "Catalina \u00b7 Ship Rock / Isthmus",
+  "lat": 33.463,
+  "lon": -118.492,
+  "zoom": 14,
+  "note": ""
+ },
+ {
+  "name": "Catalina \u00b7 east-end drop-off",
+  "lat": 33.32,
+  "lon": -118.28,
+  "zoom": 13,
+  "note": "deep slope"
+ },
+ {
+  "name": "Catalina \u2192 LA \u00b7 zoomed out",
+  "lat": 33.55,
+  "lon": -118.3,
+  "zoom": 9.5,
+  "note": "NOAA depth lines must cover all water"
+ },
+ {
+  "name": "Mexico border \u00b7 Coronados",
+  "lat": 32.45,
+  "lon": -117.25,
+  "zoom": 10,
+  "note": "land south of the border"
+ }
+]

@@ -35,9 +35,16 @@ SCHEME_PREFIX = "BlueTopo/_BlueTopo_Tile_Scheme/"
 AREAS = {
     # Pilot: Santa Catalina Island, Palos Verdes, the Port of LA / Long Beach and the San Pedro Channel.
     "pilot": (-118.65, 33.25, -118.05, 33.85),
+    # Oct 29: all of Southern California — Point Conception to the Mexican border, out past the islands and banks.
+    "socal": (-120.75, 32.45, -117.05, 34.55),
 }
+# (top zoom, deepest zoom) per area. The pilot is drawn to zoom 16; the whole region to zoom 14 (≈ 5 m per pixel,
+# which already matches most NOAA surveys out there) — the map enlarges it smoothly when you zoom in further.
+AREA_ZOOMS = {"pilot": (11, 16), "socal": (10, 14)}
+CACHE_GB = 6.0               # survey files kept on the build machine between blocks
 TOP_Z, MAX_Z = 11, 16
-HD_VERSION = "v5"            # Oct 29: smooth seafloor, no survey "boxes" (see hdrender.py). v4 = Oct 24 lines
+OVERVIEW_Z = 6               # Oct 30: zoomed-out squares down to this zoom, so HD bottom shows the moment it's switched on
+HD_VERSION = "v6"            # Oct 30: deep-water triangles smoothed (hdrender DEEP_*). v5 = Oct 29: smooth seafloor, no survey "boxes" (see hdrender.py). v4 = Oct 24 lines
 SIZE = 256
 M_TO_FT = 3.28084
 EARTH = 40075016.685578488
@@ -184,7 +191,7 @@ def draw_v4(dem_m: np.ndarray, z: int, lat: float) -> np.ndarray | None:
     return hd_lines(out, dem_m, z, lat)
 
 
-def draw(dem_m: np.ndarray, z: int, lat: float, res_m: np.ndarray | None = None, pad: int = 0) -> np.ndarray | None:
+def draw(dem_m: np.ndarray, z: int, lat: float, res_m: np.ndarray | None = None, pad: int = 0, style: dict | None = None) -> np.ndarray | None:
     """v5 drawing (hdrender.py): RGBA 512×512. dem_m may be a 256 px square (it's smoothly enlarged) or a 512 px
     square with `pad` extra pixels read around it."""
     from scipy import ndimage
@@ -197,7 +204,7 @@ def draw(dem_m: np.ndarray, z: int, lat: float, res_m: np.ndarray | None = None,
         dem_m = np.where(bok, big, np.nan).astype(np.float32)
         res_m = None if res_m is None else ndimage.zoom(res_m, k, order=0)
         pad = int(round(pad * k))
-    return draw_v5(dem_m, res_m, z, lat, pad)
+    return draw_v5(dem_m, res_m, z, lat, pad, style=style)
 
 
 def hd_lines(shaded: np.ndarray, dem_m: np.ndarray, z: int, lat: float) -> np.ndarray:
@@ -297,6 +304,13 @@ class Surveys:
         mb = sum(os.path.getsize(os.path.join(folder, f)) for f in os.listdir(folder)) / 1e6
         log(f"bottomhd: {len(self.ds)} BlueTopo survey tiles ready ({mb:.0f} MB, {sorted({i['res_m'] for i in self.items})} m)")
 
+    def close(self):
+        for ds in self.ds:
+            try:
+                ds.close()
+            except Exception:
+                pass
+
     def square(self, z: int, x: int, y: int, size: int | None = None, margin: int | None = None):
         """(depth m, survey cell size m) for map square z/x/y at `size` px plus `margin` px all round.
         Surveys are blended finest first; where a coarser survey takes over, the two are feathered together over a
@@ -358,49 +372,156 @@ def half_res(a: np.ndarray) -> np.ndarray:
         return np.nanmax(b, axis=(1, 3)).astype(np.float32)
 
 
-def build_tree(read_square, put, z: int, x: int, y: int, bbox: tuple, stats: dict):
-    """(depth m, survey cell m) for square (z, x, y) at 512 px, drawing it and every square under it down to MAX_Z."""
+def build_tree(read_square, put, z: int, x: int, y: int, bbox: tuple, stats: dict, max_z: int = MAX_Z, style: dict | None = None):
+    """(depth m, survey cell m) for square (z, x, y) at 512 px, drawing it and every square under it down to max_z."""
     from .hdrender import READ
     from .tiles import tile_bounds
     w, s, e, n = tile_bounds(z, x, y)
     if e < bbox[0] or w > bbox[2] or n < bbox[1] or s > bbox[3]:
         return np.full((READ, READ), np.nan, dtype=np.float32), np.full((READ, READ), np.nan, dtype=np.float32)
-    if z == MAX_Z:
+    if z == max_z:
         dem_p, res_p, pad = _norm_read(read_square(z, x, y))
-        img = draw(dem_p, z, (s + n) / 2, res_p, pad)
+        img = draw(dem_p, z, (s + n) / 2, res_p, pad, style=style)
         core = (slice(pad, pad + READ), slice(pad, pad + READ))
         dem, res = dem_p[core], res_p[core]
     else:
-        q = [build_tree(read_square, put, z + 1, 2 * x + dx, 2 * y + dy, bbox, stats) for dy in (0, 1) for dx in (0, 1)]
+        q = [build_tree(read_square, put, z + 1, 2 * x + dx, 2 * y + dy, bbox, stats, max_z, style) for dy in (0, 1) for dx in (0, 1)]
         dem = half(np.block([[q[0][0], q[1][0]], [q[2][0], q[3][0]]]))
         res = half_res(np.block([[q[0][1], q[1][1]], [q[2][1], q[3][1]]]))
-        img = draw(dem, z, (s + n) / 2, res, 0)
+        img = draw(dem, z, (s + n) / 2, res, 0, style=style)
     if img is not None:
         put(f"{z}/{x}/{y}.png", png(img)); stats["tiles"] += 1
     return dem, res
 
 
-def run(store, area: str, http, log=print, budget_s: float = 48 * 60, force: bool = False):
+def _shrink(imgs: list) -> np.ndarray:
+    """Four 512 px RGBA squares (None = empty) → one 512 px square (alpha-weighted 2×2 average, so edges stay clean)."""
+    n = 512
+    big = np.zeros((2 * n, 2 * n, 4), np.float64)
+    for i, im in enumerate(imgs):
+        if im is not None:
+            r, c = divmod(i, 2)
+            big[r * n:(r + 1) * n, c * n:(c + 1) * n] = im
+    a = big[..., 3:4] / 255.0
+    pre = (big[..., :3] * a).reshape(n, 2, n, 2, 3).sum(axis=(1, 3))
+    asum = a.reshape(n, 2, n, 2, 1).sum(axis=(1, 3))
+    out = np.zeros((n, n, 4), np.uint8)
+    out[..., :3] = np.clip(np.where(asum > 0, pre / np.maximum(asum, 1e-9), 0), 0, 255).astype(np.uint8)
+    out[..., 3] = np.clip(asum[..., 0] / 4 * 255, 0, 255).astype(np.uint8)
+    return out
+
+
+def overview(store, base: str, bbox: tuple, top_z: int, low_z: int = OVERVIEW_Z, log=print) -> int:
+    """Zoomed-out squares (top_z-1 … low_z) made by shrinking the squares already drawn, so HD bottom shows right away
+    when it's switched on instead of only after zooming in. Cheap (a few hundred squares); redone after every run."""
+    from PIL import Image
     from .tiles import tiles_for_bbox
+
+    def load(z, x, y, made):
+        if (z, x, y) in made:
+            return made[(z, x, y)]
+        b = store.get(f"{base}/{z}/{x}/{y}.png")
+        return None if not b else np.asarray(Image.open(io.BytesIO(b)).convert("RGBA").resize((512, 512)))
+
+    n = 0
+    made: dict = {}
+    for z in range(top_z - 1, low_z - 1, -1):
+        for (_, x, y) in tiles_for_bbox(bbox, z):
+            kids = [load(z + 1, 2 * x + dx, 2 * y + dy, made) for dy in (0, 1) for dx in (0, 1)]
+            if all(k is None for k in kids):
+                continue
+            img = _shrink(kids)
+            if not img[..., 3].any():
+                continue
+            made[(z, x, y)] = img
+            store.put(f"{base}/{z}/{x}/{y}.png", png(img), "image/png"); n += 1
+    log(f"bottomhd: {n} zoomed-out squares made (zoom {low_z}–{top_z - 1})")
+    return n
+
+
+API_URL = os.environ.get("API_URL", "https://fishing-app-api-pzto.onrender.com")
+
+
+def published_style(http, log=print) -> dict:
+    """The HD bottom look saved from Map Studio (Send to app → app_config "hd_style"), read through the app's API.
+    Nothing saved / API asleep → {} = the built-in look."""
+    if not API_URL or os.environ.get("STORAGE") == "local":
+        return {}
+    for attempt in range(3):
+        try:
+            r = http.get(f"{API_URL}/config/hd_style", timeout=90)
+            if r.status_code == 200:
+                v = r.json().get("value") or {}
+                st = v.get("style") if isinstance(v, dict) and "style" in v else v
+                return st if isinstance(st, dict) else {}
+            if r.status_code == 404:
+                return {}
+        except Exception as e:
+            log(f"bottomhd: couldn't read the Map Studio style ({type(e).__name__}) — try {attempt + 1}/3")
+        time.sleep(5)
+    log("bottomhd: using the built-in look")
+    return {}
+
+
+def style_tag(style: dict) -> str:
+    """'' for the built-in look; otherwise a short code, so each look gets its own folder (no mixing of looks)."""
+    import hashlib
+    from .hdrender import default_style, resolve
+    st = resolve(style)
+    if st == default_style():
+        return ""
+    return "-s" + hashlib.sha1(json.dumps(st, sort_keys=True).encode()).hexdigest()[:6]
+
+
+def manifest_name(area: str) -> tuple[str, str]:
+    """(store key, catalog key): the pilot keeps the original names; other areas get their own."""
+    return ("manifests/bottomhd.json", "bottomhd") if area == "pilot" else (f"manifests/bottomhd-{area}.json", f"bottomhd_{area}")
+
+
+def _trim_cache(folder: str, keep: set, log=print) -> None:
+    """Keep the build machine's disk from filling up: drop survey files the current block doesn't need (oldest first)."""
+    files = [os.path.join(folder, f) for f in os.listdir(folder)]
+    total = sum(os.path.getsize(f) for f in files) / 1e9
+    if total <= CACHE_GB:
+        return
+    for f in sorted(files, key=os.path.getmtime):
+        if os.path.basename(f) in keep:
+            continue
+        total -= os.path.getsize(f) / 1e9
+        os.unlink(f)
+        if total <= CACHE_GB * 0.5:
+            break
+    log(f"bottomhd: survey cache trimmed to {total:.1f} GB")
+
+
+def run(store, area: str, http, log=print, budget_s: float = 48 * 60, force: bool = False):
+    from .tiles import tile_bounds, tiles_for_bbox
     t0 = time.time()
+    if os.path.exists("bottomhd-continue.txt"):
+        os.unlink("bottomhd-continue.txt")
     bbox = AREAS[area]
-    base = f"tiles/bottomhd/{area}/{HD_VERSION}"
-    work_key = f"work/bottomhd/{area}/{HD_VERSION}/done.json"
+    top_z, max_z = AREA_ZOOMS.get(area, (TOP_Z, MAX_Z))
+    mkey, ckey = manifest_name(area)
+    style = published_style(http, log)
+    tag = style_tag(style)
+    if tag:
+        log(f"bottomhd: drawing with the look saved from Map Studio ({tag[2:]})")
+    base = f"tiles/bottomhd/{area}/{HD_VERSION}{tag}"
+    work_key = f"work/bottomhd/{area}/{HD_VERSION}{tag}/done.json"
     done = set() if force else set(json.loads(store.get(work_key) or b"[]"))
     key = latest_scheme_key(http)
     log(f"bottomhd: tile index {key.split('/')[-1]}")
     r = http.get(f"{BUCKET}/{key}"); r.raise_for_status()
     items = scheme_tiles(r.content, bbox)
-    log(f"bottomhd: {len(items)} BlueTopo survey tiles cover the {area} area")
+    log(f"bottomhd: {len(items)} BlueTopo survey tiles cover the {area} area (zoom {top_z}–{max_z})")
     if not items:
         raise RuntimeError("no BlueTopo coverage found for this area (if this keeps happening, NOAA may have changed the tile index format)")
     folder = tempfile.mkdtemp(prefix="bluetopo-")
-    surveys = Surveys(items, folder, http, log)
     pool = ThreadPoolExecutor(max_workers=8)
     pending = []
     put = lambda k, data: pending.append(pool.submit(store.put, f"{base}/{k}", data, "image/png"))   # noqa: E731
     stats = {"tiles": 0}
-    tops = list(tiles_for_bbox(bbox, TOP_Z))
+    tops = list(tiles_for_bbox(bbox, top_z))
     stopped = False
     for (z, x, y) in tops:
         k = f"{z}/{x}/{y}"
@@ -408,9 +529,17 @@ def run(store, area: str, http, log=print, budget_s: float = 48 * 60, force: boo
             continue
         if time.time() - t0 > budget_s:
             stopped = True
-            log("bottomhd: time's up for this run — saving progress (run again to continue)")
+            log("bottomhd: time's up for this run — saving progress (it continues in the next run)")
             break
-        build_tree(surveys.square, put, z, x, y, bbox, stats)
+        # only the surveys that touch this block (with a small margin), downloaded as needed
+        w, s_, e, n = tile_bounds(z, x, y)
+        mg = (e - w) * 0.05
+        here = [it for it in items if not (it["bounds"][2] < w - mg or it["bounds"][0] > e + mg or it["bounds"][3] < s_ - mg or it["bounds"][1] > n + mg)]
+        if here:
+            _trim_cache(folder, {re.sub(r"[^\w.-]", "_", it["tile"]) + ".tif" for it in here}, log)
+            surveys = Surveys(here, folder, http, log)
+            build_tree(surveys.square, put, z, x, y, bbox, stats, max_z, style)
+            surveys.close()
         for f in pending:
             f.result()
         pending.clear()
@@ -419,40 +548,47 @@ def run(store, area: str, http, log=print, budget_s: float = 48 * 60, force: boo
         log(f"bottomhd: block {k} done — {stats['tiles']} map squares so far ({len(done)}/{len(tops)} blocks)")
     pool.shutdown(wait=True)
     complete = all(f"{z}/{x}/{y}" in done for (z, x, y) in tops)
-    if not complete and store.get("manifests/bottomhd.json"):
-        log(f"bottomhd: {len(done)}/{len(tops)} blocks drawn with the new lines — run `bottomhd` again to continue "
+    if not complete:
+        with open("bottomhd-continue.txt", "w") as fh:          # the workflow sees this and starts the next run itself
+            fh.write(area)
+    if not complete and store.get(mkey):
+        log(f"bottomhd: {len(done)}/{len(tops)} blocks drawn with the new style — continuing in the next run "
             "(the app keeps the old HD bottom until it's finished)")
         return
+    overview(store, base, bbox, top_z, log=log)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M")      # new address each build, so phones don't show old cached squares
-    manifest = {"key": "bottomhd", "label": "HD bottom", "tiles": store.url(base) + "/{z}/{x}/{y}.png?v=" + stamp,
-                "minzoom": TOP_Z, "maxzoom": MAX_Z, "areas": {area: list(bbox)}, "complete": complete, "style": HD_VERSION,
+    manifest = {"key": ckey, "label": "HD bottom", "tiles": store.url(base) + "/{z}/{x}/{y}.png?v=" + stamp,
+                "minzoom": min(top_z, OVERVIEW_Z), "maxzoom": max_z, "areas": {area: list(bbox)}, "complete": complete, "style": HD_VERSION + tag,
+                "progress": f"{len(done)}/{len(tops)}",
                 "built_at": datetime.now(timezone.utc).isoformat(), "source": "NOAA BlueTopo (Office of Coast Survey)",
                 "note": "Seafloor detail from NOAA surveys. For fishing, not navigation."}
-    store.put("manifests/bottomhd.json", json.dumps(manifest).encode(), "application/json")
-    log(f"bottomhd: saved — {len(done)}/{len(tops)} blocks, {stats['tiles']} map squares this run{'' if not stopped else ' (run again to continue)'}")
+    store.put(mkey, json.dumps(manifest).encode(), "application/json")
+    log(f"bottomhd: saved — {len(done)}/{len(tops)} blocks, {stats['tiles']} map squares this run{'' if complete else ' (continuing in the next run)'}")
 
 
 def restore(store, area: str, version: str, log=print) -> bool:
     """Point the app back at an earlier HD bottom build — nothing is redrawn. Every build since Oct 24 lives in its own
     folder: "legacy" = the build from before the smooth-line versions (tiles/bottomhd/<area>/), "v3", "v4" = the newer ones."""
     folders = {"legacy": (f"tiles/bottomhd/{area}", f"work/bottomhd/{area}/done.json")}
-    for v in ("v3", "v4", "v5"):
+    for v in ("v3", "v4", "v5", "v6"):
         folders[v] = (f"tiles/bottomhd/{area}/{v}", f"work/bottomhd/{area}/{v}/done.json")
     for v, (_, wk) in folders.items():
         n = len(json.loads(store.get(wk) or b"[]"))
         log(f"bottomhd-restore: build '{v}': {n} blocks drawn" + ("  <- restoring this one" if v == version else ""))
     if version not in folders:
-        log(f"bottomhd-restore: unknown version '{version}' — use legacy, v3, v4 or v5"); return False
+        log(f"bottomhd-restore: unknown version '{version}' — use legacy, v3, v4, v5 or v6"); return False
     base, wk = folders[version]
     if not json.loads(store.get(wk) or b"[]"):
         log(f"bottomhd-restore: build '{version}' has nothing saved, so nothing was changed"); return False
     bbox = AREAS[area]
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M")
-    manifest = {"key": "bottomhd", "label": "HD bottom", "tiles": store.url(base) + "/{z}/{x}/{y}.png?v=" + stamp,
-                "minzoom": TOP_Z, "maxzoom": MAX_Z, "areas": {area: list(bbox)}, "complete": True,
+    top_z, max_z = AREA_ZOOMS.get(area, (TOP_Z, MAX_Z))
+    mkey, ckey = manifest_name(area)
+    manifest = {"key": ckey, "label": "HD bottom", "tiles": store.url(base) + "/{z}/{x}/{y}.png?v=" + stamp,
+                "minzoom": top_z, "maxzoom": max_z, "areas": {area: list(bbox)}, "complete": True,
                 "built_at": datetime.now(timezone.utc).isoformat(), "style": version, "restored": True,
                 "source": "NOAA BlueTopo (Office of Coast Survey)", "note": "Seafloor detail from NOAA surveys. For fishing, not navigation."}
-    store.put("manifests/bottomhd.json", json.dumps(manifest).encode(), "application/json")
+    store.put(mkey, json.dumps(manifest).encode(), "application/json")
     log(f"bottomhd-restore: the app now shows the '{version}' HD bottom (phones pick it up within a few minutes)")
     return True
 
@@ -465,7 +601,20 @@ PREVIEW_SPOTS = [
     ("Palos Verdes · Point Vicente", 33.7410, -118.4130),
     ("Catalina · Ship Rock / Isthmus", 33.4630, -118.4920),
     ("Catalina · Avalon", 33.3480, -118.3220),
+    ("San Pedro Channel · deep slope", 33.6300, -118.3000),
+    ("Catalina · east-end drop-off", 33.3200, -118.2800),
 ]
+
+
+def draw_v5(dem_m, z, lat, res_m, pad):
+    """The Oct 29 (v5) drawing, for the preview's "NOW" column: no deep-water smoothing, no pinhole filling."""
+    from . import hdrender as H
+    keep = (H.DEEP_COLOR, H.DEEP_SHADE, H.DEEP_LINE, H.FILL_HOLES)
+    H.DEEP_COLOR = H.DEEP_SHADE = H.DEEP_LINE = 0.0; H.FILL_HOLES = False
+    try:
+        return draw(dem_m, z, lat, res_m, pad)
+    finally:
+        H.DEEP_COLOR, H.DEEP_SHADE, H.DEEP_LINE, H.FILL_HOLES = keep
 
 
 def preview_sheet(rows: list[dict], title: str) -> bytes:
@@ -520,15 +669,14 @@ def preview(store, area: str, http, log=print, out_path: str | None = None) -> s
         imgs = []
         for z, zoomed in ((14, False), (16, True)):
             x, y = lonlat_to_tile(lon, lat, z)
-            old_dem, _ = sv.square(z, x, y, size=SIZE, margin=0)
             dem, res = sv.square(z, x, y)
             from .hdrender import MARGIN
-            imgs.append((draw_v4(old_dem, z, lat), draw(dem, z, lat, res, MARGIN), res))
+            imgs.append((draw_v5(dem, z, lat, res, MARGIN), draw(dem, z, lat, res, MARGIN), res))
         cells = [v for v in np.unique(np.round(imgs[1][2][np.isfinite(imgs[1][2])])) if v > 0]
         rows.append({"name": name, "res": ", ".join(f"{int(c)} m" for c in cells) or "—",
                      "imgs": [imgs[0][0], imgs[0][1], imgs[1][0], imgs[1][1]]})
         log(f"bottomhd-preview: {name} drawn (survey cells {rows[-1]['res']})")
-    data = preview_sheet(rows, f"HD bottom — now vs new ({HD_VERSION}) · {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC · from NOAA BlueTopo")
+    data = preview_sheet(rows, f"HD bottom — now (v5) vs new ({HD_VERSION}) · {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC · from NOAA BlueTopo")
     k = f"previews/bottomhd-{HD_VERSION}-{datetime.now(timezone.utc):%Y%m%d%H%M}.png"
     store.put(k, data, "image/png")
     if out_path:
@@ -536,3 +684,23 @@ def preview(store, area: str, http, log=print, out_path: str | None = None) -> s
             fh.write(data)
     log(f"bottomhd-preview: picture saved → {store.url(k)}")
     return store.url(k)
+
+
+def overview_only(store, area: str, log=print) -> bool:
+    """Just (re)make the zoomed-out squares for the build the app shows now, and tell the app (no survey downloads)."""
+    mkey, _ = manifest_name(area)
+    raw = store.get(mkey)
+    if not raw:
+        log(f"bottomhd-overview: no HD bottom for '{area}' yet"); return False
+    m = json.loads(raw)
+    top_z, _ = AREA_ZOOMS.get(area, (TOP_Z, MAX_Z))
+    tiles = m["tiles"].split("?")[0]
+    base = tiles[len(store.url("")):].rsplit("/{z}", 1)[0] if tiles.startswith(store.url("")) else None
+    if not base:
+        log("bottomhd-overview: can't tell where the squares are kept"); return False
+    overview(store, base, AREAS[area], top_z, log=log)
+    m["minzoom"] = min(top_z, OVERVIEW_Z)
+    m["tiles"] = tiles + "?v=" + datetime.now(timezone.utc).strftime("%Y%m%d%H%M")
+    store.put(mkey, json.dumps(m).encode(), "application/json")
+    log(f"bottomhd-overview: done — the app shows '{area}' HD bottom from zoom {m['minzoom']}")
+    return True

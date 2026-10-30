@@ -10,8 +10,10 @@ export type AppConfig = { ads_enabled: boolean; intro_enabled: boolean; maintena
   /** Admin → Settings: true = spotter planes (circling highlights + spotter alerts) need Pro. False = free for everyone. */
   spotter_premium: boolean;
   /** Admin → San Clemente: which San Clemente Island sections the Navy has closed (see sci.ts). */
-  sci_closures: any };
-const DEFAULTS: AppConfig = { ads_enabled: true, intro_enabled: true, maintenance_message: null, min_app_version: '0.0.0', analytics_enabled: true, features_off: [], spotter_premium: false, sci_closures: null };
+  sci_closures: any;
+  /** Map Studio → Send to app (Oct 30): { style: { water, land, dlw, daw, … } } — chart look for every phone. */
+  map_style: any };
+const DEFAULTS: AppConfig = { ads_enabled: true, intro_enabled: true, maintenance_message: null, min_app_version: '0.0.0', analytics_enabled: true, features_off: [], spotter_premium: false, sci_closures: null, map_style: null };
 const listeners = new Set<(c: AppConfig) => void>();
 /** Runs whenever new settings arrive (start-up and when the app comes back to the foreground). */
 export function onConfig(fn: (c: AppConfig) => void) { listeners.add(fn); return () => { listeners.delete(fn); }; }
@@ -47,3 +49,13 @@ export function needsUpdate(cfg: AppConfig): boolean {
 
 /** The settings as they are right now (saved copy until the server answers). */
 export const currentConfig = () => current;
+
+/** The chart look sent from Map Studio (only the parts the app uses, checked). */
+export type MapLook = { water?: string; land?: string; dlw?: number; daw?: number };
+export function mapLook(c: AppConfig = current): MapLook {
+  const st = c.map_style?.style ?? c.map_style;
+  if (!st || typeof st !== 'object') return {};
+  const hex = (v: any) => (typeof v === 'string' && /^#[0-9A-Fa-f]{6}$/.test(v) ? v.toUpperCase() : undefined);
+  const num = (v: any) => (typeof v === 'number' && isFinite(v) && v >= 0 && v < 1e7 ? Math.round(v) : undefined);
+  return { water: hex(st.water), land: hex(st.land), dlw: num(st.dlw), daw: num(st.daw) };
+}

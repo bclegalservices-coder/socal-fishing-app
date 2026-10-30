@@ -63,11 +63,12 @@ def is_water(lat: float, lon: float, depth_lookup=None) -> bool:
                 return math.isfinite(v)
         except Exception:
             pass
-    if lon > BBOX[2] or (lat > 34.45 and lon > -120.6):             # inland / north of the Santa Barbara coast
+    # outside the seafloor model: Oct 30 — use the real mainland coastline (it used to be a rough guess, which let
+    # planes over Avila / San Luis Obispo count as "over the water")
+    if lon > BBOX[2]:
         return False
-    if lat < 32.55 and lon > -117.12 + (32.53 - lat) * 0.75:         # Baja California coast
-        return False
-    return True
+    from .coast import on_mainland
+    return not on_mainland(lat, lon)
 
 
 def kind_of(a: dict, alt: float | None) -> str:

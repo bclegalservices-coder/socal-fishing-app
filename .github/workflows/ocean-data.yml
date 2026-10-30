@@ -11,8 +11,12 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "sst, chl, bathy, wind, rules, harbors, navmask / navmask-rebuild (auto-route water map), bottomhd (HD bottom), bottomhd-preview (picture of old vs new HD bottom, changes nothing), bottomhd-restore (go back to the HD bottom from before the smooth-line builds; -v3 / -v4 / -v5 for those), crm (sharper seafloor + contour detail), all, verify or discover"
+        description: "sst, chl, bathy, wind, rules, harbors, navmask / navmask-rebuild (auto-route water map), bottomhd (HD bottom, pilot area), bottomhd-socal (HD bottom for ALL of SoCal — keeps going by itself until done), bottomhd-overview (HD bottom shows when zoomed out — fast), bottomhd-preview (picture of old vs new HD bottom, changes nothing), bottomhd-restore (go back to the HD bottom from before the smooth-line builds; -v3 / -v4 / -v5 for those), crm (sharper seafloor + contour detail), all, verify or discover"
         default: "all"
+
+permissions:
+  contents: read
+  actions: write          # lets a long HD bottom build start its own next run
 
 jobs:
   run:
@@ -61,3 +65,10 @@ jobs:
           name: bottomhd-preview
           path: api/bottomhd-preview.png
           if-no-files-found: warn
+      - name: Keep a long HD bottom build going (starts the next run by itself)
+        if: ${{ success() && hashFiles('api/bottomhd-continue.txt') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "HD bottom isn't finished yet — starting the next run."
+          gh workflow run ocean-data.yml --ref "${{ github.ref_name }}" -f job="${{ github.event.inputs.job }}"

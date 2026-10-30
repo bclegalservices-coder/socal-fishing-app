@@ -1,3 +1,4 @@
+import { mainlandGeoJSON } from '../map/land';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Alert, AppState, Pressable, StyleSheet, Text, Vibration, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -79,7 +80,7 @@ import { fetchAutoRoute, getSafetyFt, setSafetyFt, type AutoRoute } from '../aut
 import { RoutePreview } from '../components/RoutePreview';
 import { WindCard } from '../components/WindCard';
 import { reportError } from '../errors';
-import { config, onConfig } from '../appConfig';
+import { config, mapLook, onConfig, type MapLook } from '../appConfig';
 
 const ARRIVE_NM = 0.1;
 const LAYERS_KEY = 'layers:v3'; // v3: everyone starts once on the new clean chart (Oct 21)
@@ -95,15 +96,22 @@ LogManager.onLog((e) => {
 // The NOAA chart is the bottom layer of the map style itself, so everything else (water temp, breaks, spots, MPAs)
 // always draws on top of it. Changing chart details or night mode rebuilds the style; the map then re-adds the
 // other layers in their normal order. (Oct 20: "slot" placeholder layers + beforeId crashed MapLibre on iOS.)
-function buildMapStyle(chartUrl: string, depthUrl: string | null) {
+// Map Studio (Oct 30): the light themes take the water / land colors sent from the Studio; dark themes keep their own.
+const lightWater = () => colors.water === '#AADAFF';
+const landColor = (look: MapLook) => (lightWater() ? look.land ?? '#F2EEE3' : colors.inset);
+const waterColor = (look: MapLook) => (lightWater() ? look.water ?? colors.water : colors.water);
+function buildMapStyle(chartUrl: string, depthUrl: string | null, look: MapLook = {}) {
   return {
     version: 8,
     sources: {
       noaa: { type: 'raster', tiles: [chartUrl], tileSize: CHART_TILE_SIZE, minzoom: NOAA_CHART_MINZOOM, maxzoom: NOAA_CHART_MAXZOOM, attribution: CHART_ATTRIBUTION },
+      land: { type: 'geojson', data: mainlandGeoJSON() },
       ...(depthUrl ? { noaaDepths: { type: 'raster', tiles: [depthUrl], tileSize: CHART_TILE_SIZE, minzoom: NOAA_CHART_MINZOOM, maxzoom: NOAA_CHART_MAXZOOM } } : {}),
     },
     layers: [
-      { id: 'water', type: 'background', paint: { 'background-color': colors.water } },
+      { id: 'water', type: 'background', paint: { 'background-color': waterColor(look) } },
+      // Oct 30: land under the chart, so Mexico (no NOAA chart there) isn't painted as water
+      { id: 'land-fill', type: 'fill', source: 'land', paint: { 'fill-color': landColor(look), 'fill-antialias': true } },
       // Oct 29 v2: the baby-blue "water" background shows through the chart (its water fill is left out), and NOAA's
       // depth numbers + lines are drawn on top of it
       ...(depthUrl ? [{ id: 'noaa-depths', type: 'raster', source: 'noaaDepths', paint: { 'raster-fade-duration': 100 } }] : []),
@@ -176,8 +184,11 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   useEffect(() => onConfig((c) => setKilled(c.features_off ?? [])), []);
   useEffect(() => { setLayers((p) => applyKillSwitch(p, killed)); }, [killed.join(','), layers.on, layers.overlay]);
   const chartUrl = useMemo(() => noaaChartTiles({ ...DEFAULT_LAYERS.chart, ...layers.chart }, theme.mode === 'night', killed.includes('chart_helper')), [layers.chart, theme.mode, killed.join(',')]);
-  const depthUrl = useMemo(() => noaaDepthTiles({ ...DEFAULT_LAYERS.chart, ...layers.chart }, theme.mode === 'night', killed.includes('chart_helper')), [layers.chart, theme.mode, killed.join(',')]);
-  const mapStyle = useMemo(() => buildMapStyle(chartUrl, depthUrl), [chartUrl, depthUrl]);
+  const [look, setLook] = useState<MapLook>(mapLook());
+  useEffect(() => onConfig((c) => setLook(mapLook(c))), []);
+  const lookKey = JSON.stringify(look);
+  const depthUrl = useMemo(() => noaaDepthTiles({ ...DEFAULT_LAYERS.chart, ...layers.chart }, theme.mode === 'night', killed.includes('chart_helper'), look), [layers.chart, theme.mode, killed.join(','), lookKey]);
+  const mapStyle = useMemo(() => buildMapStyle(chartUrl, depthUrl, look), [chartUrl, depthUrl, colors.water, lookKey]);
   // 3D view (Map options): tip the camera back; flat again when switched off.
   useEffect(() => { camera.current?.setStop({ pitch: layers.tilt ? 55 : 0, duration: 600 }).catch(() => {}); }, [layers.tilt]);
   const [compareOffset, setCompareOffset] = useState<number | null>(null);
@@ -278,7 +289,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         AsyncStorage.getItem(LAYERS_KEY).then((l) => reportError(new Error('App closed during the first 30 s last launch (likely a native crash)'),
           `startup · layers ${l ? Object.entries(JSON.parse(l).on ?? {}).filter(([, v]) => v).map(([k]) => k).join(',') : '?'}`, true)).catch(() => {});
       }
-      try { const l = safeStart ? null : await AsyncStorage.getItem(LAYERS_KEY); if (l) { const p = JSON.parse(l); if (p.opacity?.chl === 0.75) p.opacity.chl = 0.9; /* Oct 24: old default was too see-through */ setLayers({ ...DEFAULT_LAYERS, ...p, on: { ...DEFAULT_LAYERS.on, ...p.on }, opacity: { ...DEFAULT_LAYERS.opacity, ...p.opacity }, chart: { ...DEFAULT_LAYERS.chart, ...p.chart } }); } } catch {}
+      try { const l = safeStart ? null : await AsyncStorage.getItem(LAYERS_KEY); if (l) { const p = JSON.parse(l); if (p.opacity?.chl === 0.75) p.opacity.chl = 0.9; /* Oct 24: old default was too see-through */ if (!p.oct30b) { p.oct30b = true; p.chart = { ...(p.chart ?? {}), noaaDepths: true }; if (p.oct30) p.on = { ...(p.on ?? {}), contours: false }; } /* Oct 30 v2: NOAA depth lines & numbers back on (now complete when zoomed out); undo fix-102's contours switch */ setLayers({ ...DEFAULT_LAYERS, ...p, on: { ...DEFAULT_LAYERS.on, ...p.on }, opacity: { ...DEFAULT_LAYERS.opacity, ...p.opacity }, chart: { ...DEFAULT_LAYERS.chart, ...p.chart } }); } } catch {}
       loadCoordFormat();
       const cachedSpots = await store.loadPublicSpots();
       if (cachedSpots) setPublicSpots(cachedSpots);

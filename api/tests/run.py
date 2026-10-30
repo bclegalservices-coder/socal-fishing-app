@@ -19,7 +19,7 @@ except ImportError:
 
 failed = 0
 total = 0
-for mod_name in ("tests.test_ocean", "tests.test_conditions", "tests.test_rules", "tests.test_features", "tests.test_analytics", "tests.test_seas", "tests.test_billing", "tests.test_harbors", "tests.test_support", "tests.test_navroute", "tests.test_bottomhd", "tests.test_crm", "tests.test_air", "tests.test_air_history", "tests.test_sci"):
+for mod_name in ("tests.test_ocean", "tests.test_conditions", "tests.test_rules", "tests.test_features", "tests.test_analytics", "tests.test_seas", "tests.test_billing", "tests.test_harbors", "tests.test_support", "tests.test_navroute", "tests.test_bottomhd", "tests.test_crm", "tests.test_air", "tests.test_air_history", "tests.test_sci", "tests.test_studio"):
     mod = importlib.import_module(mod_name)
     for name in sorted(n for n in dir(mod) if n.startswith("test_")):
         total += 1

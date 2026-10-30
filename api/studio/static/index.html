@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Channel Nav Map Studio</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+  :root { --bg:#0E1A28; --panel:#132235; --panel2:#1A2D44; --line:#26405E; --text:#EAF2FA; --muted:#93A9BF; --pink:#FF20D6; --blue:#3DA5FF; --good:#38D39F; --bad:#FF6B6B; --warn:#FFC24B; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  #app { display:flex; height:100vh; }
+  #mapwrap { position:relative; flex:1; min-width:0; }
+  #map { position:absolute; inset:0; }
+  #side { width:430px; max-width:46vw; display:flex; flex-direction:column; background:var(--panel); border-left:1px solid var(--line); }
+  header { padding:12px 14px 8px; border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:16px; letter-spacing:.3px; } header h1 span { color:var(--pink); }
+  .tabs { display:flex; gap:4px; flex-wrap:wrap; margin-top:8px; }
+  .tabs button { flex:1; min-width:64px; }
+  button { background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:9px; padding:7px 10px; font:600 13px inherit; cursor:pointer; }
+  button:hover { border-color:var(--blue); } button.on { background:var(--pink); border-color:var(--pink); color:#fff; }
+  button.primary { background:var(--blue); border-color:var(--blue); color:#fff; } button:disabled { opacity:.5; cursor:default; }
+  .pane { flex:1; overflow:auto; padding:12px 14px 20px; display:none; } .pane.show { display:block; }
+  #claudePane.show { display:flex; flex-direction:column; padding:0; }
+  .muted { color:var(--muted); } .small { font-size:12px; } .good { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  h3 { margin:14px 0 6px; font-size:13px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); }
+  .row { margin:10px 0 14px; } .row label { display:flex; justify-content:space-between; font-weight:600; }
+  .row .help { font-size:12px; color:var(--muted); margin-top:2px; }
+  input[type=range] { width:100%; accent-color:var(--pink); }
+  input[type=text], input[type=password], input[type=number], select, textarea { width:100%; background:#0B1522; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:7px 9px; font:inherit; }
+  .colors { display:grid; grid-template-columns:repeat(5, 1fr); gap:6px; }
+  .colors div { text-align:center; font-size:11px; color:var(--muted); } .colors input { width:100%; height:30px; border:none; background:none; padding:0; }
+  .btns { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
+  .card { background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin:10px 0; }
+  /* top bar over the map */
+  #bar { position:absolute; top:10px; left:10px; right:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; z-index:5; pointer-events:none; }
+  #bar > * { pointer-events:auto; }
+  .seg { display:flex; background:rgba(14,26,40,.92); border:1px solid var(--line); border-radius:11px; overflow:hidden; }
+  .seg button { border:none; border-radius:0; background:transparent; } .seg button.on { background:var(--pink); }
+  .chip { background:rgba(14,26,40,.92); border:1px solid var(--line); border-radius:11px; padding:7px 10px; font-weight:600; font-size:13px; }
+  #shot { position:absolute; inset:60px 20px 20px; z-index:20; background:rgba(0,0,0,.85); display:none; align-items:center; justify-content:center; border-radius:14px; }
+  #shot img { max-width:96%; max-height:90%; border-radius:8px; } #shot button { position:absolute; top:10px; right:10px; }
+  /* Claude */
+  #msgs { flex:1; overflow:auto; padding:12px 14px; }
+  .msg { margin:0 0 10px; padding:9px 11px; border-radius:12px; white-space:pre-wrap; word-wrap:break-word; }
+  .msg.me { background:#24456B; margin-left:40px; } .msg.claude { background:var(--panel2); margin-right:20px; }
+  .msg.tool { background:transparent; color:var(--muted); font-size:12px; padding:2px 11px; }
+  .msg.err { background:#4A1D24; } .msg img { width:100%; border-radius:8px; margin-top:6px; cursor:zoom-in; }
+  #compose { border-top:1px solid var(--line); padding:10px 12px; }
+  #compose textarea { height:74px; resize:vertical; }
+  #compose .line { display:flex; gap:8px; align-items:center; margin-top:6px; }
+  #compose .line label { font-size:12px; color:var(--muted); display:flex; gap:5px; align-items:center; }
+  .spot { display:flex; justify-content:space-between; align-items:center; gap:6px; padding:7px 0; border-bottom:1px solid var(--line); }
+  .spot b { display:block; } .spot .small { color:var(--muted); }
+  code { background:#0B1522; padding:1px 5px; border-radius:5px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="mapwrap">
+    <div id="map"></div>
+    <div id="bar">
+      <div class="seg" title="A = what the app shows now · B = your changes (press the A key / B key)">
+        <button id="abA">A · app now</button><button id="abB" class="on">B · my changes</button>
+      </div>
+      <div class="seg"><button id="lyHd" class="on">HD bottom</button><button id="lyChart" class="on">Chart</button></div>
+      <div class="chip" id="zoomChip">zoom –</div>
+      <div class="chip warn" id="dlChip" style="display:none">Downloading NOAA surveys…</div>
+    </div>
+    <div id="shot"><img alt=""><button onclick="this.parentNode.style.display='none'">Close</button></div>
+  </div>
+  <div id="side">
+    <header>
+      <h1>Channel Nav <span>Map Studio</span></h1>
+      <div class="tabs">
+        <button data-tab="claude" class="on">Claude</button><button data-tab="hd">HD bottom</button><button data-tab="chart">Chart</button>
+        <button data-tab="spots">Test spots</button><button data-tab="send">Send to app</button><button data-tab="setup">Setup</button>
+      </div>
+    </header>
+
+    <section class="pane show" id="claudePane">
+      <div id="msgs"><div class="msg claude">Hi! Tell me what you want the map to look like, or what looks wrong — I'll look at the map, change the settings, check it again, and show you. I only change <b>B</b> (your changes); the app doesn't change until you press <b>Send to app</b>.
+
+Try: "the deep water looks like crystals — fix it", "make the reefs off Palos Verdes pop more", "compare A and B at every test spot".</div></div>
+      <div id="compose">
+        <textarea id="prompt" placeholder="Ask Claude… (Enter to send, Shift+Enter for a new line)"></textarea>
+        <div class="line">
+          <label><input type="checkbox" id="withShot" checked> include what I see</label>
+          <select id="model" style="width:auto"><option value="opus">Claude Opus (best eye)</option><option value="sonnet">Claude Sonnet (faster, cheaper)</option></select>
+          <span style="flex:1"></span>
+          <button id="newChat" title="Start a fresh conversation">New</button>
+          <button id="sendBtn" class="primary">Send</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="pane" id="hdPane">
+      <p class="muted small">Live HD bottom from NOAA's real surveys (zoom 11–18). Changes apply to <b>B</b>. The first look at a new area downloads NOAA's survey files (can take a minute), then it's fast.</p>
+      <div class="btns"><button id="hdFromA">B = A (start from the app)</button><button id="hdBuiltin">Built-in look</button></div>
+      <div id="hdRows"></div>
+      <h3>Depth colors</h3>
+      <div class="colors" id="hdColors"></div>
+    </section>
+
+    <section class="pane" id="chartPane">
+      <p class="muted small">The NOAA chart under everything, same as the app. Changes apply to <b>B</b>.</p>
+      <div class="btns"><button id="chFromA">B = A (start from the app)</button><button id="chBuiltin">Built-in look</button></div>
+      <div id="chartRows"></div>
+    </section>
+
+    <section class="pane" id="spotsPane">
+      <p class="muted small">Places that must always look right. Check them all before you send a new look to the app.</p>
+      <div class="btns"><button id="addSpot">+ Save this view as a spot</button><button id="checkAll" class="primary">Check all spots (A vs B)</button></div>
+      <div id="spotList"></div>
+    </section>
+
+    <section class="pane" id="sendPane">
+      <div class="card">
+        <b>1. Connect (first time only)</b>
+        <p class="small muted">Same as the Admin page: Supabase URL, anon public key, and your admin email & password. Saved in this browser only.</p>
+        <input type="text" id="sbUrl" placeholder="https://xxxx.supabase.co"><div style="height:6px"></div>
+        <input type="text" id="sbKey" placeholder="anon public key"><div style="height:6px"></div>
+        <input type="text" id="sbEmail" placeholder="admin email"><div style="height:6px"></div>
+        <input type="password" id="sbPass" placeholder="password">
+        <div class="btns"><button id="sbConnect" class="primary">Connect</button></div>
+        <div id="sbStatus" class="small muted"></div>
+      </div>
+      <div class="card">
+        <b>2. Chart look → app</b>
+        <p class="small muted">Water color, Mexico land color and the zoomed-out depth-line switch points. Phones pick it up within ~10 minutes (or when the app is reopened).</p>
+        <button id="sendChart" class="primary" disabled>Send chart look (B) to the app</button>
+        <div id="sendChartMsg" class="small"></div>
+      </div>
+      <div class="card">
+        <b>3. HD bottom look → app</b>
+        <p class="small muted">Saves the look. The HD squares are then redrawn by GitHub: Actions → Ocean data → Run workflow → <code>bottomhd</code>, then <code>bottomhd-socal</code>. The app keeps the old HD bottom until each redraw is finished.</p>
+        <button id="sendHd" class="primary" disabled>Send HD bottom look (B) to the app</button>
+        <div id="sendHdMsg" class="small"></div>
+      </div>
+    </section>
+
+    <section class="pane" id="setupPane">
+      <div class="card">
+        <b>Claude API key</b>
+        <p class="small muted">Lets Claude work inside the Studio. Get one at console.anthropic.com → API Keys (pay per use). Kept only on this computer.</p>
+        <input type="password" id="apiKey" placeholder="sk-ant-…">
+        <div class="btns"><button id="saveKey" class="primary">Save key</button></div>
+        <div id="keyStatus" class="small"></div>
+      </div>
+      <div class="card">
+        <b>Notes for the developer</b>
+        <p class="small muted">Things Claude found that need new code (not just settings). The file is <code>api/studio/notes-for-developer.md</code> — send it to Claude in your main chat.</p>
+        <pre id="notes" class="small" style="white-space:pre-wrap"></pre>
+      </div>
+      <div class="card small muted" id="statusCard"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const api = async (path, body) => {
+  const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error((await r.text()).slice(0, 200));
+  return r.json();
+};
+let S = null;            // studio state from the server
+let map;
+
+// ---------------------------------------------------------------- settings shown as sliders
+const HD_ROWS = [
+  ['Smoothing', null],
+  ['CELLS', 'Color smoothing', 0.3, 2, 0.05, 'Higher = smoother colors. Lower = sharper but survey noise shows.'],
+  ['SHADE_CELLS', 'Light & shadow smoothing', 0.5, 3, 0.05, 'Higher = softer relief, fewer "orange peel" bumps.'],
+  ['LINE_CELLS', 'Contour line smoothing', 0.5, 3, 0.05, 'Higher = calmer, rounder depth lines.'],
+  ['Deep water', null],
+  ['DEEP_COLOR', 'Deep smoothing · colors', 0, 0.4, 0.01, 'Extra smoothing that grows with depth (melts NOAA\'s deep-water triangles).'],
+  ['DEEP_SHADE', 'Deep smoothing · light & shadow', 0, 0.6, 0.01, 'The main "crystal triangle" fix. 0 = off.'],
+  ['DEEP_LINE', 'Deep smoothing · lines', 0, 0.3, 0.01, 'Rounder lines in deep water.'],
+  ['DEEP_LIGHT', 'Shadow strength when deep', 0.1, 1, 0.01, '1 = as strong as in shallow water.'],
+  ['Relief', null],
+  ['ZF_NEAR', 'Height exaggeration · zoomed in (15+)', 1, 15, 0.1, 'How tall rocks and ledges look.'],
+  ['ZF_MID', 'Height exaggeration · zoom 13–14', 1, 15, 0.1, ''],
+  ['ZF_FAR', 'Height exaggeration · zoomed out', 1, 15, 0.1, ''],
+  ['LIGHT_ALT', 'Sun height (°)', 20, 70, 1, 'Lower = longer, more dramatic shadows.'],
+  ['SHADE_GAIN', 'Light & shadow strength', 0, 1.6, 0.01, ''],
+  ['SHADE_MIN', 'Darkest shadow', 0.2, 0.9, 0.01, ''],
+  ['SHADE_MAX', 'Brightest light', 1, 1.4, 0.01, ''],
+  ['Lines', null],
+  ['LINE_WIDTH', 'Line thickness', 0.3, 3, 0.05, ''],
+  ['LINE_ALPHA', 'Line strength', 0.2, 2, 0.05, ''],
+  ['LINES', 'Contour lines', 'bool'], ['LABELS', 'Depth numbers on lines', 'bool'], ['FILL_HOLES', 'Fill see-through pinholes', 'bool'],
+];
+const DEPTHS_FT = [0, 6, 15, 30, 60, 120, 250, 500, 1000, 3000];
+const CHART_ROWS = [
+  ['water', 'Water color', 'color'], ['land', 'Mexico land color', 'color'],
+  ['look', 'Chart detail', 'select', ['clean', 'standard', 'full']],
+  ['depths', 'NOAA depth lines & numbers', 'bool'], ['depthsFull', 'All depth numbers at every zoom (busy)', 'bool'],
+  ['dlw', 'Zoomed out: every chart draws its depth LINES when a map square is wider than (m)', 'number', 'Default 15000 ≈ zoom 11 and out. 0 = never.'],
+  ['daw', '…and lines + NUMBERS when wider than (m)', 'number', 'Default 7500 ≈ zoom 12. 0 = never.'],
+  ['lightCircles', 'Lighthouse color circles', 'bool'], ['simpleSymbols', 'Simple buoy symbols', 'bool'], ['night', 'Night colors', 'bool'],
+];
+
+let pending = {}, timer = null;
+function queue(kind, k, v) {
+  pending[kind] = { ...(pending[kind] || {}), [k]: v };
+  clearTimeout(timer);
+  timer = setTimeout(async () => {
+    const p = pending; pending = {};
+    if (p.hd) S = await api('/api/hd', { changes: p.hd });
+    if (p.chart) S = await api('/api/chart', { changes: p.chart });
+    applyState(false);
+  }, 250);
+}
+
+function buildHd() {
+  const st = S.hdB, A = S.hdA;
+  $('#hdRows').innerHTML = HD_ROWS.map(([k, label, min, max, step, help]) => {
+    if (label === null) return `<h3>${esc(k)}</h3>`;
+    const diff = JSON.stringify(st[k]) !== JSON.stringify(A[k]) ? ` <span class="small" style="color:var(--pink)">(A: ${esc(A[k])})</span>` : '';
+    if (min === 'bool') return `<div class="row"><label><span>${esc(label)}${diff}</span><input type="checkbox" data-hd="${k}" ${st[k] ? 'checked' : ''}></label></div>`;
+    return `<div class="row"><label><span>${esc(label)}${diff}</span><span id="v_${k}">${st[k]}</span></label>
+      <input type="range" data-hd="${k}" min="${min}" max="${max}" step="${step}" value="${st[k]}">${help ? `<div class="help">${esc(help)}</div>` : ''}</div>`;
+  }).join('');
+  $('#hdColors').innerHTML = st.COLORS.map((c, i) => `<div><input type="color" data-col="${i}" value="${c.toLowerCase()}">${DEPTHS_FT[i]} ft</div>`).join('');
+  document.querySelectorAll('[data-hd]').forEach((el) => {
+    el.oninput = () => {
+      const k = el.dataset.hd; const v = el.type === 'checkbox' ? el.checked : Number(el.value);
+      if ($('#v_' + k)) $('#v_' + k).textContent = v;
+      queue('hd', k, v);
+    };
+  });
+  document.querySelectorAll('[data-col]').forEach((el) => {
+    el.oninput = () => { const cols = [...S.hdB.COLORS]; cols[Number(el.dataset.col)] = el.value.toUpperCase(); S.hdB.COLORS = cols; queue('hd', 'COLORS', cols); };
+  });
+}
+
+function buildChart() {
+  const c = S.chartB, A = S.chartA;
+  $('#chartRows').innerHTML = CHART_ROWS.map(([k, label, kind, extra]) => {
+    const diff = JSON.stringify(c[k]) !== JSON.stringify(A[k]) ? ` <span class="small" style="color:var(--pink)">(A: ${esc(A[k])})</span>` : '';
+    if (kind === 'bool') return `<div class="row"><label><span>${esc(label)}${diff}</span><input type="checkbox" data-ch="${k}" ${c[k] ? 'checked' : ''}></label></div>`;
+    if (kind === 'color') return `<div class="row"><label><span>${esc(label)}${diff}</span><input type="color" data-ch="${k}" value="${c[k].toLowerCase()}" style="width:60px;height:28px;border:none;background:none"></label></div>`;
+    if (kind === 'select') return `<div class="row"><label><span>${esc(label)}${diff}</span></label><select data-ch="${k}">${extra.map((o) => `<option ${o === c[k] ? 'selected' : ''}>${o}</option>`).join('')}</select></div>`;
+    return `<div class="row"><label><span>${esc(label)}${diff}</span></label><input type="number" data-ch="${k}" value="${c[k]}" step="500" min="0"><div class="help">${esc(extra || '')}</div></div>`;
+  }).join('');
+  document.querySelectorAll('[data-ch]').forEach((el) => {
+    el.onchange = el.oninput = () => {
+      const k = el.dataset.ch;
+      const v = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.type === 'color' ? el.value.toUpperCase() : el.value;
+      queue('chart', k, v);
+    };
+  });
+}
+
+// ---------------------------------------------------------------- the map
+const bboxT = (t) => t.replace('{bbox}', '{bbox-epsg-3857}');
+function hdUrl() { return `${location.origin}/hd/${S.ab === 'A' ? S.sidA : S.sidB}/{z}/{x}/{y}.png`; }
+function chartFor() { return S.ab === 'A' ? { c: S.chartA, u: S.urlsA } : { c: S.chartB, u: S.urlsB }; }
+
+function makeMap() {
+  const v = S.view;
+  const { c, u } = chartFor();
+  map = new maplibregl.Map({
+    container: 'map', center: [v.lon, v.lat], zoom: v.zoom, maxZoom: 18.5, minZoom: 5, attributionControl: false,
+    canvasContextAttributes: { preserveDrawingBuffer: true }, preserveDrawingBuffer: true,
+    style: {
+      version: 8,
+      sources: {
+        land: { type: 'geojson', data: '/api/land' },
+        depth: { type: 'raster', tiles: [bboxT(u[1] || u[0])], tileSize: 512 },
+        chart: { type: 'raster', tiles: [bboxT(u[0])], tileSize: 512 },
+        hd: { type: 'raster', tiles: [hdUrl()], tileSize: 256, minzoom: 11, maxzoom: 18 },
+      },
+      layers: [
+        { id: 'water', type: 'background', paint: { 'background-color': c.water } },
+        { id: 'land', type: 'fill', source: 'land', paint: { 'fill-color': c.land } },
+        { id: 'depth', type: 'raster', source: 'depth', layout: { visibility: u[1] ? 'visible' : 'none' }, paint: { 'raster-fade-duration': 0 } },
+        { id: 'chart', type: 'raster', source: 'chart', paint: { 'raster-fade-duration': 0 } },
+        { id: 'hd', type: 'raster', source: 'hd', paint: { 'raster-fade-duration': 0, 'raster-opacity': 0.95 } },
+      ],
+    },
+  });
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'bottom-left');
+  map.addControl(new maplibregl.ScaleControl({ unit: 'nautical' }), 'bottom-left');
+  const sendView = () => {
+    const c2 = map.getCenter(); $('#zoomChip').textContent = `zoom ${map.getZoom().toFixed(1)}${map.getZoom() < 11 ? ' · zoom in to 11+ for live HD' : ''}`;
+    api('/api/view', { lat: c2.lat, lon: c2.lng, zoom: map.getZoom() }).catch(() => {});
+  };
+  map.on('moveend', sendView); map.on('load', sendView);
+}
+
+let lastUrls = {};
+function applyState(rebuild = true) {
+  if (!map) return;
+  const { c, u } = chartFor();
+  const set = (id, url) => { if (lastUrls[id] !== url) { lastUrls[id] = url; map.getSource(id)?.setTiles([url]); } };
+  const go = () => {
+    map.setPaintProperty('water', 'background-color', c.water);
+    map.setPaintProperty('land', 'fill-color', c.land);
+    set('chart', bboxT(u[0]));
+    if (u[1]) set('depth', bboxT(u[1]));
+    set('hd', hdUrl());
+    map.setLayoutProperty('depth', 'visibility', u[1] && S.show.chart ? 'visible' : 'none');
+    map.setLayoutProperty('chart', 'visibility', S.show.chart ? 'visible' : 'none');
+    map.setLayoutProperty('hd', 'visibility', S.show.hd ? 'visible' : 'none');
+  };
+  map.isStyleLoaded() ? go() : map.once('load', go);
+  $('#abA').classList.toggle('on', S.ab === 'A'); $('#abB').classList.toggle('on', S.ab === 'B');
+  $('#lyHd').classList.toggle('on', S.show.hd); $('#lyChart').classList.toggle('on', S.show.chart);
+  if (rebuild) { buildHd(); buildChart(); }
+}
+
+function moveTo(v) { if (map) map.jumpTo({ center: [v.lon, v.lat], zoom: v.zoom }); }
+
+async function setAB(ab) { S.ab = ab; applyState(false); api('/api/view', { ab }).catch(() => {}); }
+$('#abA').onclick = () => setAB('A'); $('#abB').onclick = () => setAB('B');
+document.addEventListener('keydown', (e) => { if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return; if (e.key === 'a') setAB('A'); if (e.key === 'b') setAB('B'); });
+$('#lyHd').onclick = () => { S.show.hd = !S.show.hd; applyState(false); api('/api/view', { show: { hd: S.show.hd } }); };
+$('#lyChart').onclick = () => { S.show.chart = !S.show.chart; applyState(false); api('/api/view', { show: { chart: S.show.chart } }); };
+
+// ---------------------------------------------------------------- tabs
+document.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => {
+  document.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('show', p.id === b.dataset.tab + 'Pane'));
+  if (b.dataset.tab === 'spots') loadSpots();
+  if (b.dataset.tab === 'setup') loadSetup();
+}));
+$('#hdFromA').onclick = async () => { S = await api('/api/hd/reset', { to: 'A' }); applyState(); };
+$('#hdBuiltin').onclick = async () => { S = await api('/api/hd/reset', { to: 'builtin' }); applyState(); };
+$('#chFromA').onclick = async () => { S = await api('/api/chart/reset', { to: 'A' }); applyState(); };
+$('#chBuiltin').onclick = async () => { S = await api('/api/chart/reset', { to: 'builtin' }); applyState(); };
+
+// ---------------------------------------------------------------- spots
+let SPOTS = [];
+async function loadSpots() {
+  SPOTS = await api('/api/spots');
+  $('#spotList').innerHTML = SPOTS.map((s, i) => `<div class="spot"><div><b>${esc(s.name)}</b><span class="small">zoom ${s.zoom}${s.note ? ' · ' + esc(s.note) : ''}</span></div>
+    <div class="btns" style="margin:0"><button data-go="${i}">Go</button><button data-del="${i}" title="Delete">✕</button></div></div>`).join('');
+  document.querySelectorAll('[data-go]').forEach((b) => (b.onclick = () => moveTo(SPOTS[Number(b.dataset.go)])));
+  document.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => {
+    if (!confirm(`Delete "${SPOTS[Number(b.dataset.del)].name}"?`)) return;
+    SPOTS.splice(Number(b.dataset.del), 1); await api('/api/spots', SPOTS); loadSpots();
+  }));
+}
+$('#addSpot').onclick = async () => {
+  const name = prompt('Name for this spot (e.g. "Horseshoe Kelp · ledge")'); if (!name) return;
+  const note = prompt('What should look right here? (optional)') || '';
+  const c = map.getCenter();
+  SPOTS.push({ name, lat: +c.lat.toFixed(5), lon: +c.lng.toFixed(5), zoom: +map.getZoom().toFixed(1), note });
+  await api('/api/spots', SPOTS); loadSpots();
+};
+function showImage(src) { $('#shot img').src = src; $('#shot').style.display = 'flex'; }
+$('#checkAll').onclick = async () => {
+  const b = $('#checkAll'); b.disabled = true; b.textContent = 'Drawing every spot… (can take a few minutes the first time)';
+  try { const r = await fetch('/api/check.png'); showImage(URL.createObjectURL(await r.blob())); }
+  finally { b.disabled = false; b.textContent = 'Check all spots (A vs B)'; }
+};
+
+// ---------------------------------------------------------------- Claude
+const msgs = $('#msgs');
+function addMsg(cls, html) { const d = document.createElement('div'); d.className = 'msg ' + cls; d.innerHTML = html; msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight; return d; }
+const TOOL_WORDS = { snapshot: 'Looking at the map', set_hd_style: 'Changing HD bottom settings', reset_hd_style: 'Resetting HD bottom', set_chart_look: 'Changing chart settings',
+  set_view: 'Moving the map', go_to_spot: 'Going to a test spot', set_layers: 'Switching layers', check_spots: 'Checking all test spots (slow)', add_spot: 'Saving a test spot',
+  note_for_developer: 'Saving a note for the developer', get_state: 'Reading the settings', list_spots: 'Reading the test spots' };
+let busy = false;
+async function send() {
+  const text = $('#prompt').value.trim(); if (!text || busy) return;
+  busy = true; $('#sendBtn').disabled = true; $('#prompt').value = '';
+  addMsg('me', esc(text));
+  let shot = null;
+  if ($('#withShot').checked && map) { try { shot = map.getCanvas().toDataURL('image/png'); } catch (e) { shot = null; } }
+  const thinking = addMsg('tool', 'Claude is thinking…');
+  try {
+    const r = await fetch('/api/claude/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, model: $('#model').value, screenshot: shot }) });
+    const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1); if (!line.trim()) continue;
+        const ev = JSON.parse(line);
+        if (ev.type === 'text') addMsg('claude', esc(ev.text).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>'));
+        else if (ev.type === 'tool') addMsg('tool', '• ' + esc(TOOL_WORDS[ev.name] || ev.name) + (ev.name.startsWith('set_') ? ' <span class="small">' + esc(JSON.stringify(ev.input.changes || ev.input)) + '</span>' : ''));
+        else if (ev.type === 'image') { const d = addMsg('tool', esc(ev.label)); const im = new Image(); im.src = 'data:image/png;base64,' + ev.png; im.onclick = () => showImage(im.src); d.appendChild(im); }
+        else if (ev.type === 'state') { const v0 = S.view; S = ev.state; if (S.view.lat !== v0.lat || S.view.lon !== v0.lon || S.view.zoom !== v0.zoom) moveTo(S.view); applyState(); }
+        else if (ev.type === 'error') addMsg('err', esc(ev.text));
+      }
+    }
+  } catch (e) { addMsg('err', 'Lost the connection to the Studio: ' + esc(e.message)); }
+  thinking.remove(); busy = false; $('#sendBtn').disabled = false;
+}
+$('#sendBtn').onclick = send;
+$('#prompt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+$('#newChat').onclick = async () => { await api('/api/claude/reset', {}); msgs.innerHTML = ''; addMsg('claude', 'Fresh start. What should we work on?'); };
+
+// ---------------------------------------------------------------- setup
+async function loadSetup() {
+  const k = await api('/api/claude');
+  $('#keyStatus').innerHTML = k.has_key ? '<span class="good">Key saved — Claude is ready.</span>' : '<span class="warn">No key yet.</span>';
+  $('#notes').textContent = (await api('/api/notes')).text || '(none yet)';
+  $('#statusCard').innerHTML = `A last sent: HD ${esc(S.published_at?.hd_style || 'never')} · chart ${esc(S.published_at?.map_style || 'never')}${S.index_error ? `<br><span class="bad">NOAA survey index: ${esc(S.index_error)}</span>` : ''}`;
+}
+$('#saveKey').onclick = async () => {
+  try { await api('/api/claude/key', { key: $('#apiKey').value }); $('#apiKey').value = ''; loadSetup(); }
+  catch (e) { $('#keyStatus').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+};
+
+// ---------------------------------------------------------------- send to app (Supabase, admin login)
+let sb = null;
+function sbCfg() { try { return JSON.parse(localStorage.getItem('studio-sb') || 'null'); } catch { return null; } }
+async function sbConnect(cfg, email, pass) {
+  sb = supabase.createClient(cfg.url, cfg.key);
+  let { data } = await sb.auth.getSession();
+  if (!data.session && email) { const r = await sb.auth.signInWithPassword({ email, password: pass }); if (r.error) throw r.error; data = { session: r.data.session }; }
+  if (!data.session) throw new Error('Please sign in.');
+  const prof = (await sb.from('profiles').select('is_admin').eq('id', data.session.user.id).maybeSingle()).data;
+  if (!prof?.is_admin) throw new Error('This account is not an admin.');
+  $('#sbStatus').innerHTML = `<span class="good">Connected as ${esc(data.session.user.email)}</span>`;
+  $('#sendChart').disabled = $('#sendHd').disabled = false;
+}
+$('#sbConnect').onclick = async () => {
+  const cfg = { url: $('#sbUrl').value.trim() || sbCfg()?.url, key: $('#sbKey').value.trim() || sbCfg()?.key };
+  try { localStorage.setItem('studio-sb', JSON.stringify(cfg)); await sbConnect(cfg, $('#sbEmail').value.trim(), $('#sbPass').value); $('#sbPass').value = ''; }
+  catch (e) { $('#sbStatus').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+};
+async function sendKey(key, value, description, msgEl, what) {
+  const now = new Date().toISOString();
+  const { error } = await sb.from('app_config').upsert({ key, value: { ...value, sent_at: now }, description, updated_at: now });
+  if (error) { msgEl.innerHTML = `<span class="bad">${esc(error.message)}</span>`; return; }
+  S = await api('/api/published/mark', { what }); applyState();
+  msgEl.innerHTML = `<span class="good">Sent ${new Date().toLocaleTimeString()} — B is now A.</span>`;
+}
+$('#sendChart').onclick = () => { if (confirm('Send this chart look to every phone?')) sendKey('map_style', { style: S.chartB }, 'Map Studio: chart look (water, land, depth lines)', $('#sendChartMsg'), 'chart'); };
+$('#sendHd').onclick = () => { if (confirm('Save this HD bottom look for the app? (Then run bottomhd and bottomhd-socal in GitHub to redraw.)')) sendKey('hd_style', { style: S.hdB }, 'Map Studio: HD bottom look (used by the bottomhd builder)', $('#sendHdMsg'), 'hd'); };
+
+// ---------------------------------------------------------------- start
+(async () => {
+  S = await api('/api/state');
+  makeMap(); applyState();
+  setInterval(async () => { try { const s = await api('/api/state'); $('#dlChip').style.display = s.downloading ? '' : 'none'; } catch {} }, 4000);
+  const c = sbCfg(); if (c) { $('#sbUrl').value = c.url || ''; $('#sbKey').value = c.key || ''; sbConnect(c).catch(() => {}); }
+  loadSetup();
+})();
+</script>
+</body>
+</html>

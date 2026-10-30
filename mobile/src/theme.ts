@@ -107,7 +107,7 @@ NIGHT.wash = 'rgba(28,0,0,0.3)';
 const dark = (p: Partial<Palette>): Palette => ({ ...DAY, statusBar: 'light-content', shadow: '#000000', overlay: 'rgba(0,0,0,0.55)', ...p } as Palette);
 
 export const CHANNEL_NAV: Palette = { ...DAY,
-  bg: '#F3F7FB', water: '#D6E4EE', border: '#AEBFCF', line: '#D7E0E8', text: '#0A0F14', muted: '#44525E', faint: '#74828E',
+  bg: '#F3F7FB', water: '#AADAFF',   // Oct 30: baby-blue water (shows through the chart) border: '#AEBFCF', line: '#D7E0E8', text: '#0A0F14', muted: '#44525E', faint: '#74828E',
   accent: '#1A5FB4', live: '#16773F', ok: '#16773F', okBg: '#E2F3E8', infoBg: '#E4EEF9' };
 
 export const DEEP_OCEAN: Palette = dark({
@@ -116,7 +116,7 @@ export const DEEP_OCEAN: Palette = dark({
   alert: '#FF6B5E', alertBg: '#3A1714', ok: '#4ADE80', okBg: '#12352A', warn: '#F5B54A', warnBg: '#3A2A10', infoBg: '#173A5A', buddy: '#B794F6' });
 
 export const KELP: Palette = { ...DAY,
-  bg: '#F4EFE3', water: '#DDE5DA', panel: 'rgba(255,253,247,0.97)', panelSolid: '#FFFDF7', inset: '#F7F2E6', line: '#E3DAC6', border: '#C9BE9F',
+  bg: '#F4EFE3', water: '#AADAFF', panel: 'rgba(255,253,247,0.97)', panelSolid: '#FFFDF7', inset: '#F7F2E6', line: '#E3DAC6', border: '#C9BE9F',
   text: '#1F2A1C', muted: '#5E6B57', faint: '#86907E', accent: '#2F5D3A', live: '#3A7D44', ok: '#3A7D44', okBg: '#E5F0E2', infoBg: '#EAF0E6', shadow: '#1F2A1C' };
 
 export const SUNSET: Palette = dark({
@@ -125,7 +125,7 @@ export const SUNSET: Palette = dark({
   alert: '#FF6B5E', alertBg: '#3D1C19', ok: '#4ADE80', okBg: '#173322', warn: '#F5B54A', warnBg: '#3A2C12', infoBg: '#2C333D', buddy: '#C4A1FF' });
 
 export const HIGH_CONTRAST: Palette = { ...DAY,
-  bg: '#FFFFFF', water: '#E4EEF6', panel: '#FFFFFF', panelSolid: '#FFFFFF', inset: '#F2F2F2', line: '#000000', border: '#000000',
+  bg: '#FFFFFF', water: '#AADAFF', panel: '#FFFFFF', panelSolid: '#FFFFFF', inset: '#F2F2F2', line: '#000000', border: '#000000',
   text: '#000000', muted: '#1A1A1A', faint: '#3D3D3D', accent: '#0047AB', live: '#006B2D', alert: '#B00000', ok: '#006B2D', warn: '#7A4500' };
 
 export const AMBER: Palette = { ...NIGHT,
