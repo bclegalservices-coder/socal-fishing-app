@@ -1,6 +1,6 @@
 // Which layers are on, how see-through they are, and one-tap presets.
 export type LayerKey = 'bathy' | 'bathyHd' | 'contours' | 'sst' | 'breaks' | 'chl' | 'chlEdges' | 'radar' | 'wind' | 'buoys' | 'catches' | 'buddies' | 'rules' | 'hazards'
-  | 'spots' | 'mySpots' | 'air' | 'marinas' | 'docks' | 'fuel' | 'pumpout' | 'ramps' | 'bait' | 'sci';
+  | 'spots' | 'mySpots' | 'air' | 'marinas' | 'docks' | 'fuel' | 'pumpout' | 'ramps' | 'bait' | 'sci' | 'spotHist';
 export type MapOverlay = 'none' | 'relief' | 'satellite';
 /** How busy the NOAA chart is. clean: coastline, depth shading and main depth lines only.
  *  standard: + buoys, lights, lanes, restricted areas, wrecks. full: everything, incl. every depth number and contour,
@@ -28,7 +28,7 @@ export const CHART_LOOKS: Record<ChartLook, Omit<LayerState['chart'], 'look' | '
  *  and your crew's boats are on; everything else is one tap away in Map options. */
 export const DEFAULT_LAYERS: LayerState = {
   on: { bathy: false, bathyHd: false, contours: false, sst: false, breaks: false, chl: false, chlEdges: false, radar: false, wind: false, buoys: false, catches: false, buddies: true, rules: true, hazards: false,
-    spots: false, mySpots: true, air: false, marinas: false, docks: false, fuel: false, pumpout: false, ramps: false, bait: false, sci: true },
+    spots: false, mySpots: true, air: false, marinas: false, docks: false, fuel: false, pumpout: false, ramps: false, bait: false, sci: true, spotHist: false },
   overlay: 'none',
   tilt: false,
   contourDetail: 'std',

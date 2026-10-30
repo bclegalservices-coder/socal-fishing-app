@@ -481,7 +481,7 @@ async function settings() {
     : `<input data-cfg="${esc(r.key)}" value="${esc(r.value == null ? '' : r.value)}" placeholder="(empty = none)">`;
   const off = (cfgRows.find((r) => r.key === 'features_off')?.value) || [];
   const KILL = [['wind', 'Wind map'], ['radar', 'Radar'], ['sst', 'Water temperature'], ['chl', 'Chlorophyll / water color'], ['breaks', 'Temperature breaks'],
-    ['bathy', 'Seafloor shading'], ['contours', 'Depth contours'], ['buoys', 'Buoys'], ['catches', 'Catch map'], ['buddies', 'Crew / buddy boats'],
+    ['bathy', 'Seafloor shading'], ['contours', 'Depth contours'], ['buoys', 'Buoys'], ['catches', 'Catch map'], ['buddies', 'Crew / buddy boats'], ['air', 'Air traffic'], ['spotHist', 'Spotter activity (history)'],
     ['spots', 'Preloaded spots'], ['marinas', 'Marinas'], ['docks', 'Docks & piers'], ['fuel', 'Fuel docks'], ['pumpout', 'Pump-outs'], ['ramps', 'Launch ramps'], ['bait', 'Bait'],
     ['rules', 'MPAs & rules'], ['sci', 'San Clemente closures'], ['hazards', 'Hazards'], ['relief', 'Relief map style'], ['satellite', 'Satellite map style'], ['chart_helper', 'Chart helper (falls back to the plain NOAA chart)'], ['layer_order', 'Map layer order (boat always on top) — takes effect next app start'], ['bathyHd', 'HD bottom']];
   $('#main').innerHTML = `<h2>Settings</h2>

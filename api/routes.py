@@ -66,6 +66,21 @@ async def air(all: bool = Query(False, description="include airliners up high"))
     return JSONResponse(await current(include_high=all), headers={"Cache-Control": "no-store"})
 
 
+@router.get("/air/history")
+async def air_history(hours: float = Query(12, ge=1, le=48)):
+    """Spotter planes that circled low over the water in the last `hours`: their real recorded flight paths
+    (see air/history.py)."""
+    import time as _t
+    from air.history import RECORDER
+    from air.traffic import TRACKER, CREDIT
+    now = _t.time()
+    names = TRACKER.sources_ok or []
+    credit = ", ".join(CREDIT.get(n, n).replace("Aircraft data: ", "") for n in names) or "ADS-B network"
+    return JSONResponse({"now": int(now), "hours": hours, "sessions": RECORDER.recent(hours, now),
+                         "watching_since": int(TRACKER.last_ok) if TRACKER.last_ok else None,
+                         "credit": f"Aircraft data: {credit}"}, headers={"Cache-Control": "no-store"})
+
+
 @router.get("/tides")
 async def tide(lat: float = Query(..., ge=-90, le=90), lon: float = Query(..., ge=-180, le=180)):
     try:

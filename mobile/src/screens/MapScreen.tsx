@@ -25,6 +25,8 @@ import { analyze, at as tripAt, autoName, placesFromHarbors, speedLines, type Tr
 import { exportTrackGPX } from '../io/transfer';
 import { MeasureCard } from '../components/MeasureCard';
 import { AirCard, AirChip, AirMapLayer, useAirTraffic, useWatchList, type Plane } from '../components/AirTraffic';
+import { SpotterHistoryBar, SpotterHistoryLayer, SpotterSessionCard, useSpotterHistory } from '../components/SpotterHistory';
+import type { SpotSession } from '../spotterHistory';
 import { usePro } from '../pro';
 import { HoopBanner, HoopMapLayer, HoopPanel } from '../components/Hoop';
 import * as H from '../hoop';
@@ -699,7 +701,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     if (measure) { setMeasure([...measure, lngLatOf(e)]); return; }
     if (Date.now() - featurePressAt.current < 350) return;
     if (draft) { setDraft([...draft, lngLatOf(e)]); return; }
-    setSel(null); setBuoy(null); setClusterSel(null); setRuleSel(null); setSciSel(null);
+    setSel(null); setBuoy(null); setClusterSel(null); setRuleSel(null); setSciSel(null); setSpotSel(null);
   };
   const onLongPress = (e: any) => {
     if (measure) { setMeasure([...measure, lngLatOf(e)]); return; }
@@ -736,6 +738,20 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const airWatch = useWatchList();
   const watchedPlane = useCallback((p: Plane) => airWatch.find(p), [airWatch.list]);
   const airPlane = airSel ? air?.planes.find((p) => p.hex === airSel) ?? null : null;
+  // Spotter activity (Oct 29): the real recorded loops of likely spotter planes, last 3–24 h, colored by time
+  const spotHistOn = !!layers.on.spotHist && !pro.locked;
+  const spotHist = useSpotterHistory(spotHistOn);
+  const [spotHours, setSpotHoursState] = useState(12);
+  useEffect(() => { AsyncStorage.getItem('spot-hist-hours').then((v) => { if (v && [3, 6, 12, 24].includes(Number(v))) setSpotHoursState(Number(v)); }).catch(() => {}); }, []);
+  const setSpotHours = (h: number) => {
+    if (h === 24 && pro.gated && pro.locked) { proUpsell(); return; }
+    setSpotHoursState(h); AsyncStorage.setItem('spot-hist-hours', String(h)).catch(() => {}); track('spot_hist_hours', { hours: h });
+  };
+  const [spotSel, setSpotSel] = useState<SpotSession | null>(null);
+  const fitSession = (s: SpotSession) => {
+    const xs = s.points.map((q) => q[0]), ys = s.points.map((q) => q[1]);
+    if (xs.length) fitTo([{ lat: Math.min(...ys), lon: Math.min(...xs) }, { lat: Math.max(...ys), lon: Math.max(...xs) }]);
+  };
   const spotterSeen = useRef(new Set<string>());
   useEffect(() => {
     if (!air || pro.locked) return;
@@ -899,6 +915,12 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     bottom = <ClusterSheet c={clusterSel} hours={catchHours} onClose={() => setClusterSel(null)} />;
   } else if (buoy) {
     bottom = <BuoyCard p={buoy} onClose={() => setBuoy(null)} />;
+  } else if (spotSel && layers.on.spotHist) {
+    const c = spotSel.center ?? [spotSel.points[0][0], spotSel.points[0][1]];
+    const nm = `Spotter ${spotSel.reg ?? spotSel.hex.toUpperCase()} circled`;
+    bottom = <SpotterSessionCard s={spotSel} onClose={() => setSpotSel(null)} onCenter={() => fitSession(spotSel)}
+      onSpot={() => { setSpotSel(null); setSel({ kind: 'pin', pt: { lat: c[1], lon: c[0], name: nm } }); track('spot_hist_save'); }}
+      onGo={() => { setSpotSel(null); goTo([{ lat: c[1], lon: c[0], name: nm }], nm); track('spot_hist_goto'); }} />;
   } else if (airPlane && layers.on.air) {
     bottom = <AirCard p={pro.locked ? { ...airPlane, circling: false, spotter: false, circles: 0 } : airPlane} locked={pro.locked} onUpsell={proUpsell}
       watch={pro.locked ? undefined : watchedPlane(airPlane)} boat={here()} credit={air?.credit ?? 'Aircraft data: ADS-B network'}
@@ -1091,6 +1113,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           </>
         ) : null}
         {hoop ? <HoopMapLayer set={hoop} boat={here()} now={hoopNow} onPotPress={(p) => { featurePressAt.current = Date.now(); hoopPotPress(p); }} /> : null}
+        {spotHistOn ? <SpotterHistoryLayer data={spotHist} hours={spotHours} labels={(view?.zoom ?? 0) >= 9}
+          onPick={(x) => { featurePressAt.current = Date.now(); setSpotSel(x); setAirSel(null); setSel(null); setBuoy(null); track('spot_hist_tap', { active: x.active }); }} /> : null}
         {layers.on.air ? <AirMapLayer data={air} view={view} mapHeading={view?.heading ?? 0} watched={watchedPlane} locked={pro.locked}
           onPick={(p) => { featurePressAt.current = Date.now(); setAirSel(p.hex); setSel(null); setBuoy(null); track('air_plane_tap', { circling: p.circling, spotter: p.spotter }); }} /> : null}
         {replay && replayAt ? (
@@ -1160,6 +1184,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         {!net.online ? <Text style={st.offline}>Offline · showing saved maps and data, each with its age</Text> : null}
         {hoop && !nav && !replay ? <HoopBanner set={hoop} boat={here()} heading={heading ?? motion.cogT ?? null} now={hoopNow} sogKt={motion.sogKt} /> : null}
         {!nav && !replay && !hoop && layers.on.sci ? <SciChip data={sci} now={sciNow} onPress={() => { showSci(); track('sci_chip_tap'); }} /> : null}
+        {layers.on.spotHist && !nav && !replay && !hoop ? <SpotterHistoryBar data={spotHist} hours={spotHours} setHours={setSpotHours} locked={pro.locked} gated={pro.gated} onUpsell={proUpsell} /> : null}
         {layers.on.air && !nav && !replay && !hoop ? <AirChip data={air} onJump={jumpToPlane} locked={pro.locked} gated={pro.gated} onUpsell={proUpsell} /> : null}
         {probe ? (
           <View style={st.probe} pointerEvents="none">

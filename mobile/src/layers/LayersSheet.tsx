@@ -52,9 +52,9 @@ const C = { blue: '#0A84FF', teal: '#30B0C7', green: '#34C759', mint: '#00C7BE',
 const LABELS: Record<LayerKey, string> = {
   sst: 'Water temp', breaks: 'Temp breaks', chl: 'Chlorophyll', chlEdges: 'Color edges', radar: 'Radar', wind: 'Wind', buoys: 'Buoys',
   spots: 'Known spots', mySpots: 'My spots', air: 'Air traffic', catches: 'Catch reports', buddies: 'My groups', marinas: 'Marinas', docks: 'Docks', fuel: 'Fuel', bait: 'Bait',
-  pumpout: 'Pump-outs', ramps: 'Ramps', bathy: 'Relief', bathyHd: 'HD bottom', contours: 'Contours', rules: 'MPAs', hazards: 'Hazards', sci: 'San Clemente',
+  pumpout: 'Pump-outs', ramps: 'Ramps', bathy: 'Relief', bathyHd: 'HD bottom', contours: 'Contours', rules: 'MPAs', hazards: 'Hazards', sci: 'San Clemente', spotHist: 'Spotter activity',
 };
-const CHIP_ORDER: LayerKey[] = ['sst', 'breaks', 'chl', 'chlEdges', 'bathyHd', 'bathy', 'contours', 'radar', 'wind', 'buoys', 'mySpots', 'spots', 'air', 'catches', 'buddies',
+const CHIP_ORDER: LayerKey[] = ['sst', 'breaks', 'chl', 'chlEdges', 'bathyHd', 'bathy', 'contours', 'radar', 'wind', 'buoys', 'mySpots', 'spots', 'air', 'spotHist', 'catches', 'buddies',
   'marinas', 'docks', 'fuel', 'bait', 'pumpout', 'ramps', 'rules', 'sci', 'hazards'];
 
 // ---------------------------------------------------------------- building blocks (top level = stable)
@@ -335,6 +335,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
           {Row({ k: "spots", icon: "map-marker", tint: SPOT_COLORS.known, title: "Known fishing spots", sub: "430 banks, high spots, reefs and kelp · blue dots" })}
           {Row({ k: "catches", icon: "fish", tint: C.blue, title: "Catch reports", sub: "What the community is catching" })}
           {Row({ k: "air", icon: "airplane", tint: "#FF5A00", title: "Air traffic · spotter planes", sub: "Planes and helicopters over the water, out past San Clemente. Circling ones flash orange — often a spotter on fish. Pro, free for now" })}
+          {Row({ k: "spotHist", icon: "airplane-marker", tint: "#FF20D6", title: "Spotter activity · last 12 h", sub: "Where spotter planes circled today — their real flight paths, pink = now → blue = 12 h ago. Pro, free for now" })}
           {Row({ k: "buddies", icon: "account-group", tint: C.purple, title: "My groups", sub: "Buddy boats, pings and shared spots", last: true })}
         </Section>
 
