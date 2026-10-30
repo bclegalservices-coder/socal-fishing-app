@@ -67,8 +67,47 @@ function chartUrl(p, blue = ({ '1': 1, '2': 2 })[p.get('wb')] || 0) {
   };
   const layers = LAYERS.test(p.get('layers') || '') ? p.get('layers') : '0,1,2,3,4,5,6';
   const px = sizeFor(p);
-  return `${CHART}?bbox=${p.get('bbox')}&bboxSR=3857&imageSR=3857&size=${px},${px}&dpi=192&format=png&transparent=true&f=image`
+  return `${CHART}?bbox=${p.get('bbox')}&bboxSR=3857&imageSR=3857&size=${px},${px}&dpi=192&format=${p.get('wc') === '1' ? 'png8' : 'png'}&transparent=true&f=image`
     + `&layers=show:${layers}&display_params=${encodeURIComponent(JSON.stringify(params))}`;
+}
+
+// ---- Water color (Oct 29, wc=1): NOAA's water blues → a soft "Google Maps" baby blue.
+// The chart is asked for as an 8-bit (palette) PNG, so the repaint only touches the color list (a few hundred bytes) —
+// no pixels are decoded, which keeps the helper well inside Cloudflare's free CPU limit. Anything unexpected → the
+// picture is sent unchanged.
+const WATER_TARGET = [170, 218, 255];            // #AADAFF
+const WATER_REF = [152, 200, 236];               // a typical NOAA water blue; lighter/darker shades keep their difference
+function isWater(r, g, b) { return b - r >= 25 && b >= g - 6 && r >= 80 && b >= 165; }
+let CRC_T = null;
+function crc32(bytes) {
+  if (!CRC_T) { CRC_T = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; CRC_T[n] = c >>> 0; } }
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = CRC_T[(c ^ bytes[i]) & 255] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+function recolorPng(buf) {
+  const u = new Uint8Array(buf);
+  const dv = new DataView(u.buffer, u.byteOffset, u.byteLength);
+  if (u.length < 33 || dv.getUint32(0) !== 0x89504e47) return buf;
+  if (u[25] !== 3) return buf;                     // only palette PNGs (color type 3)
+  let off = 8;
+  while (off + 12 <= u.length) {
+    const len = dv.getUint32(off);
+    const type = String.fromCharCode(u[off + 4], u[off + 5], u[off + 6], u[off + 7]);
+    if (type === 'PLTE') {
+      const d = off + 8;
+      for (let i = 0; i + 2 < len; i += 3) {
+        const r = u[d + i], g = u[d + i + 1], b = u[d + i + 2];
+        if (!isWater(r, g, b)) continue;
+        for (let k = 0; k < 3; k++) u[d + i + k] = Math.max(0, Math.min(255, Math.round(WATER_TARGET[k] + (u[d + i + k] - WATER_REF[k]) * 0.6)));
+      }
+      dv.setUint32(d + len, crc32(u.subarray(off + 4, d + len)));
+      return u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength);
+    }
+    if (type === 'IDAT' || type === 'IEND') break;
+    off += 12 + len;
+  }
+  return buf;
 }
 
 function reliefUrl(p) {
@@ -76,12 +115,17 @@ function reliefUrl(p) {
     + `&renderingRule=${encodeURIComponent(JSON.stringify({ rasterFunction: 'ColorHillshade' }))}`;
 }
 
-async function tile(url, fallback) {
+async function tile(url, fallback, recolor = false) {
   for (let attempt = 0; attempt < 2; attempt++) {
     const r = await fetch(attempt === 1 && fallback ? fallback : url, { headers: { 'User-Agent': 'ChannelNav-chart-helper' }, cf: { cacheTtl: 604800, cacheEverything: true } });
     const type = r.headers.get('content-type') || '';
     if (r.ok && type.startsWith('image/')) {
-      return new Response(r.body, { headers: { 'content-type': type, 'cache-control': 'public, max-age=604800', 'access-control-allow-origin': '*' } });
+      let body = r.body;
+      if (recolor && type.includes('png')) {
+        try { body = recolorPng(await r.arrayBuffer()); } catch (e) { body = null; }
+        if (body === null) continue;                // couldn't read it: try once more (plain)
+      }
+      return new Response(body, { headers: { 'content-type': type, 'cache-control': 'public, max-age=604800', 'access-control-allow-origin': '*' } });
     }
     await new Promise((res) => setTimeout(res, 400));   // NOAA busy: wait a moment and try once more
   }
@@ -95,7 +139,7 @@ export default {
     if (u.pathname === '/' || u.pathname === '/health') return new Response('Channel Nav chart helper: ok');
     if (!BBOX.test(p.get('bbox') || '')) return new Response('bad bbox', { status: 400 });
     // If NOAA ever refuses the blue-water setting, the retry asks for the normal chart (never a blank square).
-    if (u.pathname === '/chart') return tile(chartUrl(p), p.get('wb') ? chartUrl(p, 0) : null);
+    if (u.pathname === '/chart') return tile(chartUrl(p), p.get('wb') ? chartUrl(p, 0) : null, p.get('wc') === '1');
     if (u.pathname === '/relief') return tile(reliefUrl(p));
     return new Response('not found', { status: 404 });
   },

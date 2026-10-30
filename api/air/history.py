@@ -46,6 +46,7 @@ class Recorder:
         self.sessions: dict[str, dict] = {}
         self.active: dict[str, str] = {}          # hex -> session id
         self.dirty: set[str] = set()              # sessions to save
+        self.since: float | None = None           # when this server started recording (gaps before it: asleep / restarting)
 
     # ---- feeding it
     def observe(self, planes: list[dict], paths: dict, now: float) -> None:
@@ -220,6 +221,7 @@ async def loop(pool):
     if os.environ.get("AIR_HISTORY", "1") == "0":
         return
     await asyncio.sleep(15)
+    RECORDER.since = time.time()
     await _load(pool, RECORDER)
     last_save = 0.0
     while True:

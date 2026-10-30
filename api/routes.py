@@ -71,13 +71,17 @@ async def air_history(hours: float = Query(12, ge=1, le=48)):
     """Spotter planes that circled low over the water in the last `hours`: their real recorded flight paths
     (see air/history.py)."""
     import time as _t
+    from air.coast import spotter_waters
     from air.history import RECORDER
     from air.traffic import TRACKER, CREDIT
     now = _t.time()
+    # only spots ≥ 5 NM off the mainland and outside the harbor training area (also hides anything recorded before
+    # that rule existed)
+    sessions = [x for x in RECORDER.recent(hours, now) if x["center"] and spotter_waters(x["center"][1], x["center"][0])]
     names = TRACKER.sources_ok or []
     credit = ", ".join(CREDIT.get(n, n).replace("Aircraft data: ", "") for n in names) or "ADS-B network"
-    return JSONResponse({"now": int(now), "hours": hours, "sessions": RECORDER.recent(hours, now),
-                         "watching_since": int(TRACKER.last_ok) if TRACKER.last_ok else None,
+    return JSONResponse({"now": int(now), "hours": hours, "sessions": sessions,
+                         "watching_since": int(RECORDER.since) if RECORDER.since else None,
                          "credit": f"Aircraft data: {credit}"}, headers={"Cache-Control": "no-store"})
 
 

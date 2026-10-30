@@ -10,13 +10,22 @@ export function Icon({ name, size = 20, color }: { name: IconName; size?: number
   return <Ionicons name={name as any} size={size} color={color ?? colors.text} />;
 }
 
-/** Bottom sheet over the map. */
-export function Sheet({ children, maxHeight = 460 }: { children: ReactNode; maxHeight?: number }) {
+/** Bottom sheet over the map. With onClose: a small round ✕ at the top right (Oct 29: replaces the old full-width
+ *  "Close" buttons at the bottom). */
+export function Sheet({ children, maxHeight = 460, onClose }: { children: ReactNode; maxHeight?: number; onClose?: () => void }) {
   const s = useS();
   return (
     <View style={[s.sheet, { maxHeight }]}>
       <View style={s.handle} />
-      <ScrollView contentContainerStyle={{ gap: 10 }} keyboardShouldPersistTaps="handled">{children}</ScrollView>
+      {onClose ? (
+        <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close"
+          style={({ pressed }) => [s.sheetX, pressed && { opacity: 0.6 }]}>
+          <Ionicons name="close" size={20} color={colors.text} />
+        </Pressable>
+      ) : null}
+      <ScrollView contentContainerStyle={[{ gap: 10 }, onClose ? { paddingTop: 2 } : null]} keyboardShouldPersistTaps="handled">
+        {children}
+      </ScrollView>
     </View>
   );
 }
@@ -178,6 +187,7 @@ const useS = makeStyles((colors) => ({
   sheet: { backgroundColor: colors.panelSolid, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 14,
     shadowColor: colors.shadow, shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: -2 }, elevation: 8 },
   handle: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: colors.border, marginBottom: 8 },
+  sheetX: { position: 'absolute', top: 12, right: 12, zIndex: 5, width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.border },
   btn: { flex: 1, flexDirection: 'row', gap: 8, minHeight: touch.min, borderRadius: radius.md, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   btnT: { fontSize: 16.5, fontWeight: '700' },
   iconBtn: { borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, alignItems: 'center', justifyContent: 'center',
@@ -187,7 +197,7 @@ const useS = makeStyles((colors) => ({
   k: { color: colors.muted, fontSize: 12, fontWeight: '600', letterSpacing: 0.3 },
   v: { color: colors.text, fontSize: 20, fontWeight: '700', fontVariant: ['tabular-nums'] },
   vBig: { fontSize: 34, fontWeight: '800' },
-  title: { color: colors.text, fontSize: 22, fontWeight: '800' },
+  title: { color: colors.text, fontSize: 22, fontWeight: '800', paddingRight: 40 },   // room for the ✕
   note: { color: colors.muted, fontSize: 13, lineHeight: 18 },
   card: { ...cardStyle(colors), padding: 14, gap: 8 },
   sectionRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 8, marginBottom: 2, paddingHorizontal: 4 },

@@ -56,7 +56,7 @@ export function ClusterSheet({ c, hours, onClose }: { c: Cluster; hours: number;
   }, [c.lon, c.lat, c.species_code, hours]);
   const s = rs ? summarize(rs) : null;
   return (
-    <Sheet maxHeight={600}>
+    <Sheet maxHeight={600} onClose={onClose}>
       <Title>{speciesName(c.species_code)} activity</Title>
       <Note>{c.n} report{c.n === 1 ? '' : 's'} · {c.fish} fish · last {hours < 48 ? `${hours} h` : `${Math.round(hours / 24)} days`}</Note>
       {err ? <Note>Couldn't load reports ({err}).</Note> : null}
@@ -71,7 +71,6 @@ export function ClusterSheet({ c, hours, onClose }: { c: Cluster; hours: number;
         </View>
       ) : null}
       {rs?.map((r) => <ReportCard key={r.id} r={r} />)}
-      <Btn label="Close" onPress={onClose} />
     </Sheet>
   );
 }

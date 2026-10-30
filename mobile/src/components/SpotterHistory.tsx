@@ -111,7 +111,7 @@ export function SpotterHistoryBar({ data, hours, setHours, locked, gated, onUpse
           );
         })}
       </View>
-      {watchedH != null && watchedH < hours ? <Text style={st.note}>Recording since {agoText(now - data!.watching_since!).replace(' ago', '')} ago (the server was asleep or restarted before that).</Text> : null}
+      {watchedH != null && watchedH < hours ? <Text style={st.note}>{watchedH < 0.1 ? 'Recording just started' : `Recording started ${agoText(now - data!.watching_since!)}`} — earlier hours fill in as it keeps watching.</Text> : null}
     </View>
   );
 }

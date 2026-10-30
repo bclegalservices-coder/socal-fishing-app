@@ -188,7 +188,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
   const overlayOn = s.overlay && s.overlay !== 'none';
 
   return (
-    <View style={[st.sheet, { top: insets.top + 56 }]}>
+    <View style={[st.sheet, { top: insets.top + 64 }]}>
       <View style={st.grab} />
       <View style={st.head}>
         <View style={{ flex: 1 }}>
@@ -208,7 +208,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
       ) : null}
 
       {/* On now: what's showing, tap a chip to turn it off */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.chips} style={{ flexGrow: 0 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.chips} style={st.chipStrip}>
         {overlayOn ? (
           <Pressable style={st.chip} onPress={() => setOverlay('none')} accessibilityRole="button" accessibilityLabel={`Turn off ${s.overlay}`}>
             <Text style={st.chipT}>{s.overlay === 'relief' ? 'Relief map' : 'Satellite'}</Text>
@@ -380,7 +380,7 @@ const useSt = makeStyles((colors) => ({
   sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 8,
     shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 18, shadowOffset: { width: 0, height: -3 }, elevation: 12 },
   grab: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: colors.border, marginBottom: 8 },
-  head: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  head: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, marginTop: 2 },
   h1: { color: colors.text, fontSize: 28, fontWeight: '800', letterSpacing: -0.5 },
   count: { color: colors.muted, fontSize: 13.5, fontWeight: '600', marginTop: 1 },
   done: { height: 36, paddingHorizontal: 18, borderRadius: 18, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
@@ -389,7 +389,9 @@ const useSt = makeStyles((colors) => ({
   offlineBox: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.warn, marginBottom: 8 },
   retryT: { color: colors.live, fontWeight: '800', fontSize: 14 },
 
-  chips: { gap: 8, paddingBottom: 12, alignItems: 'center' },
+  // Oct 29: chips run edge to edge (no chip cut off at the sheet's padding), with a hairline under them
+  chipStrip: { flexGrow: 0, marginHorizontal: -16, borderBottomWidth: 0.5, borderColor: colors.line, marginBottom: 14 },
+  chips: { gap: 8, paddingHorizontal: 16, paddingTop: 2, paddingBottom: 14, alignItems: 'center' },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 32, paddingLeft: 13, paddingRight: 10, borderRadius: 16, backgroundColor: colors.accent },
   chipT: { color: colors.accentInk, fontSize: 14, fontWeight: '800' },
   chipNone: { color: colors.muted, fontSize: 13.5, fontWeight: '600', paddingVertical: 7 },

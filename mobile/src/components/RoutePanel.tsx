@@ -38,9 +38,9 @@ export function RoutesList({ routes, onNew, onGo, onShow, onDelete, onClose }: {
   routes: Route[]; onNew: () => void; onGo: (r: Route) => void; onShow: (r: Route) => void; onDelete: (r: Route) => void; onClose: () => void;
 }) {
   return (
-    <Sheet>
+    <Sheet onClose={onClose}>
       <Title>Routes</Title>
-      <Row><Btn label="New route" kind="primary" onPress={onNew} /><Btn label="Close" onPress={onClose} /></Row>
+      <Btn label="New route" kind="primary" onPress={onNew} />
       {!routes.length ? <Note>No saved routes yet. Build one with New route, or tap a spot and choose Add to route.</Note> : null}
       {routes.map((r) => {
         const { totalNm, legs } = routeLegs(r.points);

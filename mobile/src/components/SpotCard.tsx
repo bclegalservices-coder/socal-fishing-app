@@ -17,7 +17,7 @@ export function SpotCard({ spot, boat, kind, onGo, onAddToRoute, onSave, onDelet
   const b = boat ? bearingTrue(boat.lat, boat.lon, spot.lat, spot.lon) : null;
   const water = useWaterTemp(spot.lat, spot.lon);
   return (
-    <Sheet maxHeight={620}>
+    <Sheet maxHeight={620} onClose={onClose}>
       {kind === 'pin' ? <Text style={{ color: colors.live, fontWeight: '600' }}>Dropped pin</Text> : <Title>{spot.name}</Title>}
       {spot.subtitle ? <Note>{spot.subtitle}</Note> : null}
       {protectedHere?.length ? (
@@ -38,7 +38,6 @@ export function SpotCard({ spot, boat, kind, onGo, onAddToRoute, onSave, onDelet
       <Row>
         {onSave ? <Btn label="Save spot" icon="bookmark-outline" onPress={onSave} /> : null}
         {onDelete ? <Btn label="Delete" icon="trash-outline" kind="danger" onPress={onDelete} /> : null}
-        <Btn label="Close" icon="close" onPress={onClose} />
       </Row>
       {onLog ? <Btn label="Log a catch here" icon="fish-outline" onPress={onLog} /> : null}
       {onShareToGroup ? <Btn label="Send to my crew" icon="megaphone-outline" onPress={onShareToGroup} /> : null}

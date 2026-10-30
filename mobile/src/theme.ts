@@ -47,7 +47,7 @@ export type ThemeInfo = { id: string; name: string; note: string; mode: Mode; pa
 
 export const DAY: Palette = {
   bg: '#EEF2F6',
-  water: '#AFCDE1',      // Oct 29: NOAA's coastal water blue (was #D8E6EF)
+  water: '#AADAFF',      // Oct 29: soft Google-Maps baby blue, same as the chart's water (was #D8E6EF)
   panel: 'rgba(255,255,255,0.97)',
   panelSolid: '#FFFFFF',
   inset: '#F4F7FA',

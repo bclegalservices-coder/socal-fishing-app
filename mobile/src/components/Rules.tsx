@@ -60,7 +60,7 @@ export function RuleCard({ p, checkedAt, onClose }: { p: any; checkedAt: string 
   const ageDays = checkedAt ? (Date.now() - new Date(checkedAt).getTime()) / 86400000 : null;
   const protectedArea = p.kind === 'mpa' || p.kind === 'closure';
   return (
-    <Sheet maxHeight={600}>
+    <Sheet maxHeight={600} onClose={onClose}>
       <Title>{p.name ?? (p.kind === 'wreck' ? 'Wreck' : p.sub ?? 'Feature')}</Title>
       {protectedArea ? (
         <>
@@ -103,7 +103,6 @@ export function RuleCard({ p, checkedAt, onClose }: { p: any; checkedAt: string 
           {p.regs ? <SmallBtn tone="accent" icon="open-outline" label="Official regulations" onPress={() => Linking.openURL(p.regs)} /> : null}
         </>
       ) : <Note>From NOAA charts — not for navigation.</Note>}
-            <Btn label="Close" onPress={onClose} />
     </Sheet>
   );
 }

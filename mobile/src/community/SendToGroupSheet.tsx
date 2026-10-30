@@ -42,15 +42,14 @@ export function SendToGroupSheet({ mode, pt, onClose, onDone }: Props) {
 
   if (!groups.length) {
     return (
-      <Sheet>
+      <Sheet onClose={onClose}>
         <Title>Send to my group</Title>
         <Note>You're not in a fishing group yet. Create one or join with a code in the Crew tab (sign in first).</Note>
-        <Btn label="Close" onPress={onClose} />
       </Sheet>
     );
   }
   return (
-    <Sheet maxHeight={600}>
+    <Sheet maxHeight={600} onClose={onClose}>
       <Title>{mode === 'me' ? 'Send my position' : `Share "${pt?.name ?? 'this spot'}"`}</Title>
       <Text style={st.coord}>{pt ? formatLatLon(pt.lat, pt.lon) : 'Waiting for GPS…'}</Text>
       <View style={st.wrap}>

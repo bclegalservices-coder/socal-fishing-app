@@ -7,7 +7,7 @@ const dir = (d?: number | null) => (d == null ? '' : ['N', 'NNE', 'NE', 'ENE', '
 
 export function BuoyCard({ p, onClose }: { p: any; onClose: () => void }) {
   return (
-    <Sheet>
+    <Sheet onClose={onClose}>
       <Title>Buoy {p.id}</Title>
       <Note>{p.name} · NOAA NDBC · measured, {ageText(p.observed_at)}</Note>
       <Row>
@@ -21,7 +21,6 @@ export function BuoyCard({ p, onClose }: { p: any; onClose: () => void }) {
         <Stat k="From" v={dir(p.wave_dir) || '—'} />
       </Row>
       <Text style={{ color: colors.muted, fontSize: 11 }}>Real measurements at this buoy, not a forecast.</Text>
-      <Btn label="Close" onPress={onClose} />
     </Sheet>
   );
 }

@@ -17,7 +17,7 @@ import { WindView } from '../weather/WindView';
 import { loadPublicSpots, type SavedSpot } from '../storage';
 import { BoatSheet } from '../weather/BoatSheet';
 import { CondIcon, NowCard, PlaceSearch, hourNow, placeName } from '../weather/Conditions';
-import { ExtendedButton, ExtendedForecast } from '../weather/Extended';
+import { ExtendedBanner, ExtendedForecast } from '../weather/Extended';
 import { Bars } from '../weather/Charts';
 import {
   addDays, arrow, boatLabel, clock, compass, dayLabel, downsample, hourLabel, isDate, levelColor, levelText, loadBoat, localDate,
@@ -105,7 +105,7 @@ export function WeatherScreen({ at, mySpots }: { at: WeatherPlace | null; mySpot
         <IconButton icon="search" label="Search a place or spot" onPress={() => setSearching(true)} />
       </View>
       {/* Closest harbors as clear buttons, and every harbor one tap away */}
-      <View style={st.nearRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={st.nearRow}>
         {nearest(place, 3).map((h) => {
           const on = place?.label === h.label;
           return (
@@ -119,7 +119,7 @@ export function WeatherScreen({ at, mySpots }: { at: WeatherPlace | null; mySpot
           <MaterialCommunityIcons name="format-list-bulleted" size={15} color={colors.text} />
           <Text style={st.nearT}>All harbors</Text>
         </Pressable>
-      </View>
+      </ScrollView>
       <Modal visible={picking} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setPicking(false)}>
         <View style={st.pick}>
           <View style={st.pickHead}>
@@ -199,9 +199,13 @@ function Forecast({ place, boat, boatIsSet, course, setCourse, onEditBoat }: {
   return (
     <ScrollView contentContainerStyle={st.body} refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.live} />}>
       {f?.available ? <NowCard place={place.label} sub={place.source === 'gps' ? 'My location' : f.place ?? undefined} hour={hourNow(f.hourly)} today={days[0]} /> : null}
+      {days.length ? <ExtendedBanner days={days.length} onPress={() => { setExtOpen(true); track('weather_extended_open'); }} /> : null}
       <Pressable onPress={onEditBoat} style={st.boat} accessibilityLabel="Change my boat">
         <Text style={st.boatK}>Rated for</Text>
-        <Text style={st.boatV}>{boatLabel(boat)}{boatIsSet ? '' : ' (default — tap to set yours)'}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={st.boatV} numberOfLines={1}>{boatLabel(boat)}</Text>
+          {boatIsSet ? null : <Text style={st.sub} numberOfLines={1}>Default — tap to set your boat</Text>}
+        </View>
         <Text style={st.boatEdit}>Change</Text><Ionicons name="chevron-forward" size={16} color={colors.live} />
       </Pressable>
       <View>
@@ -230,7 +234,7 @@ function Forecast({ place, boat, boatIsSet, course, setCourse, onEditBoat }: {
         <Text style={st.warn}>No sea forecast for this exact point (it's on land or inside a harbor). Wind and weather are shown; pick a harbor above for seas.</Text>
       ) : null}
 
-      {days.length ? <SectionLabel right={<ExtendedButton onPress={() => { setExtOpen(true); track('weather_extended_open'); }} />}>Next {days.length} days</SectionLabel> : null}
+      {days.length ? <SectionLabel>Next {days.length} days</SectionLabel> : null}
       <ExtendedForecast visible={extOpen} place={place.label} days={days} hours={f?.hourly ?? []} onClose={() => setExtOpen(false)}
         onPickDay={(d) => { setDay(d); setOpenHour(null); }} />
       {days.length ? (
@@ -465,7 +469,7 @@ function Tides({ place }: { place: WeatherPlace }) {
 }
 
 const useSt = makeStyles((colors) => ({
-  nearRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16, paddingTop: 10 },
+  nearRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 },   // Oct 29: one even row (scrolls), no ragged wrap
   near: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, paddingHorizontal: 12, borderRadius: 18, backgroundColor: colors.panelSolid, borderWidth: 1, borderColor: colors.border },
   nearOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   nearAll: { backgroundColor: colors.inset },
@@ -490,7 +494,7 @@ const useSt = makeStyles((colors) => ({
   pillOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   pillT: { color: colors.text, fontSize: 14, fontWeight: '700' },
   pillOnT: { color: colors.accentInk },
-  seg: { flexDirection: 'row', marginHorizontal: 16, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, borderRadius: 12, overflow: 'hidden' },
+  seg: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 4, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, borderRadius: 12, overflow: 'hidden' },
   segSmall: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   segI: { flex: 1, minHeight: 42, alignItems: 'center', justifyContent: 'center' },
   segOn: { backgroundColor: colors.panelSolid },
@@ -499,7 +503,7 @@ const useSt = makeStyles((colors) => ({
   body: { padding: 16, gap: 12, paddingBottom: 40 },
   boat: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.panelSolid, borderRadius: 12, borderWidth: 1.5, borderColor: colors.border, padding: 12, minHeight: 50 },
   boatK: { color: colors.muted, fontSize: 12 },
-  boatV: { color: colors.text, fontSize: 15, fontWeight: '700', flex: 1 },
+  boatV: { color: colors.text, fontSize: 15, fontWeight: '700' },
   boatEdit: { color: colors.live, fontWeight: '700' },
   smallH: { color: colors.muted, fontSize: 12.5, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 4 },
   alert: { backgroundColor: colors.alertBg, borderColor: colors.alert, borderWidth: 1, borderRadius: 10, padding: 10, gap: 2 },

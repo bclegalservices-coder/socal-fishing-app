@@ -130,7 +130,27 @@ export function ExtendedButton({ onPress }: { onPress: () => void }) {
   );
 }
 
+/** Oct 29: big, easy-to-see button right under today's picture. */
+export function ExtendedBanner({ days, onPress }: { days: number; onPress: () => void }) {
+  const st = useSt();
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [st.banner, pressed && { opacity: 0.8 }]} accessibilityRole="button" accessibilityLabel="Open the extended forecast">
+      <View style={st.bannerIcon}><Ionicons name="calendar" size={20} color={colors.accentInk} /></View>
+      <View style={{ flex: 1 }}>
+        <Text style={st.bannerT}>Extended forecast</Text>
+        <Text style={st.bannerS} numberOfLines={1}>{days}-day outlook · a picture for every day</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={20} color={colors.live} />
+    </Pressable>
+  );
+}
+
 const useSt = makeStyles((colors) => ({
+  banner: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 60, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14,
+    backgroundColor: colors.panelSolid, borderWidth: 1.5, borderColor: colors.live },
+  bannerIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.live },
+  bannerT: { color: colors.text, fontSize: 16.5, fontWeight: '800' },
+  bannerS: { color: colors.muted, fontSize: 13, marginTop: 1 },
   root: { flex: 1, backgroundColor: colors.bg },
   head: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderColor: colors.border, backgroundColor: colors.panelSolid },
   h1: { color: colors.text, fontSize: 26, fontWeight: '800' },

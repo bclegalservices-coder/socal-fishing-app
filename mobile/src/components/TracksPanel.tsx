@@ -11,7 +11,7 @@ export function TracksPanel({ active, activePts, tracks, onStart, onStop, onShow
 }) {
   const st = trackStats(activePts);
   return (
-    <Sheet>
+    <Sheet onClose={onClose}>
       <Title>Tracks</Title>
       {active ? (
         <View style={{ gap: 8 }}>
@@ -21,10 +21,10 @@ export function TracksPanel({ active, activePts, tracks, onStart, onStop, onShow
             <Stat k="Time" v={formatDuration(st.durationMin)} />
             <Stat k="Max" v={`${st.maxKt.toFixed(1)} kt`} />
           </Row>
-          <Row><Btn label="Stop and save" kind="danger" onPress={onStop} /><Btn label="Close" onPress={onClose} /></Row>
+          <Btn label="Stop and save" kind="danger" onPress={onStop} />
         </View>
       ) : (
-        <Row><Btn label="Start recording" kind="primary" onPress={onStart} /><Btn label="Close" onPress={onClose} /></Row>
+        <Btn label="Start recording" kind="primary" onPress={onStart} />
       )}
       {!tracks.length ? <Note>No saved tracks yet. Recorded trips are saved on this phone and work offline.</Note> : null}
       {tracks.map((t) => (
