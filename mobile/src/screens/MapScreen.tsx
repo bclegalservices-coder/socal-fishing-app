@@ -183,7 +183,12 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const [orderOn, setOrderOn] = useState<boolean | null>(null);
   useEffect(() => onConfig((c) => setKilled(c.features_off ?? [])), []);
   useEffect(() => { setLayers((p) => applyKillSwitch(p, killed)); }, [killed.join(','), layers.on, layers.overlay]);
-  const chartUrl = useMemo(() => noaaChartTiles({ ...DEFAULT_LAYERS.chart, ...layers.chart }, theme.mode === 'night', killed.includes('chart_helper')), [layers.chart, theme.mode, killed.join(',')]);
+  // Oct 31: while navigating (Go To / a route is running), buoys, beacons & lights (navaids) and rocks, wrecks &
+  // obstructions (seabed) are always on the chart, whatever the chart detail setting. They go back to the person's
+  // own setting when navigation ends.
+  const navigating = !!nav;
+  const chartUrl = useMemo(() => noaaChartTiles({ ...DEFAULT_LAYERS.chart, ...layers.chart, ...(navigating ? { navaids: true, seabed: true } : {}) },
+    theme.mode === 'night', killed.includes('chart_helper')), [layers.chart, theme.mode, killed.join(','), navigating]);
   const [look, setLook] = useState<MapLook>(mapLook());
   useEffect(() => onConfig((c) => setLook(mapLook(c))), []);
   const lookKey = JSON.stringify(look);
