@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import re
 import os
 import time
 from collections import deque
@@ -24,6 +25,11 @@ RADIUS_NM = 230                    # Point Conception to the border, and well pa
 POLL_S = 9.0                       # never ask the source more often than this
 KEEP_S = 25 * 60                   # how much of each plane's path to remember
 FORGET_S = 10 * 60                 # drop planes not heard for this long
+# Nov 1: planes someone tapped "Watch" on keep their whole path (up to WATCH_KEEP_S), so the app can draw where they've
+# been. A phone renews the watch every time it asks for the path; unrenewed watches end after WATCH_TTL_S.
+WATCH_KEEP_S = 6 * 3600
+WATCH_TTL_S = 12 * 3600
+WATCHED: dict[str, float] = {}       # hex -> watch ends (unix time)
 WATCH_S = 12 * 60                  # window for the circling test
 BBOX = (-122.3, 30.3, -116.6, 35.0)   # Oct 27: wider, offshore — beyond San Clemente Island and the outer banks
 
@@ -138,11 +144,18 @@ class Tracker:
             dq = self.paths.setdefault(hx, deque())
             if not dq or t > dq[-1][0] + 1:
                 dq.append(p)
-            while dq and now - dq[0][0] > KEEP_S:
+            keep = WATCH_KEEP_S if WATCHED.get(hx, 0) > now else KEEP_S
+            while dq and now - dq[0][0] > keep:
                 dq.popleft()
             self.info[hx] = {**a, "_t": t}
         for hx in [h for h, i in self.info.items() if now - i["_t"] > FORGET_S]:
-            self.info.pop(hx, None); self.paths.pop(hx, None)
+            self.info.pop(hx, None)
+            if WATCHED.get(hx, 0) <= now:            # a watched plane keeps its path after it lands / flies out of range
+                self.paths.pop(hx, None)
+        for hx in [h for h, t in WATCHED.items() if t <= now]:
+            WATCHED.pop(hx, None)
+            if hx not in self.info:
+                self.paths.pop(hx, None)
 
     def snapshot(self, now: float, depth_lookup=None, include_high: bool = False, include_land: bool = False) -> dict:
         """Planes for the app. Oct 27: only over the WATER by default (planes over land aren't useful to fishermen)."""
@@ -297,3 +310,28 @@ def _depth_lookup():
         fn = None
     _depth_cache[0], _depth_cache[1] = time.time(), fn
     return fn
+
+
+def watched_paths(hexes: list[str], now: float, hours: float = 6.0) -> dict:
+    """Nov 1: the recorded flight path of each watched plane (also renews the watch): what the server saw in the
+    last `hours`, plus any spotter sessions recorded for it (air/history.py). {hex: [[lon, lat, t, alt], ...]}"""
+    from .history import RECORDER
+    out = {}
+    for hx in hexes[:20]:
+        hx = hx.lower().strip()
+        if not re.fullmatch(r"[0-9a-f~]{1,8}", hx):
+            continue
+        WATCHED[hx] = now + WATCH_TTL_S
+        pts = {int(p[0]): [round(p[2], 5), round(p[1], 5), int(p[0]), None if p[3] is None else int(p[3])]
+               for p in TRACKER.paths.get(hx, []) if now - p[0] <= hours * 3600}
+        for sess in RECORDER.sessions.values():
+            if sess.get("hex") == hx and now - sess.get("last_t", 0) <= hours * 3600:
+                for q in sess.get("points", []):
+                    if now - q[2] <= hours * 3600:
+                        pts.setdefault(int(q[2]), [q[0], q[1], int(q[2]), q[3]])
+        line = [pts[t] for t in sorted(pts)]
+        if len(line) > 1500:                                   # thin very long paths (keep the newest part full)
+            half = len(line) // 2
+            line = line[:half:2] + line[half:]
+        out[hx] = line
+    return out

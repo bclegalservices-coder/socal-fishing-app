@@ -195,3 +195,26 @@ def test_planes_past_the_seafloor_map_count_as_over_water():
     assert not is_water(33.0, -116.3, lambda lat, lon: None)              # inland San Diego County
     assert not is_water(31.9, -116.5, lambda lat, lon: None)              # Baja coast near Ensenada
     assert is_water(31.9, -116.9, lambda lat, lon: None)                  # off Ensenada
+
+
+def test_watched_plane_keeps_its_whole_path():
+    """Nov 1: a watched plane's path is kept for hours (others only ~25 min) and comes back from watched_paths()."""
+    import air.traffic as T
+    tr = T.Tracker()
+    keep = T.TRACKER
+    T.TRACKER = tr
+    try:
+        t0 = 1_800_000_000.0
+        T.watched_paths(["abc123"], t0)                                    # someone taps Watch
+        for i in range(0, 3 * 3600, 60):                                   # 3 hours of positions, one a minute
+            tr.ingest([{"hex": "abc123", "lat": 33.3 + i / 1e5, "lon": -118.4, "alt_baro": 900, "gs": 90, "track": 10, "seen_pos": 0},
+                       {"hex": "def456", "lat": 33.0, "lon": -118.0, "alt_baro": 900, "gs": 90, "track": 10, "seen_pos": 0}], t0 + i)
+            T.WATCHED["abc123"] = t0 + i + T.WATCH_TTL_S                   # the phone keeps asking
+        now = t0 + 3 * 3600
+        assert len(tr.paths["abc123"]) >= 170                              # whole 3 h kept
+        assert len(tr.paths["def456"]) <= 26                               # unwatched: last 25 min only
+        p = T.watched_paths(["ABC123", "bad hex!"], now)
+        assert list(p) == ["abc123"] and len(p["abc123"]) >= 170 and p["abc123"][0][2] < p["abc123"][-1][2]
+    finally:
+        T.TRACKER = keep
+        T.WATCHED.clear()

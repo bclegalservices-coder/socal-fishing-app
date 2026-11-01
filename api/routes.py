@@ -69,6 +69,16 @@ async def air(all: bool = Query(False, description="include airliners up high"))
     return JSONResponse(await current(include_high=all), headers={"Cache-Control": "no-store"})
 
 
+@router.get("/air/paths")
+async def air_paths(hex: str = Query(..., description="comma list of plane hex codes the phone is watching"),
+                    hours: float = Query(6, ge=0.25, le=6)):
+    """Nov 1: where each watched plane has flown (up to 6 h), for the "Watch" button. Asking also keeps the server
+    remembering the plane's full path for the next 12 hours."""
+    import time as _t
+    from air.traffic import watched_paths
+    return JSONResponse({"now": int(_t.time()), "paths": watched_paths(hex.split(","), _t.time(), hours)}, headers={"Cache-Control": "no-store"})
+
+
 @router.get("/air/history")
 async def air_history(hours: float = Query(12, ge=1, le=48)):
     """Spotter planes that circled low over the water in the last `hours`: their real recorded flight paths

@@ -25,7 +25,7 @@ import { autoRate, ReplayBar, ReplayHud } from '../components/TripReplay';
 import { analyze, at as tripAt, autoName, placesFromHarbors, speedLines, type TripAnalysis } from '../trips';
 import { exportTrackGPX } from '../io/transfer';
 import { MeasureCard } from '../components/MeasureCard';
-import { AirCard, AirChip, AirMapLayer, useAirTraffic, useWatchList, type Plane } from '../components/AirTraffic';
+import { AirCard, AirChip, AirListSheet, AirMapLayer, WatchedPathLayer, useAirTraffic, useWatchList, useWatchedPaths, type Plane } from '../components/AirTraffic';
 import { SpotterHistoryBar, SpotterHistoryLayer, SpotterSessionCard, useSpotterHistory } from '../components/SpotterHistory';
 import type { SpotSession } from '../spotterHistory';
 import { usePro } from '../pro';
@@ -759,6 +759,9 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const proUpsell = () => Alert.alert('Spotter planes · Pro', 'See which planes are circling low over the water — usually a spotter sitting on fish — with their loops, plus alerts when one starts circling near you.\n\nPro sign-up is coming soon.', [{ text: 'OK' }]);
   const airWatch = useWatchList();
   const watchedPlane = useCallback((p: Plane) => airWatch.find(p), [airWatch.list]);
+  const [airListOpen, setAirListOpen] = useState(false);
+  // Nov 1: watched planes' recorded flight paths (server keeps up to 6 h for them)
+  const watchedPaths = useWatchedPaths(!!layers.on.air && !pro.locked, airWatch.list.map((w) => w.hex));
   const airPlane = airSel ? air?.planes.find((p) => p.hex === airSel) ?? null : null;
   // Spotter activity (Oct 29): the real recorded loops of likely spotter planes, last 3–24 h, colored by time
   const spotHistOn = !!layers.on.spotHist && !pro.locked;
@@ -1034,6 +1037,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   return (
     <View style={st.root}>
       {awake === 'always' || (awake === 'active' && (nav || active || hoop)) ? <StayAwake /> : null}
+      {layers.on.air && !pro.locked ? <AirListSheet data={air} visible={airListOpen} boat={here()} watched={watchedPlane}
+        onPick={(p) => { setAirListOpen(false); jumpToPlane(p); track('air_list_pick', { spotter: p.spotter }); }} onClose={() => setAirListOpen(false)} /> : null}
       {hoop ? <HoopOrderSheet set={hoop} now={hoopNow} visible={hoopOrderOpen} onMove={(no, dir) => setHoop(H.moveInLine(hoop, no, dir))} onClose={() => setHoopOrderOpen(false)} /> : null}
       <MapView style={StyleSheet.absoluteFill} mapStyle={mapStyle as any} attribution logo={false} compass={false}
         onPress={onMapPress} onLongPress={onLongPress}
@@ -1152,6 +1157,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         {hoop ? <HoopMapLayer set={hoop} boat={here()} now={hoopNow} onPotPress={(p) => { featurePressAt.current = Date.now(); hoopPotPress(p); }} /> : null}
         {spotHistOn ? <SpotterHistoryLayer data={spotHist} hours={spotHours} labels={(view?.zoom ?? 0) >= 9}
           onPick={(x) => { featurePressAt.current = Date.now(); setSpotSel(x); setAirSel(null); setSel(null); setBuoy(null); track('spot_hist_tap', { active: x.active }); }} /> : null}
+        {layers.on.air && !pro.locked ? <WatchedPathLayer data={watchedPaths} /> : null}
         {layers.on.air ? <AirMapLayer data={air} view={view} mapHeading={view?.heading ?? 0} watched={watchedPlane} locked={pro.locked}
           onPick={(p) => { featurePressAt.current = Date.now(); setAirSel(p.hex); setSel(null); setBuoy(null); track('air_plane_tap', { circling: p.circling, spotter: p.spotter }); }} /> : null}
         {replay && replayAt ? (
@@ -1222,7 +1228,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         {hoop && !nav && !replay ? <HoopBanner set={hoop} boat={here()} heading={heading ?? motion.cogT ?? null} now={hoopNow} sogKt={motion.sogKt} /> : null}
         {!nav && !replay && !hoop && layers.on.sci ? <SciChip data={sci} now={sciNow} onPress={() => { showSci(); track('sci_chip_tap'); }} /> : null}
         {layers.on.spotHist && !nav && !replay && !hoop ? <SpotterHistoryBar data={spotHist} hours={spotHours} setHours={setSpotHours} locked={pro.locked} gated={pro.gated} onUpsell={proUpsell} /> : null}
-        {layers.on.air && !nav && !replay && !hoop ? <AirChip data={air} onJump={jumpToPlane} locked={pro.locked} gated={pro.gated} onUpsell={proUpsell} /> : null}
+        {layers.on.air && !nav && !replay && !hoop ? <AirChip data={air} onList={() => setAirListOpen(true)} locked={pro.locked} gated={pro.gated} onUpsell={proUpsell} /> : null}
         {probe ? (
           <View style={st.probe} pointerEvents="none">
             {probeAt ? <Text style={st.probeC}>{formatLatLon(probeAt.lat, probeAt.lon)}</Text> : <Text style={st.probeL}>Move the map under the crosshair</Text>}

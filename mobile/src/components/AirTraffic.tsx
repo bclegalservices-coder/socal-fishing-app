@@ -2,7 +2,7 @@
 // low and slow over the ocean is usually a fish-spotter plane sitting on a school. Data: the server's GET /air
 // (ADS-B, shared by hobbyist receivers), refreshed every 10 s while the layer is on and the app is open.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, AppState, Easing, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, AppState, Easing, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { GeoJSONSource, Layer, Marker } from '@maplibre/maplibre-react-native';
@@ -167,9 +167,9 @@ export function lockData(d: AirData): AirData {
 }
 
 /** Banner under the top bar: "2 planes circling now" — tap to jump to them one by one. */
-export function AirChip({ data, onJump, locked, gated, onUpsell }: { data: AirData | null; onJump: (p: Plane) => void; locked?: boolean; gated?: boolean; onUpsell?: () => void }) {
+/** Nov 1: tap → a list of every plane nearby (what it is, how high, how far), tap one to fly the map to it. */
+export function AirChip({ data, onList, locked, gated, onUpsell }: { data: AirData | null; onList: () => void; locked?: boolean; gated?: boolean; onUpsell?: () => void }) {
   const st = useSt();
-  const idx = useRef(0);
   const hot = (data?.planes ?? []).filter((p) => p.circling);
   if (!data) return null;
   if (locked) {
@@ -184,9 +184,9 @@ export function AirChip({ data, onJump, locked, gated, onUpsell }: { data: AirDa
   const spot = hot.filter((p) => p.spotter).length;
   const stale = data.age_s != null && data.age_s > 120;
   return (
-    <Pressable disabled={!hot.length} onPress={() => { const p = hot[idx.current % hot.length]; idx.current += 1; onJump(p); }}
+    <Pressable disabled={!data.planes.length} onPress={onList}
       style={({ pressed }) => [st.chip, hot.length ? { borderColor: spot ? AIR_COLORS.spotter : AIR_COLORS.circling } : null, pressed && { opacity: 0.75 }]}
-      accessibilityRole="button" accessibilityLabel={hot.length ? `${hot.length} planes circling. Tap to show.` : 'No planes circling'}>
+      accessibilityRole="button" accessibilityLabel={`${data.planes.length} planes nearby${hot.length ? `, ${hot.length} circling` : ''}. Tap for the list.`}>
       <View style={[st.chipDot, { backgroundColor: hot.length ? (spot ? AIR_COLORS.spotter : AIR_COLORS.circling) : colors.faint }]}>
         <MaterialCommunityIcons name="airplane" size={14} color="#FFFFFF" />
       </View>
@@ -196,8 +196,105 @@ export function AirChip({ data, onJump, locked, gated, onUpsell }: { data: AirDa
         {stale ? ` · ${Math.round((data.age_s ?? 0) / 60)} min old` : ''}
       </Text>
       {!gated ? <View style={st.pro}><Text style={st.proT}>PRO · FREE NOW</Text></View> : null}
-      {hot.length ? <Text style={st.chipGo}>Show</Text> : null}
+      {data.planes.length ? <Text style={st.chipGo}>List</Text> : null}
     </Pressable>
+  );
+}
+
+/** Nov 1: every plane the app knows about right now — spotters & circling first, then watched, then nearest. */
+export function AirListSheet({ data, visible, boat, watched, onPick, onClose }: {
+  data: AirData | null; visible: boolean; boat: { lat: number; lon: number } | null; watched: (p: Plane) => Watch | undefined;
+  onPick: (p: Plane) => void; onClose: () => void;
+}) {
+  const st = useSt();
+  const rows = useMemo(() => (data?.planes ?? []).map((p) => {
+    const w = watched(p);
+    const nm = boat ? distanceNm(boat.lat, boat.lon, p.lat, p.lon) : null;
+    const brg = boat ? bearingTrue(boat.lat, boat.lon, p.lat, p.lon) : null;
+    const rank = p.spotter ? 0 : p.circling ? 1 : w ? 2 : 3;
+    return { p, w, nm, brg, rank };
+  }).sort((a, b) => a.rank - b.rank || (a.nm ?? 1e9) - (b.nm ?? 1e9)), [data, boat, watched]);
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={st.dim} onPress={onClose} />
+      <View style={st.sheet}>
+        <View style={st.sheetHead}>
+          <MaterialCommunityIcons name="airplane" size={20} color={colors.live} />
+          <Text style={st.sheetT}>Planes nearby · {rows.length}</Text>
+          <Pressable onPress={onClose} hitSlop={10} style={st.sheetX} accessibilityRole="button" accessibilityLabel="Close"><Ionicons name="close" size={20} color={colors.text} /></Pressable>
+        </View>
+        <Text style={st.sheetS}>Over the water, from live ADS-B. Tap one to show it on the map.</Text>
+        <ScrollView style={{ maxHeight: 460 }} contentContainerStyle={{ paddingBottom: 8 }}>
+          {rows.map(({ p, w, nm, brg }) => {
+            const c = w ? AIR_COLORS.watched : p.spotter ? AIR_COLORS.spotter : p.circling ? AIR_COLORS.circling : p.kind === 'heli' ? AIR_COLORS.heli : colors.muted;
+            const model = planeModel(p);
+            const tag = p.spotter ? 'Likely spotter' : p.circling ? 'Circling' : w ? 'Watching' : null;
+            return (
+              <Pressable key={p.hex} onPress={() => onPick(p)} style={({ pressed }) => [st.lRow, pressed && { opacity: 0.6 }]} accessibilityRole="button"
+                accessibilityLabel={`${planeTitle(p, w)}, ${model ?? ''}, ${altText(p.alt_ft)}${nm != null ? `, ${nm.toFixed(1)} nautical miles` : ''}`}>
+                <View style={[st.lIcon, { backgroundColor: c }]}>
+                  <MaterialCommunityIcons name={p.kind === 'heli' ? 'helicopter' : 'airplane'} size={18} color="#FFFFFF" style={{ transform: [{ rotate: `${(p.track ?? 0) - 45}deg` }] }} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={st.lTitle} numberOfLines={1}>{planeTitle(p, w)}</Text>
+                    {tag ? <View style={[st.lTag, { backgroundColor: c }]}><Text style={st.lTagT}>{tag}</Text></View> : null}
+                  </View>
+                  <Text style={st.lSub} numberOfLines={1}>{[model, p.reg && p.reg !== planeTitle(p, w) ? p.reg : null].filter(Boolean).join(' · ') || 'Aircraft'}</Text>
+                  <Text style={st.lSub} numberOfLines={1}>{altText(p.alt_ft)} · {p.gs_kt != null ? `${Math.round(p.gs_kt)} kt` : '— kt'}{nm != null && brg != null ? ` · ${nm.toFixed(1)} NM ${cardinal(brg)}` : ''}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.faint} />
+              </Pressable>
+            );
+          })}
+          {!rows.length ? <Text style={st.lSub}>No planes over the water right now.</Text> : null}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+/** Nov 1: where each WATCHED plane has flown (up to 6 h, from the server), refreshed every 20 s while the air layer is
+ *  on. Asking also tells the server to keep remembering those planes' full paths. */
+export type WatchedPaths = { now: number; paths: Record<string, [number, number, number, number | null][]> };
+export function useWatchedPaths(on: boolean, hexes: string[]) {
+  const [data, setData] = useState<WatchedPaths | null>(null);
+  const [active, setActive] = useState(AppState.currentState === 'active');
+  useEffect(() => { const s = AppState.addEventListener('change', (st) => setActive(st === 'active')); return () => s.remove(); }, []);
+  const key = hexes.slice().sort().join(',');
+  useEffect(() => {
+    if (!on || !active || !key) { if (!key) setData(null); return; }
+    let alive = true;
+    const load = () => getJSON<WatchedPaths>(`/air/paths?hex=${encodeURIComponent(key)}`, { timeoutMs: 20000 }).then((r) => { if (alive) setData(r.data); }).catch(() => {});
+    load();
+    const t = setInterval(load, 20000);
+    return () => { alive = false; clearInterval(t); };
+  }, [on, active, key]);
+  return data;
+}
+
+/** Map lines for watched planes' recorded paths: bright where it is now, fading the older it gets. */
+export function watchedPathsGeoJSON(d: WatchedPaths | null) {
+  const features: any[] = [];
+  if (!d) return { type: 'FeatureCollection' as const, features };
+  for (const [hex, pts] of Object.entries(d.paths)) {
+    for (let i = 0; i < pts.length - 1; i += 6) {
+      const chunk = pts.slice(i, Math.min(i + 7, pts.length));
+      if (chunk.length < 2) continue;
+      const mid = chunk[Math.floor(chunk.length / 2)][2];
+      features.push({ type: 'Feature', properties: { hex, age_min: Math.round((d.now - mid) / 60) }, geometry: { type: 'LineString', coordinates: chunk.map((q) => [q[0], q[1]]) } });
+    }
+  }
+  return { type: 'FeatureCollection' as const, features };
+}
+
+export function WatchedPathLayer({ data }: { data: WatchedPaths | null }) {
+  const geo = useMemo(() => watchedPathsGeoJSON(data), [data]);
+  return (
+    <GeoJSONSource id="air-watched-paths" data={geo as any}>
+      <Layer type="line" id="air-watched-casing" style={{ lineColor: '#FFFFFF', lineWidth: 5, lineOpacity: ['interpolate', ['linear'], ['get', 'age_min'], 0, 0.7, 360, 0.15] as any, lineCap: 'round', lineJoin: 'round' }} />
+      <Layer type="line" id="air-watched-line" style={{ lineColor: AIR_COLORS.watched, lineWidth: 2.6, lineOpacity: ['interpolate', ['linear'], ['get', 'age_min'], 0, 1, 60, 0.75, 360, 0.3] as any, lineCap: 'round', lineJoin: 'round' }} />
+    </GeoJSONSource>
   );
 }
 
@@ -254,7 +351,7 @@ export function AirCard({ p, watch, boat, credit, onWatch, onUnwatch, onCenter, 
           <Pressable style={({ pressed }) => [st.btn, st.btnOn, pressed && { opacity: 0.8 }]} accessibilityRole="button"
             onPress={() => {
               const base = p.reg || p.callsign || p.hex.toUpperCase();
-              if (Alert.prompt) Alert.prompt('Watch this plane', 'Give it a name you\'ll recognize. It will always be highlighted on the map.', [
+              if (Alert.prompt) Alert.prompt('Watch this plane', 'Give it a name you\'ll recognize. It will be highlighted on the map, with its flight path drawn in purple (up to the last 6 hours).', [
                 { text: 'Cancel', style: 'cancel' }, { text: 'Watch', onPress: (t?: string) => onWatch((t || '').trim() || base) }], 'plain-text', base);
               else onWatch(base);
             }}>
@@ -312,4 +409,16 @@ const useSt = makeStyles((colors) => ({
   credit: { color: colors.faint, fontSize: 11.5 },
   lockRow: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderRadius: 12, borderWidth: 1.5, borderColor: '#FF5A00' },
   lockT: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '700' },
+  dim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
+  sheet: { backgroundColor: colors.panelSolid, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 14, paddingBottom: 30, gap: 6 },
+  sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  sheetT: { flex: 1, color: colors.text, fontSize: 18, fontWeight: '900' },
+  sheetX: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.inset, alignItems: 'center', justifyContent: 'center' },
+  sheetS: { color: colors.muted, fontSize: 13 },
+  lRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  lIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  lTitle: { color: colors.text, fontSize: 15.5, fontWeight: '800', flexShrink: 1 },
+  lTag: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1 },
+  lTagT: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
+  lSub: { color: colors.muted, fontSize: 12.5 },
 }));
