@@ -10,7 +10,7 @@ and about one evening, plus 1–3 days of Apple review.
 - [ ] **Final name and icon.** Edit `"name"` in `mobile/app.json` (what shows under the icon, ≤ 30 characters) and
       replace `mobile/assets/icon.png` (1024 × 1024 PNG, **no transparency**, no rounded corners — Apple rounds it).
       `assets/splash-icon.png` is the launch logo. The current ones are placeholders.
-- [ ] **Bundle ID** is set (`com.cassullo.fishingapp` or yours) — it can never change after the first upload.
+- [ ] **Bundle ID** is set (this app: `com.cassullo.channelnav` — an internal ID only, never shown to people) — it can never change after the first upload.
 - [ ] **Version** `1.0.0`. Build numbers go up by themselves with `eas build` (set in eas.json).
 - [ ] **`.env` filled in** — API, Supabase, plus the About links:
   ```
@@ -62,7 +62,7 @@ TestFlight on your phone and on a buddy's — that's your final test.
 | Support URL | `https://fishing-app-legal.onrender.com/support.html` |
 | Marketing URL | optional |
 | Privacy Policy URL | `https://fishing-app-legal.onrender.com/privacy.html` |
-| Copyright | `2026 Cassullo LLC` (or your company) |
+| Copyright | `2026 Christopher Cooper` |
 
 **Description** (edit freely):
 ```

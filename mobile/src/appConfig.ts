@@ -12,8 +12,10 @@ export type AppConfig = { ads_enabled: boolean; intro_enabled: boolean; maintena
   /** Admin → San Clemente: which San Clemente Island sections the Navy has closed (see sci.ts). */
   sci_closures: any;
   /** Map Studio → Send to app (Oct 30): { style: { water, land, dlw, daw, … } } — chart look for every phone. */
-  map_style: any };
-const DEFAULTS: AppConfig = { ads_enabled: true, intro_enabled: true, maintenance_message: null, min_app_version: '0.0.0', analytics_enabled: true, features_off: [], spotter_premium: false, sci_closures: null, map_style: null };
+  map_style: any;
+  /** Admin → Settings (Nov 1): download link put in group invite messages (TestFlight public link, later the App Store). */
+  invite_link: string | null };
+const DEFAULTS: AppConfig = { ads_enabled: true, intro_enabled: true, maintenance_message: null, min_app_version: '0.0.0', analytics_enabled: true, features_off: [], spotter_premium: false, sci_closures: null, map_style: null, invite_link: null };
 const listeners = new Set<(c: AppConfig) => void>();
 /** Runs whenever new settings arrive (start-up and when the app comes back to the foreground). */
 export function onConfig(fn: (c: AppConfig) => void) { listeners.add(fn); return () => { listeners.delete(fn); }; }

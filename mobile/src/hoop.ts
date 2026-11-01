@@ -9,8 +9,11 @@
 import { bearingTrue, distanceNm } from './geo';
 
 export type PotState = 'down' | 'aboard' | 'done';
-export type Pot = { no: number; lat: number; lon: number; droppedAt: number; state: PotState; drops: number; pulledAt?: number };
-export type HoopSet = { id: string; startedAt: number; crew: number; pots: Pot[]; endedAt?: number };
+/** rank (Nov 1): set when you change the pull order by hand; a (re-)dropped net has none and goes to the back. */
+export type Pot = { no: number; lat: number; lon: number; droppedAt: number; state: PotState; drops: number; pulledAt?: number; rank?: number };
+/** Every drop of the set, kept so you can see where nets already went (this night and past nights). */
+export type Drop = { no: number; lat: number; lon: number; at: number };
+export type HoopSet = { id: string; startedAt: number; crew: number; pots: Pot[]; endedAt?: number; log?: Drop[] };
 
 export const CHECK_MS = 2 * 3600 * 1000;          // CA: raise and check every net at least every 2 hours
 export const SOON_MS = CHECK_MS - 15 * 60 * 1000; // warn 15 minutes before
@@ -21,8 +24,26 @@ export const newSet = (crew: number, now: number): HoopSet => ({ id: `hoop-${now
 
 export const down = (s: HoopSet) => s.pots.filter((p) => p.state === 'down');
 export const aboard = (s: HoopSet) => s.pots.filter((p) => p.state === 'aboard');
-/** Nets in the water, longest soak first — the order to pull them. */
-export const pullOrder = (s: HoopSet) => down(s).slice().sort((a, b) => a.droppedAt - b.droppedAt || a.no - b.no);
+/** Order key: a hand-set rank (small numbers) always comes before soak order (drop time in ms). */
+const key = (p: Pot) => p.rank ?? p.droppedAt;
+/** Nets in the water in the order to pull them: longest soak first, unless you changed the order by hand. */
+export const pullOrder = (s: HoopSet) => down(s).slice().sort((a, b) => key(a) - key(b) || a.droppedAt - b.droppedAt || a.no - b.no);
+
+/** Move a net up (-1) or down (+1) in the pull order (Nov 1: nets get pulled / set out of order on the water). */
+export function moveInLine(s: HoopSet, no: number, dir: -1 | 1): HoopSet {
+  const order = pullOrder(s).map((p) => p.no);
+  const i = order.indexOf(no), j = i + dir;
+  if (i < 0 || j < 0 || j >= order.length) return s;
+  [order[i], order[j]] = [order[j], order[i]];
+  return { ...s, pots: s.pots.map((p) => (order.includes(p.no) ? { ...p, rank: order.indexOf(p.no) + 1 } : p)) };
+}
+/** Make a net the next one up. */
+export function makeNext(s: HoopSet, no: number): HoopSet {
+  const order = pullOrder(s).map((p) => p.no).filter((n) => n !== no);
+  if (!down(s).some((p) => p.no === no)) return s;
+  const full = [no, ...order];
+  return { ...s, pots: s.pots.map((p) => (full.includes(p.no) ? { ...p, rank: full.indexOf(p.no) + 1 } : p)) };
+}
 export const nextUp = (s: HoopSet): Pot | null => pullOrder(s)[0] ?? null;
 /** Nets the boat is still using (in the water or aboard waiting to go back in) — what counts toward the limit. */
 export const inUse = (s: HoopSet) => s.pots.filter((p) => p.state !== 'done').length;
@@ -39,12 +60,14 @@ export function dropSuggestion(s: HoopSet): { kind: 'redrop'; no: number } | { k
 export function dropNew(s: HoopSet, at: { lat: number; lon: number }, now: number): HoopSet {
   if (!canDropNew(s)) return s;
   const no = s.pots.reduce((m, p) => Math.max(m, p.no), 0) + 1;
-  return { ...s, pots: [...s.pots, { no, lat: at.lat, lon: at.lon, droppedAt: now, state: 'down', drops: 1 }] };
+  return { ...s, pots: [...s.pots, { no, lat: at.lat, lon: at.lon, droppedAt: now, state: 'down', drops: 1 }], log: [...(s.log ?? []), { no, lat: at.lat, lon: at.lon, at: now }] };
 }
 
 /** Put a net back in (same number, new spot, soak clock restarts → back of the pull order). */
 export function redrop(s: HoopSet, no: number, at: { lat: number; lon: number }, now: number): HoopSet {
-  return { ...s, pots: s.pots.map((p) => (p.no === no && p.state === 'aboard' ? { ...p, lat: at.lat, lon: at.lon, droppedAt: now, state: 'down', drops: p.drops + 1, pulledAt: undefined } : p)) };
+  if (!s.pots.some((p) => p.no === no && p.state === 'aboard')) return s;
+  return { ...s, pots: s.pots.map((p) => (p.no === no && p.state === 'aboard' ? { ...p, lat: at.lat, lon: at.lon, droppedAt: now, state: 'down', drops: p.drops + 1, pulledAt: undefined, rank: undefined } : p)),
+    log: [...(s.log ?? []), { no, lat: at.lat, lon: at.lon, at: now }] };
 }
 
 export function pull(s: HoopSet, no: number, now: number): HoopSet {
@@ -56,9 +79,50 @@ export function finish(s: HoopSet, no: number): HoopSet {
   return { ...s, pots: s.pots.map((p) => (p.no === no ? { ...p, state: 'done' } : p)) };
 }
 
-/** Move a pin (dropped it a bit off from where the boat was). */
+/** Move a pin (dropped it a bit off from where the boat was). The latest drop in the log moves with it. */
 export function movePot(s: HoopSet, no: number, at: { lat: number; lon: number }): HoopSet {
-  return { ...s, pots: s.pots.map((p) => (p.no === no ? { ...p, lat: at.lat, lon: at.lon } : p)) };
+  const log = (s.log ?? []).slice();
+  for (let i = log.length - 1; i >= 0; i--) if (log[i].no === no) { log[i] = { ...log[i], lat: at.lat, lon: at.lon }; break; }
+  return { ...s, pots: s.pots.map((p) => (p.no === no ? { ...p, lat: at.lat, lon: at.lon } : p)), log };
+}
+
+// ---- Saved sets (Nov 1): every set is kept when it ends, so you can see where you already dropped and spread out.
+export const KEEP_DAYS = 45;
+export type SavedSet = { id: string; startedAt: number; endedAt: number; drops: Drop[] };
+/** Add an ended set to the saved list (newest first), dropping ones older than KEEP_DAYS. */
+export function saveSet(history: SavedSet[], s: HoopSet, now: number): SavedSet[] {
+  const drops = s.log?.length ? s.log : s.pots.map((p) => ({ no: p.no, lat: p.lat, lon: p.lon, at: p.droppedAt }));
+  const keep = history.filter((h) => h.id !== s.id && now - h.endedAt < KEEP_DAYS * 86400000);
+  return drops.length ? [{ id: s.id, startedAt: s.startedAt, endedAt: now, drops }, ...keep].slice(0, 60) : keep;
+}
+/** Map dots for earlier drops: past sets, plus this set's earlier spots (where a net was before it got re-dropped).
+ *  age_d = days ago (for the color), tonight = 1 for this set. */
+export function pastDropsGeoJSON(history: SavedSet[], current: HoopSet | null, now: number, days = KEEP_DAYS) {
+  const features: any[] = [];
+  for (const h of history) {
+    if (now - h.endedAt > days * 86400000) continue;
+    for (const d of h.drops) features.push({ type: 'Feature', properties: { no: d.no, age_d: Math.round(((now - d.at) / 86400000) * 10) / 10, tonight: 0 },
+      geometry: { type: 'Point', coordinates: [d.lon, d.lat] } });
+  }
+  if (current?.log) {
+    const live = new Set(current.pots.filter((p) => p.state !== 'done').map((p) => `${p.no}|${p.lat}|${p.lon}`));
+    for (const d of current.log) {
+      if (live.has(`${d.no}|${d.lat}|${d.lon}`)) continue;
+      features.push({ type: 'Feature', properties: { no: d.no, age_d: 0, tonight: 1 }, geometry: { type: 'Point', coordinates: [d.lon, d.lat] } });
+    }
+  }
+  return { type: 'FeatureCollection' as const, features };
+}
+/** How far (ft) the boat is from the closest earlier drop (null = none within 45 days). */
+export function nearestPastFt(history: SavedSet[], current: HoopSet | null, from: { lat: number; lon: number } | null, now: number): number | null {
+  if (!from) return null;
+  let best: number | null = null;
+  for (const f of pastDropsGeoJSON(history, current, now).features) {
+    const [lon, lat] = f.geometry.coordinates;
+    const ft = distanceNm(from.lat, from.lon, lat, lon) * 6076.12;
+    if (best == null || ft < best) best = ft;
+  }
+  return best;
 }
 
 export type Soak = 'ok' | 'soon' | 'due';

@@ -1,5 +1,6 @@
 // Crew tab (was Community → My groups). Your crews: invites (email or code), who's out and where (live / last known),
 // "Come to me", shared catches, spots and routes, messages, and float plans with automatic overdue alerts.
+import { config } from '../appConfig';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import * as Location from 'expo-location';
@@ -328,7 +329,7 @@ function GroupDetailView({ groupId, me, nav, plan, onPlanChanged, onBack }: {
         <View style={st.codeBox}><Text style={st.sub}>Invite code</Text><Text style={st.codeT} selectable>{d.invite_code}</Text></View>
         {panel === 'invite' ? <InviteForm d={d} myLabel={mine?.label ?? null} onDone={load} /> : null}
         {!panel || panel !== 'invite' ? (
-          <Btn label="Share the code" onPress={() => Share.share({ message: G.inviteMessage(d.name, d.invite_code, mine?.label ?? null) }).catch(() => {})} />
+          <Btn label="Share the code" onPress={() => Share.share({ message: G.inviteMessage(d.name, d.invite_code, mine?.label ?? null, config().invite_link) }).catch(() => {})} />
         ) : null}
         {d.invites.length ? (
           <View style={{ gap: 4 }}>
@@ -489,7 +490,7 @@ function InviteForm({ d, myLabel, onDone }: { d: G.GroupDetail; myLabel: string 
       if (ok.length) {
         Alert.alert('Invites saved', `${lines}\n\nIf they already have the app they'll get a notification. Send them a message too, so they know to download it and sign in with that email.`, [
           { text: 'Later' },
-          { text: 'Send message', onPress: () => Share.share({ message: G.inviteMessage(d.name, d.invite_code, myLabel) }).catch(() => {}) }]);
+          { text: 'Send message', onPress: () => Share.share({ message: G.inviteMessage(d.name, d.invite_code, myLabel, config().invite_link) }).catch(() => {}) }]);
       } else Alert.alert('No invites sent', lines);
     } catch (e) { fail(e); } finally { setBusy(false); }
   };

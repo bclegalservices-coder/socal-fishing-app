@@ -29,7 +29,7 @@ import { AirCard, AirChip, AirMapLayer, useAirTraffic, useWatchList, type Plane 
 import { SpotterHistoryBar, SpotterHistoryLayer, SpotterSessionCard, useSpotterHistory } from '../components/SpotterHistory';
 import type { SpotSession } from '../spotterHistory';
 import { usePro } from '../pro';
-import { HoopBanner, HoopMapLayer, HoopPanel } from '../components/Hoop';
+import { HoopBanner, HoopMapLayer, HoopOrderSheet, HoopPanel, HoopPastLayer } from '../components/Hoop';
 import * as H from '../hoop';
 import { deg3 as mDeg3, legs as mLegs, measureFC, type MPt } from '../measure';
 import { fmtDist as uDist, useUnits } from '../units';
@@ -140,6 +140,7 @@ const lineF = (pts: (Pt | TrackPoint)[]) => ({ type: 'Feature' as const, propert
 function StayAwake() { useKeepAwake(); return null; }
 const VIEW_KEY = 'map-view:v1';
 const HOOP_KEY = 'hoop-set:v1';
+const HOOP_HISTORY_KEY = 'hoop-history:v1';   // Nov 1: saved sets (where nets went), last 45 days
 const START_CENTER: [number, number] = [-118.42, 33.38];   // Santa Catalina Island
 const START_ZOOM = 9.6;
 
@@ -808,6 +809,14 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const hoopUndo = useRef<(H.HoopSet | null)[]>([]);
   const [hoopNow, setHoopNow] = useState(Date.now());
   useEffect(() => { AsyncStorage.getItem(HOOP_KEY).then((v) => { if (v) setHoopState(JSON.parse(v)); }).catch(() => {}); }, []);
+  const [hoopHistory, setHoopHistory] = useState<H.SavedSet[]>([]);
+  const [hoopShowPast, setHoopShowPast] = useState(true);
+  const [hoopOrderOpen, setHoopOrderOpen] = useState(false);
+  useEffect(() => { AsyncStorage.getItem(HOOP_HISTORY_KEY).then((v) => { if (v) setHoopHistory(JSON.parse(v)); }).catch(() => {}); }, []);
+  const hoopZoom = () => {     // Nov 1: hoop netting happens in a small area — zoom right in on the boat
+    const p = here();
+    if (p) camera.current?.setStop({ center: [p.lon, p.lat], zoom: 17, duration: 800 }).catch(() => {});
+  };
   const setHoop = (next: H.HoopSet | null, undoable = true) => {
     if (undoable) hoopUndo.current = [...hoopUndo.current.slice(-9), hoop];
     setHoopState(next); setHoopNow(Date.now());
@@ -824,8 +833,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const startHoop = () => {
     if (hoop) { setPanel('none'); return; }
     Alert.alert('Hoop netting', 'How many people are fishing on the boat? California (south of Point Arguello): a solo operator can use up to 5 hoop nets, and a boat can never have more than 10.', [
-      { text: 'Just me · 5 nets', onPress: () => { setHoop(H.newSet(1, Date.now()), false); track('hoop_started', { crew: 1 }); } },
-      { text: '2 or more · 10 nets', onPress: () => { setHoop(H.newSet(2, Date.now()), false); track('hoop_started', { crew: 2 }); } },
+      { text: 'Just me · 5 nets', onPress: () => { setHoop(H.newSet(1, Date.now()), false); hoopZoom(); track('hoop_started', { crew: 1 }); } },
+      { text: '2 or more · 10 nets', onPress: () => { setHoop(H.newSet(2, Date.now()), false); hoopZoom(); track('hoop_started', { crew: 2 }); } },
       { text: 'Cancel', style: 'cancel' }]);
   };
   const hoopDrop = () => {
@@ -856,6 +865,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     if (p.state === 'aboard' && h) opts.push({ text: `Re-drop No. ${p.no} here`, onPress: () => { Vibration.vibrate(60); setHoop(H.redrop(hoop, p.no, h, Date.now())); } });
     if (h) opts.push({ text: `Move pin No. ${p.no} to the boat`, onPress: () => setHoop(H.movePot(hoop, p.no, h)) });
     opts.push({ text: `Guide me to No. ${p.no}`, onPress: () => startNav([{ lat: p.lat, lon: p.lon, name: `Hoop net No. ${p.no}` }], `Hoop net No. ${p.no}`) });
+    if (p.state === 'down' && H.nextUp(hoop)?.no !== p.no) opts.push({ text: `Make No. ${p.no} next up`, onPress: () => setHoop(H.makeNext(hoop, p.no)) });
+    if (p.state === 'down' && H.down(hoop).length > 1) opts.push({ text: 'Change pull order…', onPress: () => setHoopOrderOpen(true) });
     if (p.state === 'aboard') opts.push({ text: `Done with No. ${p.no} (stays aboard)`, onPress: () => setHoop(H.finish(hoop, p.no)) });
     opts.push({ text: 'Cancel', style: 'cancel' });
     Alert.alert(`Net No. ${p.no}`, p.state === 'down' ? `In the water ${H.soakText(Date.now() - p.droppedAt)}${p.drops > 1 ? ` · drop ${p.drops}` : ''}` : 'Aboard', opts);
@@ -863,9 +874,13 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const hoopEnd = () => {
     if (!hoop) return;
     const n = H.down(hoop).length;
-    Alert.alert('End the hoop set?', n ? `${n} net${n === 1 ? ' is' : 's are'} still in the water. Their pins will be removed from the map.` : 'All nets are up. Clears the set from the map.', [
+    Alert.alert('Save & end the hoop set?', `${n ? `${n} net${n === 1 ? ' is' : 's are'} still in the water — their pins come off the map. ` : 'All nets are up. '}Every spot you dropped tonight is saved, and shows as a faint dot next time you go hoop netting (for 45 days), so you can spread out.`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'End set', style: n ? 'destructive' : 'default', onPress: () => { setHoop(null, false); hoopUndo.current = []; track('hoop_ended', { left_down: n }); } }]);
+      { text: 'Save & end', style: n ? 'destructive' : 'default', onPress: () => {
+        const hist = H.saveSet(hoopHistory, hoop, Date.now());
+        setHoopHistory(hist); AsyncStorage.setItem(HOOP_HISTORY_KEY, JSON.stringify(hist)).catch(() => {});
+        setHoop(null, false); hoopUndo.current = []; track('hoop_ended', { left_down: n, drops: hoop.log?.length ?? hoop.pots.length });
+      } }]);
   };
   const jumpToPlane = (p: Plane) => { setAirSel(p.hex); setSel(null); camera.current?.setStop({ center: [p.lon, p.lat], zoom: Math.max(view?.zoom ?? 10, 10.5), duration: 700 }).catch(() => {}); track('air_jump'); };
   // Your own spot names show when zoomed in close, so a busy area doesn't fill with text.
@@ -915,9 +930,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       { key: 'track', label: active ? 'Recording…' : 'Trips', sub: active ? 'Tap to stop and save' : `Record, play back and compare · ${tracks.length} saved`, icon: active ? 'stop-circle' : 'radio-button-on', tint: colors.alert, active: !!active, onPress: () => setPanel('tracks') },
       { key: 'hoop', label: 'Hoop netting', sub: hoop ? `${H.down(hoop).length} down · next No. ${H.nextUp(hoop)?.no ?? '—'}` : 'Number your nets, pull them in soak order', icon: 'ellipse-outline', tint: '#FF2BD6', active: !!hoop, onPress: () => { setSel(null); startHoop(); } },
       { key: 'measure', label: 'Measure distance', sub: 'Distance and bearing between points', icon: 'resize', onPress: () => { setPanel('none'); setSel(null); setMeasure([]); track('measure_used'); } },
-      { key: 'probe', label: probe ? 'Stop reading' : 'Read conditions', sub: 'Water temp & depth under the crosshair', icon: 'scan', onPress: () => { if (!probe) track('probe_used'); setProbe(!probe); setProbeData(null); } },
       { key: 'today', label: "Today's report", sub: "What's biting, water, warnings", icon: 'newspaper', tint: colors.ok, onPress: () => { setToday(true); track('screen_view', { screen: 'today' }); } },
-      { key: 'wx', label: 'Weather here', sub: '5-day forecast for your boat', icon: 'partly-sunny', tint: colors.warn, hidden: !onWeather, onPress: () => { const p = here(); if (p && onWeather) onWeather(p.lat, p.lon, 'My position'); else if (onWeather) onWeather(33.585, -117.885, 'Off Newport'); } },
     ]} />;
   } else if (draft) {
     bottom = <RouteDraft points={draft} sogKt={motion.sogKt} onUndo={() => setDraft(draft.slice(0, -1))} onSave={saveDraft}
@@ -931,7 +944,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       onUndo={() => { const prev = hoopUndo.current.pop(); setHoop(prev ?? null, false); }}
       onCrew={() => Alert.alert('People fishing on the boat', 'Solo: up to 5 nets. Two or more: up to 10 nets per boat.', [
         { text: 'Just me · 5 nets', onPress: () => setHoop({ ...hoop, crew: 1 }) }, { text: '2 or more · 10 nets', onPress: () => setHoop({ ...hoop, crew: 2 }) }, { text: 'Cancel', style: 'cancel' }])}
-      onEnd={hoopEnd} onPotPress={hoopPotPress} />;
+      onEnd={hoopEnd} onPotPress={hoopPotPress} onOrder={() => setHoopOrderOpen(true)} onZoom={hoopZoom}
+      pastFt={H.nearestPastFt(hoopHistory, hoop, here(), hoopNow)} showPast={hoopShowPast} onTogglePast={() => setHoopShowPast((v) => !v)} />;
   } else if (clusterSel) {
     bottom = <ClusterSheet c={clusterSel} hours={catchHours} onClose={() => setClusterSel(null)} />;
   } else if (buoy) {
@@ -1007,7 +1021,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
             {active ? <Pressable style={[st.chip, { borderColor: colors.alert }]} onPress={() => setPanel('tracks')} accessibilityRole="button"><Text style={[st.chipT, { color: colors.alert }]}>● Recording trip</Text></Pressable> : null}
             <Text style={st.disclaimer}>{SHORT_WARNING}</Text>
           </View>
-          <Pressable style={({ pressed }) => [st.plus, pressed && { opacity: 0.8 }]} onPress={() => { setSel(null); setPanel('actions'); }} accessibilityRole="button" accessibilityLabel="Actions: log a catch, save spot, crew, routes, record, conditions, report, weather">
+          <Pressable style={({ pressed }) => [st.plus, pressed && { opacity: 0.8 }]} onPress={() => { setSel(null); setPanel('actions'); }} accessibilityRole="button" accessibilityLabel="Actions: log a catch, save spot, crew, routes, record, report">
             <Ionicons name="add" size={34} color={colors.accentInk} />
           </Pressable>
         </View>
@@ -1020,6 +1034,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   return (
     <View style={st.root}>
       {awake === 'always' || (awake === 'active' && (nav || active || hoop)) ? <StayAwake /> : null}
+      {hoop ? <HoopOrderSheet set={hoop} now={hoopNow} visible={hoopOrderOpen} onMove={(no, dir) => setHoop(H.moveInLine(hoop, no, dir))} onClose={() => setHoopOrderOpen(false)} /> : null}
       <MapView style={StyleSheet.absoluteFill} mapStyle={mapStyle as any} attribution logo={false} compass={false}
         onPress={onMapPress} onLongPress={onLongPress}
         onRegionWillChange={(e: any) => { if (nav && follow && e?.nativeEvent?.userInteraction) setFollow(false); }}
@@ -1133,6 +1148,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
             </GeoJSONSource>
           </>
         ) : null}
+        {hoop && hoopShowPast ? <HoopPastLayer history={hoopHistory} set={hoop} now={hoopNow} /> : null}
         {hoop ? <HoopMapLayer set={hoop} boat={here()} now={hoopNow} onPotPress={(p) => { featurePressAt.current = Date.now(); hoopPotPress(p); }} /> : null}
         {spotHistOn ? <SpotterHistoryLayer data={spotHist} hours={spotHours} labels={(view?.zoom ?? 0) >= 9}
           onPick={(x) => { featurePressAt.current = Date.now(); setSpotSel(x); setAirSel(null); setSel(null); setBuoy(null); track('spot_hist_tap', { active: x.active }); }} /> : null}

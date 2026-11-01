@@ -1,12 +1,12 @@
 // Hoop netting screens (Oct 28): numbered net pins + the set line on the map, a "Next up" banner that guides you
 // back, and a big-button panel for dropping, pulling and re-dropping. The rules live in ../hoop.ts.
 import { useEffect, useMemo, useRef } from 'react';
-import { Alert, Animated, Easing, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { GeoJSONSource, Layer, Marker } from '@maplibre/maplibre-react-native';
 import { colors, makeStyles, touch } from '../theme';
 import { cardinal } from '../geo';
-import { aboard, atNet, dropSuggestion, fmtFt, guide, inUse, limitFor, nextUp, pullOrder, setLine, soakState, soakText, type HoopSet, type Pot } from '../hoop';
+import { aboard, atNet, dropSuggestion, fmtFt, guide, inUse, limitFor, nextUp, pastDropsGeoJSON, pullOrder, setLine, soakState, soakText, type HoopSet, type Pot, type SavedSet } from '../hoop';
 
 // Oct 28: nets in the water are YELLOW, the next one up flashes NEON PINK (and the guide line to it is pink).
 const C = { down: '#FFD400', soon: '#FF8A00', due: '#E0002A', aboard: '#7A8794', next: '#FF2BD6', line: '#FFFFFF', guide: '#FF2BD6', ok: '#1CA05A' };
@@ -73,6 +73,57 @@ export function HoopMapLayer({ set, boat, now, onPotPress }: { set: HoopSet; boa
   );
 }
 
+/** Nov 1: where nets already went — earlier tonight (pink rings) and past nights (purple → gray as they age), so you
+ *  don't drop on top of the same spot. Drawn under the live net pins. */
+export function HoopPastLayer({ history, set, now }: { history: SavedSet[]; set: HoopSet | null; now: number }) {
+  const data = useMemo(() => pastDropsGeoJSON(history, set, now), [history, set, Math.floor(now / 600000)]);
+  return (
+    <GeoJSONSource id="hoop-past" data={data as any}>
+      <Layer type="circle" id="hoop-past-dot" style={{
+        circleRadius: ['interpolate', ['linear'], ['zoom'], 12, 3, 16, 7, 19, 11] as any,
+        circleColor: ['case', ['==', ['get', 'tonight'], 1], '#FF2BD6', ['interpolate', ['linear'], ['get', 'age_d'], 0, '#B07CFF', 7, '#8C7BB8', 30, '#8A99AA']] as any,
+        circleOpacity: ['case', ['==', ['get', 'tonight'], 1], 0.28, ['interpolate', ['linear'], ['get', 'age_d'], 0, 0.6, 30, 0.35]] as any,
+        circleStrokeColor: '#FFFFFF', circleStrokeWidth: 1.5,
+        circleStrokeOpacity: ['interpolate', ['linear'], ['get', 'age_d'], 0, 0.9, 30, 0.5] as any,
+      }} />
+    </GeoJSONSource>
+  );
+}
+
+/** Nov 1: change the pull order by hand (nets set or pulled out of order). Top = next up. */
+export function HoopOrderSheet({ set, now, visible, onMove, onClose }: { set: HoopSet; now: number; visible: boolean; onMove: (no: number, dir: -1 | 1) => void; onClose: () => void }) {
+  const st = useSt();
+  const order = pullOrder(set);
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={st.dim} onPress={onClose} />
+      <View style={st.sheet}>
+        <View style={st.sheetHead}>
+          <Text style={st.sheetT}>Pull order</Text>
+          <Pressable onPress={onClose} hitSlop={10} style={st.sheetX} accessibilityRole="button" accessibilityLabel="Close"><Ionicons name="close" size={20} color={colors.text} /></Pressable>
+        </View>
+        <Text style={st.sheetS}>Top is next up. Use the arrows to put the nets in the order you'll pull them. A net you re-drop goes to the bottom.</Text>
+        <ScrollView style={{ maxHeight: 380 }} contentContainerStyle={{ gap: 6, paddingBottom: 6 }}>
+          {order.map((p, i) => (
+            <View key={p.no} style={[st.ordRow, i === 0 && { borderColor: C.next }]}>
+              <Text style={[st.ordN, i === 0 && { color: C.next }]}>{i + 1}.</Text>
+              <View style={[st.ordPin, { backgroundColor: i === 0 ? C.next : C.down }]}><Text style={[st.ordPinT, { color: i === 0 ? '#FFFFFF' : '#10263A' }]}>{p.no}</Text></View>
+              <Text style={st.ordT} numberOfLines={1}>Net No. {p.no} · {soakText(now - p.droppedAt)}{i === 0 ? ' · next up' : ''}</Text>
+              <Pressable onPress={() => onMove(p.no, -1)} disabled={i === 0} style={[st.ordBtn, i === 0 && { opacity: 0.3 }]} accessibilityRole="button" accessibilityLabel={`Move net ${p.no} earlier`}>
+                <Ionicons name="arrow-up" size={20} color={colors.text} />
+              </Pressable>
+              <Pressable onPress={() => onMove(p.no, 1)} disabled={i === order.length - 1} style={[st.ordBtn, i === order.length - 1 && { opacity: 0.3 }]} accessibilityRole="button" accessibilityLabel={`Move net ${p.no} later`}>
+                <Ionicons name="arrow-down" size={20} color={colors.text} />
+              </Pressable>
+            </View>
+          ))}
+          {!order.length ? <Text style={st.empty}>No nets in the water.</Text> : null}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
 /** Top banner (slim, Oct 28 v2): next net, how far / which way, soak time, boat speed. Replaces the GPS card while hooping
  *  so the map stays visible. */
 export function HoopBanner({ set, boat, heading, now, sogKt }: { set: HoopSet; boat: { lat: number; lon: number } | null; heading: number | null; now: number; sogKt?: number | null }) {
@@ -107,9 +158,10 @@ export function HoopBanner({ set, boat, heading, now, sogKt }: { set: HoopSet; b
 }
 
 /** Bottom bar (slim, Oct 28 v2): PULLED + DROP side by side, then one row of small net chips with Undo and "more". */
-export function HoopPanel({ set, boat, now, canUndo, onPull, onDrop, onUndo, onCrew, onEnd, onPotPress }: {
+export function HoopPanel({ set, boat, now, canUndo, onPull, onDrop, onUndo, onCrew, onEnd, onPotPress, onOrder, onZoom, pastFt, showPast, onTogglePast }: {
   set: HoopSet; boat: { lat: number; lon: number } | null; now: number; canUndo: boolean;
   onPull: (no: number) => void; onDrop: () => void; onUndo: () => void; onCrew: () => void; onEnd: () => void; onPotPress: (p: Pot) => void;
+  onOrder: () => void; onZoom: () => void; pastFt: number | null; showPast: boolean; onTogglePast: () => void;
 }) {
   const st = useSt();
   const nu = nextUp(set);
@@ -120,10 +172,14 @@ export function HoopPanel({ set, boat, now, canUndo, onPull, onDrop, onUndo, onC
   const up = aboard(set).sort((a, b) => a.no - b.no);
   const atNext = !!(nu && here && here.no === nu.no);
   const more = () => Alert.alert('Hoop set', `${set.crew <= 1 ? 'Solo · 5 nets max' : '2+ aboard · 10 nets per boat'}. Tap a net's number (on the map or below) to move it, re-drop it, or get guided to it.`, [
+    ...(order.length > 1 ? [{ text: 'Change pull order', onPress: onOrder }] : []),
+    { text: 'Zoom in on the boat', onPress: onZoom },
+    { text: showPast ? 'Hide earlier drops' : 'Show earlier drops (45 days)', onPress: onTogglePast },
     { text: set.crew <= 1 ? 'Change to 2+ aboard (10 nets)' : 'Change to solo (5 nets)', onPress: onCrew },
-    { text: 'End set', style: 'destructive', onPress: onEnd },
-    { text: 'Close', style: 'cancel' },
+    { text: 'Save & end set', style: 'destructive' as const, onPress: onEnd },
+    { text: 'Close', style: 'cancel' as const },
   ]);
+  const near = sug.kind === 'new' && showPast && pastFt != null && pastFt < 120;
   return (
     <View style={st.panel}>
       <View style={st.row}>
@@ -138,7 +194,7 @@ export function HoopPanel({ set, boat, now, canUndo, onPull, onDrop, onUndo, onC
           <Text style={[st.dropT, sug.kind === 'redrop' && { color: colors.live }]} numberOfLines={1}>
             {sug.kind === 'redrop' ? `RE-DROP ${sug.no}` : sug.kind === 'new' ? `DROP ${sug.no}` : `LIMIT ${limitFor(set.crew)}`}
           </Text>
-          <Text style={st.dropS} numberOfLines={1}>{sug.kind === 'redrop' ? 'Back of the line' : sug.kind === 'new' ? (boat ? 'Net at the boat' : 'Waiting for GPS') : 'Net limit reached'}</Text>
+          <Text style={[st.dropS, near && { color: C.soon, fontWeight: '800' }]} numberOfLines={1}>{sug.kind === 'redrop' ? 'Back of the line' : sug.kind === 'new' ? (!boat ? 'Waiting for GPS' : near ? `Earlier drop ${fmtFt(pastFt!)} away` : 'Net at the boat') : 'Net limit reached'}</Text>
         </Pressable>
       </View>
       <View style={st.row2}>
@@ -162,7 +218,7 @@ export function HoopPanel({ set, boat, now, canUndo, onPull, onDrop, onUndo, onC
           {!order.length && !up.length ? <Text style={st.empty}>Pull order shows here</Text> : null}
         </ScrollView>
         <Pressable onPress={onUndo} disabled={!canUndo} style={[st.iconBtn, !canUndo && { opacity: 0.35 }]} accessibilityRole="button" accessibilityLabel="Undo"><Ionicons name="arrow-undo" size={20} color={colors.text} /></Pressable>
-        <Pressable onPress={more} style={st.iconBtn} accessibilityRole="button" accessibilityLabel="More: crew size, end set"><Ionicons name="ellipsis-horizontal" size={20} color={colors.text} /></Pressable>
+        <Pressable onPress={more} style={st.iconBtn} accessibilityRole="button" accessibilityLabel="More: pull order, zoom, earlier drops, crew size, end set"><Ionicons name="ellipsis-horizontal" size={20} color={colors.text} /></Pressable>
       </View>
     </View>
   );
@@ -206,4 +262,16 @@ const useSt = makeStyles((colors) => ({
   chipS: { color: colors.muted, fontSize: 10.5, fontWeight: '700' },
   empty: { color: colors.muted, fontSize: 13 },
   iconBtn: { width: 44, height: 44, borderRadius: 11, borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  dim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
+  sheet: { backgroundColor: colors.panelSolid, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 14, paddingBottom: 30, gap: 8 },
+  sheetHead: { flexDirection: 'row', alignItems: 'center' },
+  sheetT: { flex: 1, color: colors.text, fontSize: 18, fontWeight: '900' },
+  sheetX: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.inset, alignItems: 'center', justifyContent: 'center' },
+  sheetS: { color: colors.muted, fontSize: 13 },
+  ordRow: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1.5, borderColor: colors.border, borderRadius: 12, padding: 6 },
+  ordN: { color: colors.muted, fontSize: 15, fontWeight: '900', width: 26, textAlign: 'right' },
+  ordPin: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#FFFFFF' },
+  ordPinT: { fontSize: 14, fontWeight: '900' },
+  ordT: { flex: 1, color: colors.text, fontSize: 14.5, fontWeight: '700' },
+  ordBtn: { width: 44, height: 40, borderRadius: 10, borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
 }));

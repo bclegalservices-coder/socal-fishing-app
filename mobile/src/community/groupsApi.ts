@@ -133,10 +133,15 @@ export async function revokeInvite(id: string) {
 export function parseEmails(text: string): string[] {
   return Array.from(new Set(text.split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter(Boolean)));
 }
-export function inviteMessage(groupName: string, code: string, inviter: string | null): string {
-  return `${inviter ? `${inviter} invited you` : "You're invited"} to the fishing group "${groupName}" — we share boat positions, ` +
-    `hot spots and catches on the water.\n\n1. Get the app: https://YOUR-APP-LINK\n2. Sign in with this email address — the invite will be waiting.\n` +
-    `Or join with code: ${code}`;
+/** Nov 1: the code comes first — buddies use their OWN account and just type the code. The download link comes from
+ *  Admin → Settings → invite_link (TestFlight / App Store / Android page), so it can change without an app update. */
+export function inviteMessage(groupName: string, code: string, inviter: string | null, link?: string | null): string {
+  const url = typeof link === 'string' && /^https?:\/\//.test(link.trim()) ? link.trim() : null;
+  return `${inviter ? `${inviter} invited you` : "You're invited"} to the Channel Nav fishing group "${groupName}" — we share boat positions, ` +
+    `hot spots and catches on the water.\n\n` +
+    `Group code: ${code}\n\n` +
+    `Already have Channel Nav? Open it → Crew tab → Join with a code → type ${code}. Use your own account — any email is fine.\n\n` +
+    (url ? `Don't have the app yet? Get it here: ${url}` : `Don't have the app yet? Ask ${inviter ?? 'me'} for the download link.`);
 }
 
 // ---------------- feed: come to me, position, spots, routes, messages ----------------

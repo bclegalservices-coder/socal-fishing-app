@@ -147,7 +147,7 @@ cp -R ../mobile-files/. .   # Windows PowerShell: Copy-Item -Recurse -Force ..\m
 
 Now edit two things in VS Code:
 
-1. **`app.json`** — replace both `com.CHANGEME.fishingapp` with a unique ID, all lowercase, no spaces, e.g. `com.cassullo.fishingapp`. Pick it once; it can't change after the app is on the App Store. (The display name "Fishing App" can change anytime.)
+1. **`app.json`** — replace both `com.CHANGEME.fishingapp` with a unique ID, all lowercase, no spaces, e.g. `com.yourname.fishingapp`. Pick it once; it can't change after the app is on the App Store. (The display name "Fishing App" can change anytime.)
 2. Create a file **`mobile/.env`** with these lines (your Render URL, and the Supabase values from Part D step 5):
 
 ```

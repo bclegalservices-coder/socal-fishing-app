@@ -1,3 +1,4 @@
+import { makeNext, moveInLine, nearestPastFt, pastDropsGeoJSON, saveSet } from './hoop';
 import { AT_NET_FT, atNet, canDropNew, dropNew, dropSuggestion, finish, guide, inUse, limitFor, newSet, nextUp, pull, pullOrder, redrop, setLine, soakState, soakText } from './hoop';
 
 const T0 = 1_700_000_000_000;
@@ -63,4 +64,33 @@ test('guidance and "you are at it"', () => {
   expect(atNet(s, { lat: 33.40002, lon: -118.4 })!.no).toBe(1);
   expect(AT_NET_FT).toBeGreaterThan(50);
   expect(setLine(finish(s, 3)).map((p) => p.no).join(',')).toBe('1,2,4,5,6');
+});
+
+test('pull order can be changed by hand; a re-dropped net still goes to the back', () => {
+  let s = sixDown();
+  s = moveInLine(s, 3, -1);                                               // No. 3 one place earlier
+  expect(pullOrder(s).map((p) => p.no).join(',')).toBe('1,3,2,4,5,6');
+  s = makeNext(s, 5);
+  expect(pullOrder(s).map((p) => p.no).join(',')).toBe('5,1,3,2,4,6');
+  s = pull(s, 5, T0 + 90 * min);
+  s = redrop(s, 5, at(12), T0 + 92 * min);
+  expect(pullOrder(s).map((p) => p.no).join(',')).toBe('1,3,2,4,6,5');
+  s = dropNew(newSet(2, T0), at(0), T0);
+  expect(moveInLine(s, 1, -1)).toBe(s);                                   // nothing to swap with
+});
+
+test('every drop is logged and a finished set is saved for next time', () => {
+  let s = sixDown();
+  s = pull(s, 1, T0 + 60 * min);
+  s = redrop(s, 1, at(10), T0 + 62 * min);
+  expect(s.log!.length).toBe(7);
+  const live = pastDropsGeoJSON([], s, T0 + 70 * min);
+  expect(live.features.length).toBe(1);                                   // No. 1's first spot (it moved)
+  expect(live.features[0].properties.tonight).toBe(1);
+  const hist = saveSet([], s, T0 + 3 * 60 * min);
+  expect(hist[0].drops.length).toBe(7);
+  const later = T0 + 5 * 86400000;
+  expect(pastDropsGeoJSON(hist, null, later).features.length).toBe(7);
+  expect(nearestPastFt(hist, null, at(0), later)).toBeLessThan(5);
+  expect(saveSet(hist, newSet(1, later), later + 46 * 86400000).length).toBe(0);   // old ones expire, empty sets aren't saved
 });

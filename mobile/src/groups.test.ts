@@ -32,6 +32,9 @@ test('feed wording', () => {
   expect(shareTitle({ kind: 'overdue', who: 'Sam', payload: {}, mine: false })).toBe('Sam is overdue');
   expect(shareIcon('checkin', 'out')).toBe('🚤');
   expect(inviteMessage('Reel Crew', 'AB12CD', 'Chris')).toContain('code: AB12CD');
+  expect(inviteMessage('Reel Crew', 'AB12CD', 'Chris')).toContain('Ask Chris for the download link');
+  expect(inviteMessage('Reel Crew', 'AB12CD', 'Chris', 'https://testflight.apple.com/join/XYZ')).toContain('Get it here: https://testflight.apple.com/join/XYZ');
+  expect(inviteMessage('Reel Crew', 'AB12CD', null, 'YOUR-APP-LINK')).not.toContain('YOUR-APP-LINK');
 });
 
 test('tapping a notification', () => {
