@@ -701,7 +701,8 @@ async function feedback(view = 'feedback') {
 }
 
 async function health() {
-  const limits = { sst: 36, chl: 48, wind: 12, rules: 24 * 60 };
+  // Nov 1: satellite products themselves arrive 1–3 days late (Copernicus gap-free chlorophyll ~3 days), plus the job runs twice a day
+  const limits = { sst: 54, chl: 96, wind: 12, rules: 24 * 60 };
   let api = null, layers = [];
   try { api = await (await fetch(cfg.api + '/health')).json(); layers = (await (await fetch(cfg.api + '/layers')).json()).layers; } catch (e) { api = { status: 'unreachable', database: String(e) }; }
   const row = (key, label, t) => { const h = t ? (Date.now() - new Date(t)) / 36e5 : Infinity; const cls = !t ? 'bad' : h > limits[key] ? 'warn' : 'good'; return `<tr><td>${esc(label)}</td><td class="${cls}">${t ? esc(ago(t)) : 'missing'}</td><td class="muted">limit ${limits[key] >= 48 ? limits[key] / 24 + ' days' : limits[key] + ' h'}</td></tr>`; };
