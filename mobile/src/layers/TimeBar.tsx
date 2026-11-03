@@ -69,7 +69,7 @@ export function TimeBar({ catalog, s, setDay, compare, compareOffset }: Props) {
           </Pressable>
         ))}
       </View>
-      {info.layer?.legend ? <Legend legend={info.layer.legend} title={layerLabel} /> : null}
+      {info.entry?.legend ?? info.layer?.legend ? <Legend legend={(info.entry?.legend ?? info.layer?.legend)!} title={layerLabel} /> : null}
       {key === 'sst' ? <PresentedBy section="SST Map" /> : null}
     </View>
   );

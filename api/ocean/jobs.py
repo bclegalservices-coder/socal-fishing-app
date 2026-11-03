@@ -82,7 +82,7 @@ def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds
     base = f"{layer}/{region}/{day}"
     store.put(f"grids/{base}.npz", g.to_bytes())
 
-    cmap = SST_F if layer == "sst" else CHL
+    cmap = sst_scale(g) if layer == "sst" else CHL
     colorize = lambda v: apply(v, cmap, 255)  # noqa: E731 (opacity is applied in the app)
     # Clean coastline: fill the coastal strip the satellite grid leaves empty, then cut exactly at the real shore.
     from . import landmask
@@ -112,7 +112,31 @@ def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds
         "tiles": store.url(f"tiles/{base}") + "/{z}/{x}/{y}.png?v=" + RUN_STAMP,
         "breaks": store.url(f"vectors/{layer}-breaks/{region}/{day}.geojson") + "?v=" + RUN_STAMP,
         "grid": f"grids/{base}.npz", "tile_count": n,
+        **({"legend": legend(cmap, "°F", sst_ticks(cmap))} if layer == "sst" else {}),
     }
+
+
+def sst_scale(g: Grid) -> dict:
+    """Nov 2: the water-temp colors stretched over THIS day's temperatures. With a fixed 54–78 °F scale, a typical
+    day spans only a few degrees, so the whole sea came out one or two colors. Now the full rainbow covers the day's
+    real range (2nd–98th percentile, at least 8 °F wide), so every 1/3 °F shows as its own band and breaks pop."""
+    v = np.asarray(g.values, dtype=np.float64)
+    v = v[np.isfinite(v)]
+    if v.size < 50:
+        return SST_F
+    lo, hi = np.percentile(v, 2), np.percentile(v, 98)
+    lo, hi = float(np.floor(lo)), float(np.ceil(hi))
+    if hi - lo < 8:
+        mid = (lo + hi) / 2
+        lo, hi = float(np.floor(mid - 4)), float(np.floor(mid - 4) + 8)
+    lo, hi = max(40.0, lo), min(90.0, hi)
+    return {**SST_F, "min": lo, "max": hi}
+
+
+def sst_ticks(cmap: dict) -> list:
+    lo, hi = cmap["min"], cmap["max"]
+    step = 1 if hi - lo <= 8 else 2 if hi - lo <= 16 else 4
+    return [float(t) for t in np.arange(lo, hi + 0.01, step)]
 
 
 def _note(layer: str, ds) -> str:

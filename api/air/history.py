@@ -228,7 +228,8 @@ async def loop(pool):
         try:
             await TRACKER.refresh(_fetch)
             now = time.time()
-            snap = TRACKER.snapshot(now, _depth_lookup())
+            snap = await asyncio.to_thread(TRACKER.snapshot, now, _depth_lookup())
+            TRACKER.cached = (now, snap)                 # phones get this one (GET /air), no second computation
             RECORDER.observe(snap["planes"], {h: list(d) for h, d in TRACKER.paths.items()}, now)
             if now - last_save > 60:
                 last_save = now

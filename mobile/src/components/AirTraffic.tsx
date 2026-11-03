@@ -277,7 +277,14 @@ export function useWatchedPaths(on: boolean, hexes: string[]) {
 export function watchedPathsGeoJSON(d: WatchedPaths | null) {
   const features: any[] = [];
   if (!d) return { type: 'FeatureCollection' as const, features };
-  for (const [hex, pts] of Object.entries(d.paths)) {
+  for (const [hex, all] of Object.entries(d.paths)) {
+    // Nov 2: the server leaves out points over land; break the line there so it never cuts across the land
+    const runs: typeof all[] = [];
+    for (const q of all) {
+      const run = runs[runs.length - 1];
+      if (run && q[2] - run[run.length - 1][2] <= 90) run.push(q); else runs.push([q]);
+    }
+    for (const pts of runs)
     for (let i = 0; i < pts.length - 1; i += 6) {
       const chunk = pts.slice(i, Math.min(i + 7, pts.length));
       if (chunk.length < 2) continue;

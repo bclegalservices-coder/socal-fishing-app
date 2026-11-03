@@ -14,7 +14,7 @@ export type Conditions = {
 };
 
 export type Legend = { min: number; max: number; log?: boolean; stops: string[]; unit: string; ticks: number[] };
-export type LayerDate = { date: string; observed_at?: string | null; tiles: string; breaks?: string; contours?: string; tile_count?: number;
+export type LayerDate = { legend?: Legend; date: string; observed_at?: string | null; tiles: string; breaks?: string; contours?: string; tile_count?: number;
   contour_tiles?: { std?: string; max?: string }; contour_zooms?: number[]; contours_complete?: boolean };
 export type GridLayer = {
   key: 'sst' | 'chl' | 'bathy'; available?: boolean; label?: string; note?: string; kind?: Kind; source?: string;

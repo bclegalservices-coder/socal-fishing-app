@@ -130,6 +130,8 @@ class Tracker:
         self.sources_ok: list[str] = []
         self.error = None
         self._lock = asyncio.Lock()
+        self.cached: tuple | None = None       # (time, snapshot) — shared by /air and the spotter recorder
+        self.via_relay = False
 
     def ingest(self, ac: list[dict], now: float):
         for a in ac:
@@ -160,21 +162,26 @@ class Tracker:
     def snapshot(self, now: float, depth_lookup=None, include_high: bool = False, include_land: bool = False) -> dict:
         """Planes for the app. Oct 27: only over the WATER by default (planes over land aren't useful to fishermen)."""
         planes, trails = [], {}
-        for hx, a in self.info.items():
+        paths = dict(self.paths)                                       # copies: safe while new positions arrive
+        for hx, a in list(self.info.items()):
+            dq = paths.get(hx)
+            if not dq:
+                continue
             alt = _alt(a)
             if alt == 0.0:                                             # on the ground
                 continue
             kind = kind_of(a, alt)
             if kind == "high" and not include_high:
                 continue
-            lat, lon = self.paths[hx][-1][1], self.paths[hx][-1][2]
+            last = dq[-1]
+            lat, lon = last[1], last[2]
             if not (BBOX[0] - 0.5 <= lon <= BBOX[2] + 0.5 and BBOX[1] - 0.5 <= lat <= BBOX[3] + 0.5):
                 continue
-            path = list(self.paths[hx])
-            an = analyze(path, now)
             water = is_water(lat, lon, depth_lookup)
             if not water and not include_land:
                 continue
+            path = list(dq)
+            an = analyze(path, now)
             gs = a.get("gs")
             low = alt is not None and alt <= 3000
             slow = gs is not None and 40 <= gs <= 160
@@ -257,11 +264,30 @@ TRACKER = Tracker()
 _keepalive_until = 0.0
 
 
+# Nov 2: if a plane network blocks or stalls on the server, ask through the Channel Nav chart helper (Cloudflare).
+FEED_RELAY = os.environ.get("AIR_RELAY", "https://channelnav-chart.bclegalservices.workers.dev/feed").rstrip("/")
+
+
+def relay_url(url: str) -> str | None:
+    m = re.match(r"https://([a-z0-9.-]+)(/.*)$", url)
+    return f"{FEED_RELAY}/{m.group(1)}{m.group(2)}" if (m and FEED_RELAY) else None
+
+
 async def _fetch(url: str) -> dict:
+    import httpx
     from core.http import client
-    r = await client().get(url, headers={"Accept": "application/json"})
-    r.raise_for_status()
-    return r.json()
+    try:
+        r = await client().get(url, headers={"Accept": "application/json"}, timeout=httpx.Timeout(12.0, connect=6.0))
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        alt = relay_url(url)
+        if not alt:
+            raise
+        r = await client().get(alt, headers={"Accept": "application/json"}, timeout=httpx.Timeout(15.0, connect=6.0))
+        r.raise_for_status()
+        TRACKER.via_relay = True
+        return r.json()
 
 
 async def _keep_tracking():
@@ -278,12 +304,23 @@ _task: asyncio.Task | None = None
 
 
 async def current(include_high: bool = False) -> dict:
+    """Nov 2: answers fast. The spotter recorder already refreshes the planes every ~10 s and keeps its latest
+    snapshot, so phones get that (computed once, shared) instead of waiting on the plane network themselves."""
     global _keepalive_until, _task
     _keepalive_until = time.time() + 15 * 60
     if _task is None or _task.done():
         _task = asyncio.create_task(_keep_tracking())
-    await TRACKER.refresh(_fetch)
-    return TRACKER.snapshot(time.time(), _depth_lookup(), include_high)
+    now = time.time()
+    if not include_high and TRACKER.cached and now - TRACKER.cached[0] < 15:
+        return TRACKER.cached[1]
+    try:
+        await asyncio.wait_for(asyncio.shield(TRACKER.refresh(_fetch)), 8)
+    except Exception:
+        pass                                   # slow or failed: show what we have (each plane shows its age)
+    snap = await asyncio.to_thread(TRACKER.snapshot, time.time(), _depth_lookup(), include_high)
+    if not include_high:
+        TRACKER.cached = (time.time(), snap)
+    return snap
 
 
 _depth_cache: list = [0.0, None]
@@ -329,7 +366,9 @@ def watched_paths(hexes: list[str], now: float, hours: float = 6.0) -> dict:
                 for q in sess.get("points", []):
                     if now - q[2] <= hours * 3600:
                         pts.setdefault(int(q[2]), [q[0], q[1], int(q[2]), q[3]])
-        line = [pts[t] for t in sorted(pts)]
+        # Nov 2: only where it flew over the WATER — no flight paths drawn over the mainland
+        from .coast import on_mainland
+        line = [pts[t] for t in sorted(pts) if not on_mainland(pts[t][1], pts[t][0])]
         if len(line) > 1500:                                   # thin very long paths (keep the newest part full)
             half = len(line) // 2
             line = line[:half:2] + line[half:]

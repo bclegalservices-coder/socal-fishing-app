@@ -42,9 +42,25 @@ def offshore_nm(lat: float, lon: float) -> float:
     return _nearest(lat, lon)[0]
 
 
+# Nov 2: the mainland as a closed shape (the coastline, closed far inland to the east), for a proper inside/outside
+# test. The old "which side of the nearest bit of coast" test got confused around harbors and breakwaters (it called
+# open water off Long Beach "land", and some inland points "water").
+_POLY = np.vstack([_PTS, [[-110.0, _PTS[-1][1]], [-110.0, _PTS[0][1]], _PTS[0]]])
+
+
+def _inside(lat: float, lon: float) -> bool:
+    x, y = _POLY[:, 0], _POLY[:, 1]
+    x0, y0, x1, y1 = x[:-1], y[:-1], x[1:], y[1:]
+    crosses = ((y0 > lat) != (y1 > lat)) & (lon < (x1 - x0) * (lat - y0) / np.where(y1 != y0, y1 - y0, 1e-12) + x0)
+    return bool(np.count_nonzero(crosses) % 2)
+
+
 def on_mainland(lat: float, lon: float) -> bool:
-    """Over the mainland (not the sea)? Islands count as sea here — the seafloor model handles those."""
-    return _nearest(lat, lon)[1] < 0
+    """Over the mainland (not the sea)? Islands count as sea here — the seafloor model handles those.
+    Only answers for the stretch of coast we have (central Baja to Monterey); elsewhere: not mainland."""
+    if not (_PTS[:, 1].min() <= lat <= _PTS[:, 1].max()):
+        return False
+    return _inside(lat, lon)
 
 
 def quiet_zone(lat: float, lon: float) -> str | None:
@@ -58,5 +74,4 @@ def spotter_waters(lat: float, lon: float) -> bool:
     """True where a circling plane can count as a spotter: far enough offshore and not in a quiet zone."""
     if lat > SPOTTER_MAX_LAT or quiet_zone(lat, lon) is not None:
         return False
-    d, side = _nearest(lat, lon)
-    return side >= 0 and d >= OFFSHORE_NM
+    return not on_mainland(lat, lon) and offshore_nm(lat, lon) >= OFFSHORE_NM

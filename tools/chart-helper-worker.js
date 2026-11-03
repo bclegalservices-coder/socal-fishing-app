@@ -100,7 +100,7 @@ function chartUrl(p, blue = ({ '1': 1, '2': 2 })[p.get('wb')] || 0) {
 // The chart is asked for as an 8-bit (palette) PNG, so the repaint only touches the color list (a few hundred bytes) —
 // no pixels are decoded, which keeps the helper well inside Cloudflare's free CPU limit. Anything unexpected → the
 // picture is sent unchanged.
-const VERSION = '2026-11-02a';
+const VERSION = '2026-11-02b';
 const WATER_TARGET = [170, 218, 255];            // #AADAFF — every normal water blue becomes exactly this
 const WATER_SHADE_FROM = 190;                     // NOAA blues darker than this (the very shallow strip) stay a bit darker
 function isWater(r, g, b) { return b - r >= 18 && b >= g - 6 && r >= 70 && b >= 160; }
@@ -199,6 +199,14 @@ export default {
       if (!m || request.method !== 'GET') return new Response('not allowed', { status: 403 });
       const r = await fetch(`https://${m[1]}${m[2]}${u.search}`, { headers: { 'User-Agent': 'ChannelNav-data-relay' } });
       return new Response(r.body, { status: r.status, headers: { 'content-type': r.headers.get('content-type') || 'application/octet-stream', 'cache-control': 'no-store' } });
+    }
+    // Nov 2: plane-network relay for the app's server, in case a network blocks or stalls on Render.
+    //   /feed/<host>/<path>  →  https://<host>/<path>   (only the three open ADS-B networks, GET only)
+    if (u.pathname.startsWith('/feed/')) {
+      const m = u.pathname.match(/^\/feed\/(api\.adsb\.lol|api\.airplanes\.live|opendata\.adsb\.fi)(\/.*)$/);
+      if (!m || request.method !== 'GET') return new Response('not allowed', { status: 403 });
+      const r = await fetch(`https://${m[1]}${m[2]}${u.search}`, { headers: { 'User-Agent': 'ChannelNav-relay', Accept: 'application/json' } });
+      return new Response(r.body, { status: r.status, headers: { 'content-type': r.headers.get('content-type') || 'application/json', 'cache-control': 'no-store' } });
     }
     if (!BBOX.test(p.get('bbox') || '')) return new Response('bad bbox', { status: 400 });
     // If NOAA ever refuses the blue-water setting, the retry asks for the normal chart (never a blank square).

@@ -218,3 +218,37 @@ def test_watched_plane_keeps_its_whole_path():
     finally:
         T.TRACKER = keep
         T.WATCHED.clear()
+
+
+def test_watched_path_leaves_out_land():
+    """Nov 2: a watched plane that flies inland only keeps the part of its path over the water."""
+    import air.traffic as T
+    tr = T.Tracker(); keep = T.TRACKER; T.TRACKER = tr
+    try:
+        t0 = 1_800_000_000.0
+        T.watched_paths(["abc999"], t0)
+        pts = [(33.55, -118.30), (33.65, -118.25), (33.90, -118.10), (34.05, -117.75)]   # sea, sea, inland, inland
+        for i, (la, lo) in enumerate(pts):
+            tr.ingest([{"hex": "abc999", "lat": la, "lon": lo, "alt_baro": 900, "gs": 90, "track": 10, "seen_pos": 0}], t0 + i * 60)
+        p = T.watched_paths(["abc999"], t0 + 300)["abc999"]
+        assert len(p) == 2 and all(q[1] < 33.7 for q in p)
+    finally:
+        T.TRACKER = keep; T.WATCHED.clear()
+
+
+def test_air_answers_from_the_shared_snapshot_and_relays_blocked_feeds():
+    import asyncio, time
+    import air.traffic as T
+    T.TRACKER.cached = (time.time(), {"count": 7, "planes": []})
+    called = []
+    keep = T.TRACKER.refresh
+
+    async def no_refresh(fetch, now=None):
+        called.append(1)
+    T.TRACKER.refresh = no_refresh
+    try:
+        snap = asyncio.run(T.current())
+        assert snap["count"] == 7                                # served at once from the shared snapshot (the background poller may still tick)
+    finally:
+        T.TRACKER.refresh = keep; T.TRACKER.cached = None
+    assert T.relay_url("https://api.adsb.lol/v2/point/32.8/-119.0/230") == T.FEED_RELAY + "/api.adsb.lol/v2/point/32.8/-119.0/230"
