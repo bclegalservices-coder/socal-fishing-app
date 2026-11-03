@@ -1,5 +1,5 @@
 // Species list (codes match the database seed). Colors are used for map markers and chips.
-export const SPECIES: { code: string; name: string; color: string }[] = [
+export const SPECIES: { code: string; name: string; color: string; hidden?: boolean }[] = [
   { code: 'BFT', name: 'Bluefin tuna', color: '#2f6fb6' },
   { code: 'YFT', name: 'Yellowfin tuna', color: '#f2d36a' },
   { code: 'YT', name: 'Yellowtail', color: '#f5a524' },
@@ -18,8 +18,9 @@ export const SPECIES: { code: string; name: string; color: string }[] = [
   { code: 'WAH', name: 'Wahoo', color: '#3a8f8a' },
   { code: 'SWD', name: 'Swordfish', color: '#8b7fd1' },
   { code: 'MAR', name: 'Striped marlin', color: '#b07fd1' },
-  { code: 'THR', name: 'Thresher shark', color: '#7a7a7a' },
-  { code: 'MAK', name: 'Mako shark', color: '#5a5a7a' },
+  // Nov 2: sharks can't be picked any more; kept here so catches logged before still show their name
+  { code: 'THR', name: 'Thresher shark', color: '#7a7a7a', hidden: true },
+  { code: 'MAK', name: 'Mako shark', color: '#5a5a7a', hidden: true },
   { code: 'LOB', name: 'Spiny lobster', color: '#d1584f' },
   { code: 'OTH', name: 'Other', color: '#a3b4c1' },
 ];
@@ -28,3 +29,12 @@ export const speciesName = (code?: string | null) => SPECIES.find((s) => s.code 
 export const TECHNIQUES = ['Flyline', 'Sinker rig', 'Knife jig', 'Surface iron', 'Yo-yo iron', 'Trolling', 'Kite', 'Live bait', 'Dropper loop', 'Bottom fishing', 'Casting', 'Other'];
 export const BAITS = ['Sardine', 'Anchovy', 'Mackerel', 'Squid', 'Artificial lure', 'Jig', 'Other'];
 export const TIME_WINDOWS = [{ label: '6 h', h: 6 }, { label: '12 h', h: 12 }, { label: '24 h', h: 24 }, { label: '3 days', h: 72 }, { label: '7 days', h: 168 }, { label: '30 days', h: 720 }];
+
+/** Species you can pick when logging (no sharks, Nov 2). */
+export const PICKABLE_SPECIES = SPECIES.filter((s) => !s.hidden);
+/** Nov 2: how the fish were found. */
+export const FOUND_ON: { key: string; label: string }[] = [
+  { key: 'paddy', label: 'Kelp paddy' }, { key: 'meter_marks', label: 'Meter marks' }, { key: 'school', label: 'Open-water school' },
+  { key: 'birds', label: 'Birds' }, { key: 'porpoise', label: 'Porpoise' }, { key: 'other', label: 'Other' },
+];
+export const foundOnLabel = (k?: string | null) => FOUND_ON.find((f) => f.key === k)?.label ?? null;

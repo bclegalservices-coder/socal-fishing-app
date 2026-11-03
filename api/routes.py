@@ -342,3 +342,21 @@ async def public_config(key: str, request: Request):
         return {"key": key, "value": None}
     v, t = (row["value"], row["updated_at"]) if isinstance(row, dict) else (row[0], row[1])
     return {"key": key, "value": v, "updated_at": t.isoformat() if t else None}
+
+
+# Nov 2: is a point on the water? (catch and whale logs can't be placed on land). Uses the same ~100 m land mask that
+# cuts the water-temperature map at the coast. {"water": true/false}, or null when the mask isn't available.
+@router.get("/water")
+async def is_water(lat: float = Query(..., ge=-90, le=90), lon: float = Query(..., ge=-180, le=180)):
+    from ocean import landmask
+    from ocean.registry import REGIONS
+    w, s, e, n = REGIONS["socal"]
+    if not (w <= lon <= e and s <= lat <= n):
+        return {"water": None, "why": "outside the mapped area"}
+    try:
+        m = await asyncio.to_thread(landmask.get, "socal", REGIONS["socal"], get_store(), None, lambda *a: None)
+    except Exception:
+        m = None
+    if m is None:
+        return {"water": None, "why": "land map not available"}
+    return {"water": not bool(m.is_land(lat, lon))}

@@ -14,7 +14,7 @@ const TABS: { key: Tab; label: string; icon: string; iconOn: string }[] = [
   { key: 'me', label: 'Me', icon: 'person-circle-outline', iconOn: 'person-circle' },
 ];
 
-export function TabBar({ tab, setTab, badges = {} }: { tab: Tab; setTab: (t: Tab) => void; badges?: Partial<Record<Tab, boolean>> }) {
+export function TabBar({ tab, setTab, badges = {}, badgeColors = {} }: { tab: Tab; setTab: (t: Tab) => void; badges?: Partial<Record<Tab, boolean>>; badgeColors?: Partial<Record<Tab, string>> }) {
   const st = useSt();
   const insets = useSafeAreaInsets();
   return (
@@ -26,7 +26,7 @@ export function TabBar({ tab, setTab, badges = {} }: { tab: Tab; setTab: (t: Tab
             <View style={[st.indicator, on && { backgroundColor: colors.accent }]} />
             <View>
               <Ionicons name={(on ? t.iconOn : t.icon) as any} size={24} color={on ? colors.accent : colors.muted} />
-              {badges[t.key] ? <View style={st.badge} /> : null}
+              {badges[t.key] ? <View style={[st.badge, badgeColors[t.key] ? { backgroundColor: badgeColors[t.key], width: 11, height: 11, borderRadius: 6 } : null]} /> : null}
             </View>
             <Text style={[st.label, on && { color: colors.accent }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>{t.label}</Text>
           </Pressable>

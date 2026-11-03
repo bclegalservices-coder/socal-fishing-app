@@ -466,3 +466,37 @@ def test_breaks_found_on_coarse_5km_map():
     assert 0.15 < b["moderate"] < 0.3 and b["sigma"] == 0.0
     assert break_lines(g, b["moderate"], b["strong"], b["interval"], sigma_cells=b["sigma"])["features"]
     assert break_settings("sst", 1000)["moderate"] == old["moderate"]   # sharp 1 km map: unchanged
+
+
+def test_chlorophyll_uses_newest_map_and_fills_its_cloud_gaps():
+    """Nov 2: newest map wins; its cloud holes are filled from the older cloud-free map."""
+    import numpy as np
+    from ocean.grid import Grid
+    from ocean.jobs import coverage, fill_gaps
+    lats, lons = np.linspace(32, 34, 21), np.linspace(-119, -117, 21)
+    new = np.full((21, 21), 0.5, np.float32); new[5:12, 5:12] = np.nan          # a cloud
+    old = np.full((41, 41), 2.0, np.float32)                                  # different (finer) grid, no gaps
+    g = fill_gaps(Grid(lats, lons, new, {"observed_at": "2026-11-01"}),
+                  Grid(np.linspace(32, 34, 41), np.linspace(-119, -117, 41), old, {}))
+    assert coverage(g) == 1.0 and g.meta["observed_at"] == "2026-11-01"
+    assert abs(float(g.values[8, 8]) - 2.0) < 1e-6 and abs(float(g.values[0, 0]) - 0.5) < 1e-6
+
+
+def test_blocked_noaa_requests_go_through_the_relay():
+    import ocean.erddap as E
+
+    class R:
+        def __init__(self, code, text, url): self.status_code, self.text, self.request = code, text, type("Q", (), {"url": url})()
+
+    asked = []
+
+    class Http:
+        def get(self, url, **kw):
+            asked.append(url)
+            if url.startswith("https://coastwatch.pfeg.noaa.gov"):
+                return R(403, "Forbidden: Your IP address is on this ERDDAP's request BLACKLIST", url)
+            return R(200, "ok", url)
+
+    r = E.get(Http(), "https://coastwatch.pfeg.noaa.gov/erddap/griddap/x.json?v[(last)]")
+    assert r.status_code == 200 and asked[1] == E.RELAY + "/coastwatch.pfeg.noaa.gov/erddap/griddap/x.json?v[(last)]"
+    assert E.relay_url("https://example.com/erddap/x") is None

@@ -100,7 +100,7 @@ function chartUrl(p, blue = ({ '1': 1, '2': 2 })[p.get('wb')] || 0) {
 // The chart is asked for as an 8-bit (palette) PNG, so the repaint only touches the color list (a few hundred bytes) —
 // no pixels are decoded, which keeps the helper well inside Cloudflare's free CPU limit. Anything unexpected → the
 // picture is sent unchanged.
-const VERSION = '2026-10-30c';
+const VERSION = '2026-11-02a';
 const WATER_TARGET = [170, 218, 255];            // #AADAFF — every normal water blue becomes exactly this
 const WATER_SHADE_FROM = 190;                     // NOAA blues darker than this (the very shallow strip) stay a bit darker
 function isWater(r, g, b) { return b - r >= 18 && b >= g - 6 && r >= 70 && b >= 160; }
@@ -191,6 +191,14 @@ export default {
         } catch (e) { info.formats[fmt] = { error: String(e).slice(0, 80) }; }
       }
       return new Response(JSON.stringify(info, null, 2), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+    }
+    // Nov 2: NOAA ERDDAP relay for the data job. NOAA blocks GitHub's shared machines; this helper isn't blocked.
+    //   /erddap/<noaa host>/<path>?<query>  →  https://<noaa host>/<path>?<query>   (NOAA ERDDAP hosts only, GET only)
+    if (u.pathname.startsWith('/erddap/')) {
+      const m = u.pathname.match(/^\/erddap\/((?:coastwatch|upwell)\.pfeg\.noaa\.gov|coastwatch\.noaa\.gov|polarwatch\.noaa\.gov)(\/erddap\/.*)$/);
+      if (!m || request.method !== 'GET') return new Response('not allowed', { status: 403 });
+      const r = await fetch(`https://${m[1]}${m[2]}${u.search}`, { headers: { 'User-Agent': 'ChannelNav-data-relay' } });
+      return new Response(r.body, { status: r.status, headers: { 'content-type': r.headers.get('content-type') || 'application/octet-stream', 'cache-control': 'no-store' } });
     }
     if (!BBOX.test(p.get('bbox') || '')) return new Response('bad bbox', { status: 400 });
     // If NOAA ever refuses the blue-water setting, the retry asks for the normal chart (never a blank square).

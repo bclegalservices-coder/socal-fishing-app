@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { bearingTrue, cardinal, distanceNm, formatLatLon } from '../geo';
 import { crossTrackNm, etaMinutes, SpeedEstimator, steerDelta, type Pt, type TrackPoint } from '../nav';
 import * as store from '../storage';
-import { getJSON } from '../api';
+import { getJSON, onWater } from '../api';
 import { appendLocations, startTrack, stopTrack } from '../tracking';
 import type { Conditions } from '../types';
 import { Hud, type Fix } from '../components/Hud';
@@ -56,6 +56,8 @@ import { WindLayer } from '../layers/Wind';
 import { GroupPins } from '../components/GroupPins';
 import { SendToGroupSheet } from '../community/SendToGroupSheet';
 import { LogCatchSheet } from '../components/LogCatchSheet';
+import { LogWhaleSheet, WhaleCard, WhaleMarkers, useWhales } from '../components/Whales';
+import type { Sighting } from '../community/whaleApi';
 import { catchMap, syncQueue } from '../community/catchApi';
 import * as groupsApi from '../community/groupsApi';
 import { TIME_WINDOWS } from '../community/species';
@@ -228,6 +230,9 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const [catchStatus, setCatchStatus] = useState('Catch reports');
   const [clusterSel, setClusterSel] = useState<Cluster | null>(null);
   const [logAt, setLogAt] = useState<Pt | null>(null);
+  const [whaleAt, setWhaleAt] = useState<Pt | null>(null);       // Nov 2: whale sightings
+  const [whaleSel, setWhaleSel] = useState<Sighting | null>(null);
+  const [whaleBump, setWhaleBump] = useState(0);
   const [buddyList, setBuddyList] = useState<groupsApi.Buddy[]>([]);
   const [groupPins, setGroupPins] = useState<groupsApi.Pin[]>([]);
   const [crew, setCrew] = useState<{ mode: 'me' | 'spot'; pt: (Pt & { name?: string }) | null } | null>(null);
@@ -490,9 +495,24 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     }
     return best;
   };
-  const openLog = (p?: Pt | null) => {
+  const openWhale = async (p?: Pt | null) => {
+    const at = p ?? here();
+    if (!at) { Alert.alert('Waiting for GPS', 'Long-press the water where you saw it, then tap "Log a whale sighting here".'); return; }
+    if ((await onWater(at.lat, at.lon)) === false) {
+      Alert.alert('That spot is on land', 'Long-press the water where you saw the whale, then tap "Log a whale sighting here".');
+      return;
+    }
+    setSel(null); setPanel('none'); setWhaleAt(at);
+  };
+  const openLog = async (p?: Pt | null) => {
     const at = p ?? here();
     if (!at) { Alert.alert('Waiting for GPS', 'Long-press where you caught it, then tap "Log a catch here".'); return; }
+    // Nov 2: a catch can be logged from anywhere, but its spot has to be on the water
+    if ((await onWater(at.lat, at.lon)) === false) {
+      Alert.alert('That spot is on land', p ? 'Long-press the water where you caught it, then tap "Log a catch here".'
+        : 'You\'re on land right now. Long-press the water where you caught it, then tap "Log a catch here".');
+      return;
+    }
     const noTake = insideAt(at).find((f) => f.properties?.take === 'no_take');
     const go = () => { setSel(null); setPanel('none'); setLogAt(at); };
     if (noTake) Alert.alert('Inside a no-take area', `${noTake.properties?.name}: ${noTake.properties?.rule}\n\nLog anyway (e.g. a catch-and-release record)?`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Log anyway', onPress: go }]);
@@ -760,6 +780,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const airWatch = useWatchList();
   const watchedPlane = useCallback((p: Plane) => airWatch.find(p), [airWatch.list]);
   const [airListOpen, setAirListOpen] = useState(false);
+  const whales = useWhales(!!layers.on.whales, view, whaleBump);
   // Nov 1: watched planes' recorded flight paths (server keeps up to 6 h for them)
   const watchedPaths = useWatchedPaths(!!layers.on.air && !pro.locked, airWatch.list.map((w) => w.hex));
   const airPlane = airSel ? air?.planes.find((p) => p.hex === airSel) ?? null : null;
@@ -927,6 +948,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     const h = here();
     bottom = <MapActions onClose={() => setPanel('none')} actions={[
       { key: 'log', label: 'Log a catch', sub: 'At your position', icon: 'fish', tint: colors.accent, onPress: () => openLog(null) },
+      { key: 'whale', label: 'Log a whale sighting', sub: 'At your position', icon: 'emoji:🐋', tint: '#00B7E0', onPress: () => openWhale(null) },
       { key: 'save', label: 'Save this spot', sub: h ? 'Where the boat is now' : 'Waiting for GPS', icon: 'bookmark', onPress: () => { if (h) saveSpot({ ...h, name: undefined } as any); else Alert.alert('Waiting for GPS', 'Long-press the map to save any other spot.'); } },
       { key: 'crew', label: 'Send to my crew', sub: 'Come to me / my position', icon: 'megaphone', tint: colors.buddy, hidden: !supabaseReady, onPress: () => { setSel(null); setCrew({ mode: 'me', pt: null }); } },
       { key: 'route', label: 'Routes', sub: `${routes.length} saved · plan a new one`, icon: 'git-commit', onPress: () => setPanel('routes') },
@@ -949,6 +971,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         { text: 'Just me · 5 nets', onPress: () => setHoop({ ...hoop, crew: 1 }) }, { text: '2 or more · 10 nets', onPress: () => setHoop({ ...hoop, crew: 2 }) }, { text: 'Cancel', style: 'cancel' }])}
       onEnd={hoopEnd} onPotPress={hoopPotPress} onOrder={() => setHoopOrderOpen(true)} onZoom={hoopZoom}
       pastFt={H.nearestPastFt(hoopHistory, hoop, here(), hoopNow)} showPast={hoopShowPast} onTogglePast={() => setHoopShowPast((v) => !v)} />;
+  } else if (whaleSel) {
+    bottom = <WhaleCard w={whaleSel} onClose={() => setWhaleSel(null)} onDeleted={() => { setWhaleSel(null); setWhaleBump((b) => b + 1); setToast('Sighting deleted'); }} />;
   } else if (clusterSel) {
     bottom = <ClusterSheet c={clusterSel} hours={catchHours} onClose={() => setClusterSel(null)} />;
   } else if (buoy) {
@@ -970,7 +994,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       onGo={() => goTo([sel.pt], sel.pt.name ?? 'Dropped pin')} onAddToRoute={() => addToRoute(sel.pt)}
       onSave={sel.kind !== 'saved' ? () => saveSpot(sel.pt) : undefined}
       onDelete={sel.kind === 'saved' ? () => deleteSpot(sel.pt.id) : undefined} onClose={() => setSel(null)}
-      onLog={() => openLog(sel.kind === 'pin' ? sel.pt : here() ?? sel.pt)} protectedHere={insideAt(sel.pt)}
+      onLog={() => openLog(sel.kind === 'pin' ? sel.pt : here() ?? sel.pt)} onWhale={sel.kind === 'pin' ? () => openWhale(sel.pt) : undefined} protectedHere={insideAt(sel.pt)}
       onWeather={onWeather ? () => onWeather(sel.pt.lat, sel.pt.lon, sel.pt.name ?? 'Dropped pin') : undefined}
       onShareToGroup={supabaseReady ? () => { setCrew({ mode: 'spot', pt: { lat: sel.pt.lat, lon: sel.pt.lon, name: sel.pt.name } }); setSel(null); } : undefined} />;
   } else if (panel === 'routes') {
@@ -1062,7 +1086,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         {orderOn !== null && layers.on.sci ? <SciMapLayer data={sci} now={sciNow} labels={(view?.zoom ?? 0) >= 8.6}
           onPress={(id) => { featurePressAt.current = Date.now(); setSel(null); setClusterSel(null); setRuleSel(null); setSciSel(id); track('sci_section_tap', { section: id }); }} /> : null}
         <UserLocation heading />
-        {layers.on.catches ? <CatchMarkers clusters={clusters} windowHours={catchHours} onPress={(c) => { setSel(null); setBuoy(null); setClusterSel(c); track('cluster_open', { species: c.species_code }); }} /> : null}
+        {layers.on.whales ? <WhaleMarkers rows={whales} night={theme.mode === 'night' || colors.water !== '#AADAFF'} onPress={(w) => { featurePressAt.current = Date.now(); setSel(null); setClusterSel(null); setWhaleSel(w); track('whale_open', { species: w.species }); }} /> : null}
+        {layers.on.catches ? <CatchMarkers clusters={clusters} windowHours={catchHours} night={theme.mode === 'night' || colors.water !== '#AADAFF'} onPress={(c) => { setSel(null); setBuoy(null); setClusterSel(c); track('cluster_open', { species: c.species_code }); }} /> : null}
         {layers.on.buddies ? <BuddyMarkers buddies={buddyList} rotation={view?.heading ?? 0}
           onPress={(b) => { setClusterSel(null); setSel({ kind: 'spot', pt: { lat: b.lat, lon: b.lon, name: b.boat_name ?? b.display_name ?? 'Buddy', subtitle: `Buddy boat · ${b.status === 'live' ? 'live' : 'last known'} position from ${new Date(b.recorded_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` } }); }} /> : null}
         {layers.on.buddies ? <GroupPins pins={groupPins} onPress={(p) => {
@@ -1282,6 +1307,10 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       {panel === 'layers' ? (
         <LayersSheet catalog={catalog} cached={catalogCached} savedAt={catalogSavedAt} onRetry={retryCatalog} s={layers} set={setLayersSafe} killed={killed} radarPlaying={radarPlaying} setRadarPlaying={setRadarPlaying}
           onClose={closePanel} rulesChecked={rules?.checked_at ?? null} onSaveArea={view ? saveAreaStable : undefined} />
+      ) : null}
+      {whaleAt ? (
+        <LogWhaleSheet lat={whaleAt.lat} lon={whaleAt.lon} onCancel={() => setWhaleAt(null)}
+          onDone={(m) => { setWhaleAt(null); setToast(m); setWhaleBump((b) => b + 1); if (!layers.on.whales) setLayers((p) => ({ ...p, on: { ...p.on, whales: true } })); }} />
       ) : null}
       {logAt ? (
         <LogCatchSheet lat={logAt.lat} lon={logAt.lon} nearestSpot={nearestPublicSpot(logAt)} depthFt={null}

@@ -8,6 +8,29 @@ import numpy as np
 from .grid import Grid
 from .registry import GridDataset
 
+# Nov 2: NOAA's ERDDAP servers block GitHub's shared machines ("Your IP address is on this ERDDAP's request blacklist").
+# When that happens the same request goes through the Channel Nav chart helper (Cloudflare), which isn't blocked.
+import os as _os
+RELAY = _os.environ.get("ERDDAP_RELAY", "https://channelnav-chart.bclegalservices.workers.dev/erddap").rstrip("/")
+
+
+def relay_url(url: str) -> str | None:
+    """https://coastwatch.pfeg.noaa.gov/erddap/... → <relay>/coastwatch.pfeg.noaa.gov/erddap/..."""
+    m = __import__("re").match(r"https://([a-z0-9.-]+\.noaa\.gov)(/.*)$", url)
+    return f"{RELAY}/{m.group(1)}{m.group(2)}" if (m and RELAY) else None
+
+
+def get(http: httpx.Client, url: str, **kw) -> httpx.Response:
+    """GET, and if NOAA blocks this machine (HTTP 403 blacklist), the same request through the relay."""
+    r = http.get(url, **kw)
+    if getattr(r, "status_code", 200) == 403 and "blacklist" in (getattr(r, "text", "") or "").lower():
+        alt = relay_url(str(r.request.url) if kw.get("params") else url)
+        if alt:
+            r2 = http.get(alt)
+            if r2.status_code != 403:
+                return r2
+    return r
+
 
 def _range(lo: float, hi: float, stride: int, descending: bool) -> str:
     a, b = (hi, lo) if descending else (lo, hi)
@@ -64,7 +87,7 @@ def fetch_grid(ds: GridDataset, bbox: tuple, when="last", stride: int = 1, http:
     last_err = None
     for lat_desc in (False, True):  # some datasets store latitude north-to-south
         url = build_url(ds, bbox, when, stride, lat_desc)
-        r = http.get(url)
+        r = get(http, url)
         if r.status_code == 200:
             lats, lons, vals, t = parse_table(r.json(), ds.variable)
             return Grid(lats, lons, vals, {
@@ -82,7 +105,7 @@ def fetch_grid(ds: GridDataset, bbox: tuple, when="last", stride: int = 1, http:
 def describe(erddap: str, dataset_id: str, http: httpx.Client | None = None) -> tuple[list[str], list[str]]:
     """(dimension names in order, data variable names) for a griddap dataset. Raises if it isn't there."""
     http = http or httpx.Client(timeout=60, follow_redirects=True)
-    r = http.get(f"{erddap.rstrip('/')}/info/{dataset_id}/index.json")
+    r = get(http, f"{erddap.rstrip('/')}/info/{dataset_id}/index.json")
     r.raise_for_status()
     t = r.json()["table"]
     cols = t["columnNames"]
@@ -94,7 +117,7 @@ def describe(erddap: str, dataset_id: str, http: httpx.Client | None = None) -> 
 
 def search(erddap: str, words: str, http: httpx.Client | None = None, limit: int = 25) -> list[dict]:
     http = http or httpx.Client(timeout=60, follow_redirects=True)
-    r = http.get(f"{erddap.rstrip('/')}/search/index.json", params={"searchFor": words, "page": 1, "itemsPerPage": limit})
+    r = get(http, f"{erddap.rstrip('/')}/search/index.json", params={"searchFor": words, "page": 1, "itemsPerPage": limit})
     r.raise_for_status()
     t = r.json()["table"]
     cols = t["columnNames"]
@@ -116,7 +139,7 @@ def list_datasets(erddap: str, title_regex: str, http: httpx.Client | None = Non
     http = http or httpx.Client(timeout=90, follow_redirects=True)
     url = (f"{erddap.rstrip('/')}/tabledap/allDatasets.csv?datasetID%2Ctitle%2CmaxTime"
            f"&dataStructure=%22grid%22&title=~%22{quote(title_regex, safe='')}%22")
-    r = http.get(url)
+    r = get(http, url)
     r.raise_for_status()
     rows = list(csv.reader(_io.StringIO(r.text)))[2:]   # skip the header and units rows
     out = [{"id": row[0], "title": row[1], "max_time": row[2] if len(row) > 2 else ""} for row in rows if row and row[0]]

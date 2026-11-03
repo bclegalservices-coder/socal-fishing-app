@@ -12,6 +12,7 @@ export type PendingCatch = {
   quantity: number; weight_lb?: number | null; length_in?: number | null; kept?: boolean | null;
   technique?: string | null; bait?: string | null; fishing_depth_ft?: number | null; water_depth_ft?: number | null;
   meter_marks?: string | null; notes?: string | null;
+  found_on?: string | null;           // Nov 2: paddy | meter_marks | school | birds | porpoise | other
   photos: { uri: string; live: boolean }[]; show_photos_public: boolean;
   share_groups?: string[];            // also send the exact spot to these fishing groups (members only)
   error?: string | null; tries?: number;
@@ -20,6 +21,9 @@ export type PublicReport = {
   id: string; species_code: string; caught_at: string; lon: number; lat: number; area_name: string | null; fuzz_radius_nm: number | null;
   quantity: number; weight_lb: number | null; technique: string | null; bait: string | null; author_name: string | null; verified: boolean;
   sst_f: number | null; chl_mg_m3: number | null; tide_stage: string | null; wind_kt: number | null; photo_paths: string[];
+  // Nov 2 (db 017): the rest of what the angler shared
+  found_on?: string | null; length_in?: number | null; kept?: boolean | null; fishing_depth_ft?: number | null; water_depth_ft?: number | null;
+  meter_marks?: string | null; notes?: string | null;
 };
 
 const QUEUE = 'catch-queue:v1';
@@ -88,7 +92,12 @@ async function sendOne(c: PendingCatch, uid: string, ids: Record<string, number>
     notes: c.notes ?? null, photo_paths: privatePaths, public_photo_paths: publicPaths,
     live_photo: c.photos.some((p) => p.live), snapshot_id: s.id,
   };
-  const { data: saved, error } = await supabase.from('catch_reports').upsert(row, { onConflict: 'client_id' }).select('id').single();
+  const withFound: Record<string, unknown> = c.found_on ? { ...row, found_on: c.found_on } : row;
+  let { data: saved, error } = await supabase.from('catch_reports').upsert(withFound as any, { onConflict: 'client_id' }).select('id').single();
+  if (error && c.found_on && /found_on/.test(String(error.message))) {
+    // database not updated yet (db/migrations/017): save the catch without it rather than getting stuck
+    ({ data: saved, error } = await supabase.from('catch_reports').upsert(row, { onConflict: 'client_id' }).select('id').single());
+  }
   if (error) throw error;
   if (c.share_groups?.length && saved?.id) {
     // Safe to repeat: the server skips groups that already have this catch.

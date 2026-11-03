@@ -6,7 +6,8 @@ import { ageText } from '../api';
 import { colors, touch, makeStyles } from '../theme';
 import { latestReports, type PublicReport } from '../community/catchApi';
 import * as forum from '../community/forumApi';
-import { SPECIES, TIME_WINDOWS } from '../community/species';
+import * as seen from '../community/forumSeen';
+import { PICKABLE_SPECIES as SPECIES, TIME_WINDOWS } from '../community/species';
 import { ReportCard } from '../components/ReportView';
 import { Btn, ScreenHeader, Segmented, BackLink, SmallBtn, Chip } from '../components/ui';
 import { SponsorBanner } from '../ads/Sponsor';
@@ -15,19 +16,29 @@ import { supabase } from '../supabase';
 import { friendly } from '../friendly';
 
 type Seg = 'reports' | 'forum';
+const NEW_GREEN = '#1FD15A';
+
+/** Nov 2: unseen forum activity, refreshed on open, every 2 minutes, and whenever a post is read. */
+function useUnseen() {
+  const [u, setU] = useState<{ byCategory: Record<number, number>; posts: Set<string>; total: number }>({ byCategory: {}, posts: new Set(), total: 0 });
+  const load = useCallback(() => { seen.unseen().then(setU).catch(() => {}); }, []);
+  useEffect(() => { load(); const t = setInterval(load, 120000); const off = seen.onSeenChange(load); return () => { clearInterval(t); off(); }; }, [load]);
+  return u;
+}
 
 export function CommunityScreen({ onShowOnMap }: { onShowOnMap: (lat: number, lon: number, name: string) => void }) {
   const st = useSt();
   const [seg, setSeg] = useState<Seg>('reports');
+  const unseenNow = useUnseen();
   useEffect(() => { track('screen_view', { screen: `community_${seg}` }); }, [seg]);
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScreenHeader title="Community" subtitle="Catch reports and the forum" />
       <View style={st.root}>
       <View style={{ marginVertical: 10 }}>
-        <Segmented<Seg> value={seg} onChange={setSeg} options={[{ key: 'reports', label: 'Reports', icon: 'fish-outline' }, { key: 'forum', label: 'Forum', icon: 'chatbubbles-outline' }]} />
+        <Segmented<Seg> value={seg} onChange={setSeg} options={[{ key: 'reports', label: 'Reports', icon: 'fish-outline' }, { key: 'forum', label: unseenNow.total ? `Forum · ${unseenNow.total} new` : 'Forum', icon: 'chatbubbles-outline' }]} />
       </View>
-      {seg === 'reports' ? <Reports onShowOnMap={onShowOnMap} /> : <Forum />}
+      {seg === 'reports' ? <Reports onShowOnMap={onShowOnMap} /> : <Forum unseen={unseenNow} />}
       </View>
     </View>
   );
@@ -65,7 +76,7 @@ function Reports({ onShowOnMap }: { onShowOnMap: (lat: number, lon: number, name
 }
 
 // ---------------- forum ----------------
-function Forum() {
+function Forum({ unseen }: { unseen: { byCategory: Record<number, number>; posts: Set<string>; total: number } }) {
   const st = useSt();
   const [cats, setCats] = useState<forum.Category[] | null>(null);
   const [cat, setCat] = useState<forum.Category | null>(null);
@@ -73,23 +84,28 @@ function Forum() {
   const [composing, setComposing] = useState(false);
   useEffect(() => { forum.categories().then(setCats).catch(() => setCats([])); }, []);
   if (post) return <Thread post={post} onBack={() => setPost(null)} />;
+  const open = (p: forum.Post) => { seen.markSeen(p.id, p.last_activity_at); setPost(p); };
   if (composing && cat) return <Compose cat={cat} onDone={() => setComposing(false)} />;
-  if (cat) return <PostList cat={cat} onBack={() => setCat(null)} onOpen={setPost} onNew={() => setComposing(true)} />;
+  if (cat) return <PostList cat={cat} unseen={unseen.posts} onBack={() => setCat(null)} onOpen={open} onNew={() => setComposing(true)} />;
   return (
     <FlatList data={cats ?? []} keyExtractor={(c) => String(c.id)} contentContainerStyle={st.list}
-      ListHeaderComponent={<View style={{ gap: 8 }}><SponsorBanner placement="banner_community" /><Text style={st.lbl}>Topics</Text></View>}
+      ListHeaderComponent={<View style={{ gap: 8 }}><SponsorBanner placement="banner_community" />
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={st.lbl}>Topics</Text>
+          {unseen.total ? <Pressable onPress={() => seen.markAllSeen()} hitSlop={8} accessibilityRole="button"><Text style={st.markAll}>Mark all read</Text></Pressable> : null}</View></View>}
       ListEmptyComponent={cats === null ? <ActivityIndicator color={colors.live} /> : <Text style={st.empty}>Forum unavailable offline.</Text>}
       renderItem={({ item }) => (
-        <Pressable style={({ pressed }) => [st.cardRow, pressed && { opacity: 0.7 }]} onPress={() => setCat(item)} accessibilityRole="button">
-          <View style={st.catIcon}><Ionicons name="chatbubbles-outline" size={20} color={colors.live} /></View>
+        <Pressable style={({ pressed }) => [st.cardRow, unseen.byCategory[item.id] ? st.newRow : null, pressed && { opacity: 0.7 }]} onPress={() => setCat(item)} accessibilityRole="button"
+          accessibilityLabel={`${item.name}${unseen.byCategory[item.id] ? `, ${unseen.byCategory[item.id]} new` : ''}`}>
+          <View style={[st.catIcon, unseen.byCategory[item.id] ? { backgroundColor: NEW_GREEN + '26' } : null]}><Ionicons name="chatbubbles-outline" size={20} color={unseen.byCategory[item.id] ? NEW_GREEN : colors.live} /></View>
           <View style={{ flex: 1 }}><Text style={st.name}>{item.name}</Text>{item.description ? <Text style={st.sub} numberOfLines={2}>{item.description}</Text> : null}</View>
+          {unseen.byCategory[item.id] ? <View style={st.newPill}><Text style={st.newPillT}>{unseen.byCategory[item.id]} NEW</Text></View> : null}
           <Ionicons name="chevron-forward" size={18} color={colors.faint} />
         </Pressable>
       )} />
   );
 }
 
-function PostList({ cat, onBack, onOpen, onNew }: { cat: forum.Category; onBack: () => void; onOpen: (p: forum.Post) => void; onNew: () => void }) {
+function PostList({ cat, unseen, onBack, onOpen, onNew }: { cat: forum.Category; unseen: Set<string>; onBack: () => void; onOpen: (p: forum.Post) => void; onNew: () => void }) {
   const st = useSt();
   const [rows, setRows] = useState<forum.Post[] | null>(null);
   const [names, setNames] = useState<Record<string, any>>({});
@@ -112,9 +128,12 @@ function PostList({ cat, onBack, onOpen, onNew }: { cat: forum.Category; onBack:
       }
       ListEmptyComponent={rows === null ? <ActivityIndicator color={colors.live} /> : <Text style={st.empty}>No posts in {cat.name} yet.</Text>}
       renderItem={({ item }) => (
-        <Pressable style={({ pressed }) => [st.cardRow, pressed && { opacity: 0.7 }]} onPress={() => onOpen(item)} accessibilityRole="button">
+        <Pressable style={({ pressed }) => [st.cardRow, unseen.has(item.id) ? st.newRow : null, pressed && { opacity: 0.7 }]} onPress={() => onOpen(item)} accessibilityRole="button">
           <View style={{ flex: 1, gap: 4 }}>
-            <Text style={st.name} numberOfLines={2}>{item.title}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {unseen.has(item.id) ? <View style={st.newPill}><Text style={st.newPillT}>NEW</Text></View> : null}
+              <Text style={[st.name, { flexShrink: 1 }]} numberOfLines={2}>{item.title}</Text>
+            </View>
             <Text style={st.sub}>{names[item.author_id]?.display_name ?? 'Angler'}{names[item.author_id]?.verified_reporter ? ' ✓' : ''} · {ageText(item.last_activity_at).replace(' old', ' ago')}</Text>
             <View style={st.counts}>
               <Ionicons name="chatbubble-outline" size={14} color={colors.muted} /><Text style={st.sub}>{item.comment_count}</Text>
@@ -219,6 +238,10 @@ const useSt = makeStyles((colors) => ({
   list: { gap: 8, paddingBottom: 40 },
   lbl: { color: colors.muted, fontSize: 12.5, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 4 },
   cardRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panelSolid, minHeight: touch.min },
+  newRow: { borderColor: NEW_GREEN, borderWidth: 2, borderLeftWidth: 6 },
+  newPill: { backgroundColor: NEW_GREEN, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
+  newPillT: { color: '#062A12', fontSize: 11.5, fontWeight: '900' },
+  markAll: { color: colors.live, fontSize: 13, fontWeight: '700' },
   catIcon: { width: 38, height: 38, borderRadius: 10, backgroundColor: colors.inset, alignItems: 'center', justifyContent: 'center' },
   counts: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   sendBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-end' },

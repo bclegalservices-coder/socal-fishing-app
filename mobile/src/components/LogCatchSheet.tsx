@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { colors, touch, makeStyles } from '../theme';
 import { formatLatLon } from '../geo';
-import { BAITS, SPECIES, TECHNIQUES } from '../community/species';
+import { BAITS, FOUND_ON, PICKABLE_SPECIES, TECHNIQUES } from '../community/species';
 import { newClientId, queueCatch, type LocationMode } from '../community/catchApi';
 import { cachedGroups } from '../community/groupsApi';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,9 +17,9 @@ import { friendly } from '../friendly';
 type Props = { lat: number; lon: number; nearestSpot?: { id: string; name: string } | null; depthFt?: number | null; onDone: (msg: string) => void; onCancel: () => void };
 
 const MODES: { key: LocationMode; title: string; sub: string }[] = [
-  { key: 'approximate', title: 'Approximate', sub: 'Public pin moved 0.5–1.5 NM. Your exact numbers stay private.' },
-  { key: 'area', title: 'Area only', sub: 'Shows a named area or spot, no coordinates.' },
+  // Nov 2: "Approximate" removed; Exact is the default.
   { key: 'exact', title: 'Exact', sub: 'Public pin at the true position.' },
+  { key: 'area', title: 'Area only', sub: 'Shows a named area or spot, no coordinates.' },
   { key: 'private', title: 'Private', sub: 'Only in your private log. Not on the public map.' },
 ];
 
@@ -39,7 +39,8 @@ export function LogCatchSheet({ lat, lon, nearestSpot, depthFt, onDone, onCancel
   const [marks, setMarks] = useState('');
   const [notes, setNotes] = useState('');
   const [photos, setPhotos] = useState<{ uri: string; live: boolean }[]>([]);
-  const [mode, setMode] = useState<LocationMode>('approximate');
+  const [mode, setMode] = useState<LocationMode>('exact');
+  const [foundOn, setFoundOn] = useState<string | null>(null);
   const [anon, setAnon] = useState(false);
   const [area, setArea] = useState(nearestSpot?.name ?? '');
   const [showPhotos, setShowPhotos] = useState(true);
@@ -68,7 +69,7 @@ export function LogCatchSheet({ lat, lon, nearestSpot, depthFt, onDone, onCancel
         spot_id: mode === 'area' && nearestSpot && (!area.trim() || area.trim() === nearestSpot.name) ? nearestSpot.id : null,
         quantity: qty, weight_lb: num(weight), length_in: num(length), kept, technique,
         bait: bait === 'Other' ? (baitOther.trim() || 'Other') : bait,
-        fishing_depth_ft: num(fishDepth), water_depth_ft: num(waterDepth), meter_marks: marks.trim() || null, notes: notes.trim() || null,
+        fishing_depth_ft: num(fishDepth), water_depth_ft: num(waterDepth), meter_marks: marks.trim() || null, notes: notes.trim() || null, found_on: foundOn,
         photos, show_photos_public: showPhotos, share_groups: toGroups,
       });
       track('catch_logged', { species: species, mode, photos: photos.length, offline: !r.sent });
@@ -91,7 +92,7 @@ export function LogCatchSheet({ lat, lon, nearestSpot, depthFt, onDone, onCancel
       <ScrollView contentContainerStyle={{ gap: 14, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
         <Text style={st.groupH}>The fish</Text>
         <View><Text style={st.label}>Species</Text>
-          <View style={st.wrap}>{SPECIES.map((s) => <Chip key={s.code} label={s.name} on={species === s.code} onPress={() => setSpecies(s.code)} color={s.color} />)}</View></View>
+          <View style={st.wrap}>{PICKABLE_SPECIES.map((s) => <Chip key={s.code} label={s.name} on={species === s.code} onPress={() => setSpecies(s.code)} color={s.color} />)}</View></View>
 
         <View style={st.row}>
           <View style={{ flex: 1 }}><Text style={st.label}>How many</Text>
@@ -106,6 +107,7 @@ export function LogCatchSheet({ lat, lon, nearestSpot, depthFt, onDone, onCancel
         <View style={st.wrap}><Chip label="Kept" on={kept === true} onPress={() => setKept(kept === true ? null : true)} /><Chip label="Released" on={kept === false} onPress={() => setKept(kept === false ? null : false)} /></View>
 
         <Text style={st.groupH}>How you caught it</Text>
+        <View><Text style={st.label}>Found on</Text><View style={st.wrap}>{FOUND_ON.map((f) => <Chip key={f.key} label={f.label} on={foundOn === f.key} onPress={() => setFoundOn(foundOn === f.key ? null : f.key)} />)}</View></View>
         <View><Text style={st.label}>Technique</Text><View style={st.wrap}>{TECHNIQUES.map((t) => <Chip key={t} label={t} on={technique === t} onPress={() => setTechnique(technique === t ? null : t)} />)}</View></View>
         <View><Text style={st.label}>Bait / lure</Text><View style={st.wrap}>{BAITS.map((b) => <Chip key={b} label={b} on={bait === b} onPress={() => setBait(bait === b ? null : b)} />)}</View>
           {bait === 'Other' || bait === 'Jig' || bait === 'Artificial lure' ? <TextInput style={[st.input, { marginTop: 6 }]} value={baitOther} onChangeText={setBaitOther} placeholder="Which one? (optional)" placeholderTextColor={colors.muted} /> : null}</View>
@@ -135,7 +137,7 @@ export function LogCatchSheet({ lat, lon, nearestSpot, depthFt, onDone, onCancel
           {MODES.map((m) => (
             <Pressable key={m.key} onPress={() => setMode(m.key)} style={[st.mode, mode === m.key && st.modeOn]} accessibilityRole="radio" accessibilityState={{ checked: mode === m.key }}>
               <View style={[st.dot, mode === m.key && st.dotOn]} />
-              <View style={{ flex: 1 }}><Text style={st.modeT}>{m.title}{m.key === 'approximate' ? '  ·  default' : ''}</Text><Text style={st.sub}>{m.sub}</Text></View>
+              <View style={{ flex: 1 }}><Text style={st.modeT}>{m.title}{m.key === 'exact' ? '  ·  default' : ''}</Text><Text style={st.sub}>{m.sub}</Text></View>
             </Pressable>
           ))}
           {mode === 'area' ? <TextInput style={st.input} value={area} onChangeText={setArea} placeholder="Area name, e.g. Catalina East End" placeholderTextColor={colors.muted} /> : null}

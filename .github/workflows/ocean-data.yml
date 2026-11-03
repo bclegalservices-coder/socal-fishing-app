@@ -8,6 +8,7 @@ on:
     - cron: "20 2 * * *"    # 7:20 PM Pacific — catches late-posting chlorophyll
     - cron: "50 4,10,16,22 * * *"  # wind: ~5 h after each GFS run
     - cron: "30 15 * * 1"          # rules & hazards (MPAs, wrecks, lanes): Mondays
+    - cron: "20 8,20 * * *"        # Nov 2: water temp + chlorophyll only, 2 more times a day (grab new maps sooner)
   workflow_dispatch:
     inputs:
       job:
@@ -56,6 +57,7 @@ jobs:
           if [ -n "${{ github.event.inputs.job }}" ]; then JOB="${{ github.event.inputs.job }}";
           elif [ "${{ github.event.schedule }}" = "50 4,10,16,22 * * *" ]; then JOB=wind;
           elif [ "${{ github.event.schedule }}" = "30 15 * * 1" ]; then JOB=rules;
+          elif [ "${{ github.event.schedule }}" = "20 8,20 * * *" ]; then JOB=surface;
           else JOB=all; fi
           python -m ocean.jobs $JOB
       - name: Save the HD bottom preview picture (bottomhd-preview only)

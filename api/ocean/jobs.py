@@ -205,16 +205,52 @@ def _latest_surface(layer: str, region: str, http: httpx.Client, store):
         ds, day, g = found[i]
         log(f"sst: using {ds.dataset_id} ({day}) — newest of {', '.join(d for _, d, _ in found)}")
         return ds, process_surface(layer, region, "last", http, store, ds, grid=g)
-    last_err = None
-    for ds in (sst_candidates() if layer == "sst" else chl_candidates(http)):
+    # Chlorophyll (Nov 2): the cloud-free Copernicus map runs ~3 days behind; NOAA's daily satellite maps are ~1 day
+    # old but have holes wherever it was cloudy. Ask every source for its newest day, use the NEWEST one, and fill its
+    # cloud holes from the next-newest maps — so clear water shows yesterday's pass, cloudy patches the latest
+    # cloud-free view.
+    found, last_err = [], None
+    for ds in chl_candidates(http):
         try:
-            entry = process_surface(layer, region, "last", http, store, ds)
-            log(f"{layer}: using {ds.dataset_id} on {ds.erddap}")
-            return ds, entry
+            g = fetch_surface(layer, region, "last", http, ds)
+            found.append((ds, grid_day(g), g))
+            log(f"chl: {ds.dataset_id} on {ds.erddap} has {grid_day(g)} ({coverage(g):.0%} of the box seen)")
         except Exception as e:
             last_err = e
-            log(f"{layer}: {ds.dataset_id} on {ds.erddap} failed ({str(e)[:200]})")
-    raise RuntimeError(f"No {layer} source worked. Last error: {last_err}")
+            log(f"chl: {ds.dataset_id} on {ds.erddap} failed ({str(e)[:200]})")
+    if not found:
+        raise RuntimeError(f"No chl source worked. Last error: {last_err}")
+    order = sorted(range(len(found)), key=lambda i: (found[i][1], coverage(found[i][2])), reverse=True)
+    ds, day, g = found[order[0]]
+    used = [ds.dataset_id]
+    for i in order[1:]:
+        if coverage(g) >= 0.97:
+            break
+        before = coverage(g)
+        g = fill_gaps(g, found[i][2])
+        if coverage(g) > before + 0.01:
+            used.append(f"{found[i][0].dataset_id} ({found[i][1]})")
+    if len(used) > 1:
+        from dataclasses import replace
+        g.meta["filled_from"] = used[1:]
+        ds = replace(ds, source=f"{ds.source} — cloud gaps filled from older cloud-free maps")
+    log(f"chl: using {used[0]} ({day}){' + gaps from ' + ', '.join(used[1:]) if len(used) > 1 else ''} — newest of {', '.join(d for _, d, _ in found)}")
+    return ds, process_surface(layer, region, "last", http, store, ds, grid=g)
+
+
+def coverage(g: Grid) -> float:
+    """Share of the grid that has a value (water the satellite saw; land and clouds are empty)."""
+    v = np.asarray(g.values)
+    return float(np.isfinite(v).mean()) if v.size else 0.0
+
+
+def fill_gaps(newer: Grid, older: Grid) -> Grid:
+    """newer, with its empty cells (clouds) filled from `older` sampled at the same points."""
+    la, lo = np.meshgrid(np.asarray(newer.lats), np.asarray(newer.lons), indexing="ij")
+    o = np.asarray(older.sample(la, lo), dtype=np.float64)
+    v = np.asarray(newer.values, dtype=np.float64)
+    out = np.where(np.isfinite(v), v, o)
+    return Grid(newer.lats, newer.lons, out.astype(np.asarray(newer.values).dtype), dict(newer.meta))
 
 
 def run_surface(layer: str, region: str, days: list[int]):
@@ -344,7 +380,7 @@ def verify():
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("job", choices=["sst", "chl", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "bottomhd", "bottomhd-socal", "bottomhd-rebuild", "bottomhd-preview", "bottomhd-overview", "bottomhd-restore", "bottomhd-restore-v3", "bottomhd-restore-v4", "bottomhd-restore-v5", "bottomhd-restore-v6", "crm", "crm-rebuild", "all", "discover", "verify"])
+    p.add_argument("job", choices=["sst", "chl", "surface", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "bottomhd", "bottomhd-socal", "bottomhd-rebuild", "bottomhd-preview", "bottomhd-overview", "bottomhd-restore", "bottomhd-restore-v3", "bottomhd-restore-v4", "bottomhd-restore-v5", "bottomhd-restore-v6", "crm", "crm-rebuild", "all", "discover", "verify"])
     p.add_argument("--region", default="socal")
     p.add_argument("--days", default="0,1,2,3,7")
     p.add_argument("--file", default=None, help="local seafloor file for `bathy`")
@@ -412,9 +448,9 @@ def main(argv=None):
             failed.append(name)
             log(f"FAILED {name}: {e}")
 
-    if a.job in ("sst", "all"):
+    if a.job in ("sst", "all", "surface"):
         step("sst", run_surface, "sst", a.region, days)
-    if a.job in ("chl", "all"):
+    if a.job in ("chl", "all", "surface"):
         step("chl", run_surface, "chl", a.region, days)
     if a.job == "bathy" or (a.job == "all" and get_store().get(f"manifests/bathy.json") is None):
         step("bathy", run_bathy, a.region, a.file)

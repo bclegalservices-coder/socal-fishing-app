@@ -35,3 +35,12 @@ export function ageText(iso?: string | null, nowMs = Date.now()): string {
   return `${Math.round(h / 24)} days old`;
 }
 export const isStale = (iso?: string | null, hours = 36) => !!iso && (Date.now() - new Date(iso).getTime()) / 3_600_000 > hours;
+
+/** Nov 2: is this point on the water? true / false, or null when unknown (offline, server asleep, outside the map).
+ *  Catches and whale sightings can't be placed on land. */
+export async function onWater(lat: number, lon: number): Promise<boolean | null> {
+  try {
+    const r = await getJSON<{ water: boolean | null }>(`/water?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`, { timeoutMs: 8000 });
+    return typeof r.data.water === 'boolean' ? r.data.water : null;
+  } catch { return null; }
+}

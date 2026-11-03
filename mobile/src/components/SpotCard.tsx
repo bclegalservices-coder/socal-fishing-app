@@ -9,10 +9,10 @@ import { useWaterTemp } from '../waterTemp';
 
 type Props = {
   spot: Pt & { subtitle?: string; sponsor?: string; sponsorTags?: string[] }; boat: Pt | null; kind: 'spot' | 'pin' | 'saved';
-  onGo: () => void; onAddToRoute: () => void; onSave?: () => void; onDelete?: () => void; onClose: () => void; onLog?: () => void; onWeather?: () => void; onShareToGroup?: () => void; protectedHere?: any[];
+  onGo: () => void; onAddToRoute: () => void; onSave?: () => void; onDelete?: () => void; onClose: () => void; onLog?: () => void; onWhale?: () => void; onWeather?: () => void; onShareToGroup?: () => void; protectedHere?: any[];
 };
 
-export function SpotCard({ spot, boat, kind, onGo, onAddToRoute, onSave, onDelete, onClose, onLog, onWeather, onShareToGroup, protectedHere }: Props) {
+export function SpotCard({ spot, boat, kind, onGo, onAddToRoute, onSave, onDelete, onClose, onLog, onWhale, onWeather, onShareToGroup, protectedHere }: Props) {
   const d = boat ? distanceNm(boat.lat, boat.lon, spot.lat, spot.lon) : null;
   const b = boat ? bearingTrue(boat.lat, boat.lon, spot.lat, spot.lon) : null;
   const water = useWaterTemp(spot.lat, spot.lon);
@@ -40,6 +40,7 @@ export function SpotCard({ spot, boat, kind, onGo, onAddToRoute, onSave, onDelet
         {onDelete ? <Btn label="Delete" icon="trash-outline" kind="danger" onPress={onDelete} /> : null}
       </Row>
       {onLog ? <Btn label="Log a catch here" icon="fish-outline" onPress={onLog} /> : null}
+      {onWhale ? <Btn label="Log a whale sighting here" icon="water-outline" onPress={onWhale} /> : null}
       {onShareToGroup ? <Btn label="Send to my crew" icon="megaphone-outline" onPress={onShareToGroup} /> : null}
       {onWeather ? <Btn label="5-day weather for this spot" icon="partly-sunny-outline" onPress={onWeather} /> : null}
       <ConditionsView lat={spot.lat} lon={spot.lon} />

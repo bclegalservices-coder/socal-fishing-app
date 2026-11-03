@@ -26,6 +26,7 @@ import { CommunityScreen } from './src/screens/CommunityScreen';
 import { CrewScreen } from './src/screens/CrewScreen';
 import { WeatherScreen, type WeatherPlace } from './src/screens/WeatherScreen';
 import { setupGroupNotifications } from './src/community/groupPush';
+import * as forumSeen from './src/community/forumSeen';
 import type { GroupNav } from './src/community/GroupsView';
 
 // Keep the launch logo up until the first screen has drawn, then fade it out ourselves (never rely on auto-hide).
@@ -62,6 +63,17 @@ function AppInner() {
     else { setOpenGroup({ id: o.groupId ?? null, at: Date.now() }); setTab('crew'); }
   }), []);
   const [reloadKey, setReloadKey] = useState(0);
+  // Nov 2: green dot on the Community tab when the forum has posts you haven't seen
+  const [forumNew, setForumNew] = useState(false);
+  useEffect(() => {
+    if (!supabaseReady) return;
+    const check = () => { forumSeen.unseen().then((u) => setForumNew(u.total > 0)).catch(() => {}); };
+    check();
+    const t = setInterval(check, 180000);
+    const off = forumSeen.onSeenChange(check);
+    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') check(); });
+    return () => { clearInterval(t); off(); sub.remove(); };
+  }, []);
   const [intro, setIntro] = useState<Ad | null>(null);
   const [legalOk, setLegalOk] = useState(false);
   const [coupon, setCoupon] = useState<Ad | null>(null);
@@ -131,7 +143,7 @@ function AppInner() {
           {tab === 'community' ? <View style={StyleSheet.absoluteFill}><CommunityScreen onShowOnMap={showOnMap} /></View> : null}
           {tab === 'me' ? <View style={StyleSheet.absoluteFill}><ProfileScreen onShowOnMap={showOnMap} onOpenSpots={() => goTab('spots')} spotCount={mySpots.length} /></View> : null}
         </View>
-        <TabBar tab={tab} setTab={goTab} />
+        <TabBar tab={tab} setTab={goTab} badges={{ community: forumNew }} badgeColors={{ community: '#1FD15A' }} />
         <SafetyNotice onAccepted={() => setLegalOk(true)} />
         {intro ? <SponsorIntro ad={intro} onDone={() => setIntro(null)} /> : null}
         <CouponSheet ad={coupon} onClose={() => setCoupon(null)} />
