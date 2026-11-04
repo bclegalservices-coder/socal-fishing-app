@@ -388,7 +388,7 @@ function FloatPlanForm({ groupId, onStarted }: { groupId: string; onStarted: () 
       <View style={st.wrap}>
         {presets.map((p) => (
           <Pressable key={p.label} onPress={() => { setAt(p.at); setTyped(''); }} style={[st.chip, !typed && at?.getTime() === p.at.getTime() && st.chipOn]}>
-            <Text style={[st.chipT, !typed && at?.getTime() === p.at.getTime() && { color: colors.accentInk }]}>{p.label} · {timeOf(p.at.toISOString())}</Text>
+            <Text style={[st.chipT, !typed && at?.getTime() === p.at.getTime() && { color: colors.accent }]}>{p.label} · {timeOf(p.at.toISOString())}</Text>
           </Pressable>
         ))}
       </View>
@@ -526,15 +526,15 @@ const useSt = makeStyles((colors) => ({
   codeBox: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderRadius: 12, backgroundColor: colors.inset, borderWidth: 1, borderColor: colors.border },
   codeT: { color: colors.text, fontSize: 22, fontWeight: '800', letterSpacing: 4, fontVariant: ['tabular-nums'] },
   back: { paddingVertical: 6 },
-  input: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.inset, color: colors.text, paddingHorizontal: 12, fontSize: 16 },
+  input: { minHeight: 44, borderRadius: 10, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.inset, color: colors.text, paddingHorizontal: 12, fontSize: 16 },
   member: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderColor: colors.line },
   dot: { width: 12, height: 12, borderRadius: 6, borderWidth: 1 },
   mini: { borderWidth: 1.5, borderColor: colors.live, backgroundColor: colors.panelSolid, borderRadius: 18, paddingHorizontal: 14, minHeight: 36, justifyContent: 'center', alignItems: 'center' },
   miniT: { color: colors.live, fontWeight: '700', fontSize: 14 },
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, minHeight: touch.min - 8 },
-  chip: { borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, borderRadius: 16, paddingHorizontal: 10, minHeight: 40, justifyContent: 'center' },
-  chipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  chipT: { color: colors.text, fontWeight: '700', fontSize: 14 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 38, paddingHorizontal: 13, borderRadius: 19, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.inset, justifyContent: 'center' },
+  chipOn: { backgroundColor: /^#[0-9a-f]{6}$/i.test(colors.accent) ? colors.accent + '22' : colors.inset, borderColor: colors.accent },
+  chipT: { color: colors.text, fontWeight: '600', fontSize: 13.5 },
   pick: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 52, paddingVertical: 10, borderTopWidth: 1, borderColor: colors.line },
   feed: { borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 12, gap: 6, backgroundColor: colors.panelSolid },
 }));

@@ -182,7 +182,7 @@ export function SearchSheet({ boat, center, mySpots, publicSpots, harbors, onPic
           const on = cat === c.key;
           return (
             <Pressable key={c.key} onPress={() => setCat(c.key)} style={[st.chip, on && st.chipOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
-              <MaterialCommunityIcons name={c.icon} size={15} color={on ? colors.accentInk : colors.text} />
+              <MaterialCommunityIcons name={c.icon} size={15} color={on ? colors.accent : colors.text} />
               <Text style={[st.chipT, on && st.chipTOn]}>{c.label}</Text>
             </Pressable>
           );
@@ -214,10 +214,10 @@ const useSt = makeStyles((colors) => ({
   cancel: { height: touch.min, justifyContent: 'center', paddingHorizontal: 4 },
   cancelT: { color: colors.accent, fontSize: 16, fontWeight: '700' },
   chips: { gap: 8, paddingBottom: 10 },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 40, paddingHorizontal: 13, borderRadius: 17, backgroundColor: colors.panelSolid, borderWidth: 1.5, borderColor: colors.border },
-  chipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  chipT: { color: colors.text, fontSize: 14, fontWeight: '700' },
-  chipTOn: { color: colors.accentInk },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 38, paddingHorizontal: 13, borderRadius: 19, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.inset },
+  chipOn: { backgroundColor: /^#[0-9a-f]{6}$/i.test(colors.accent) ? colors.accent + '22' : colors.inset, borderColor: colors.accent },
+  chipT: { color: colors.text, fontSize: 13.5, fontWeight: '600' },
+  chipTOn: { color: colors.accent },
   secT: { color: colors.text, fontSize: 17, fontWeight: '800', marginTop: 10, marginBottom: 2 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 60, borderBottomWidth: 0.5, borderColor: colors.line },
   tile: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },

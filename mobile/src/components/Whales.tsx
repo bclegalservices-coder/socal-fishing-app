@@ -2,13 +2,12 @@
 // whale pins colored by age (same neon colors as catches), tap one for the details.
 // Nov 3: the whale is our own humpback silhouette icon (WhaleIcon), not the 🐋 emoji.
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Marker } from '@maplibre/maplibre-react-native';
 import { colors, makeStyles } from '../theme';
 import { formatLatLon } from '../geo';
-import { Btn, Chip, Note, Sheet, SmallBtn, Title } from './ui';
+import { Note, Sheet, SmallBtn, Title } from './ui';
+import { CardLabel, ChipSet, Field, FormCard, FormRow, FormSheet, InfoLine, SaveBar, Stepper, TileGrid } from './form';
 import { agoShort, catchAge } from './CatchMap';
 import { WhaleIcon } from './WhaleIcon';
 import { BEHAVIORS, WHALES, behaviorName, deleteWhale, logWhale, whaleName, whalesIn, type Sighting } from '../community/whaleApi';
@@ -81,10 +80,9 @@ export function WhaleCard({ w, onClose, onDeleted }: { w: Sighting; onClose: () 
   );
 }
 
-/** The log form (opened from the + menu). The position must be on the water — checked before this opens. */
+/** The log form (opened from the + menu). The position must be on the water — checked before this opens.
+ *  Nov 4: rebuilt with the shared form look (components/form.tsx). */
 export function LogWhaleSheet({ lat, lon, onDone, onCancel }: { lat: number; lon: number; onDone: (msg: string) => void; onCancel: () => void }) {
-  const st = useSt();
-  const insets = useSafeAreaInsets();
   const [species, setSpecies] = useState<string | null>(null);
   const [other, setOther] = useState('');
   const [n, setN] = useState(1);
@@ -100,31 +98,24 @@ export function LogWhaleSheet({ lat, lon, onDone, onCancel }: { lat: number; lon
       onDone('Whale sighting logged.');
     } catch (e: any) { Alert.alert('Not saved', friendly(e)); } finally { setBusy(false); }
   };
+  const tiles = WHALES.map((w) => ({ key: w.key, label: w.name.replace(' whale', '') }));
   return (
-    <View style={[st.sheet, { top: insets.top + 56 }]}>
-      <View style={st.headRow}>
-        <Text style={[st.h1, { flex: 1 }]}>Log a whale sighting</Text>
-        <Pressable onPress={onCancel} style={st.x} accessibilityRole="button" accessibilityLabel="Cancel"><Ionicons name="close" size={22} color={colors.text} /></Pressable>
-      </View>
-      <View style={st.where}><Ionicons name="location" size={16} color={colors.live} /><Text style={[st.sub, { flex: 1 }]}>{formatLatLon(lat, lon)} · now</Text></View>
-      <ScrollView contentContainerStyle={{ gap: 14, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-        <View><Text style={st.label}>Which whale</Text>
-          <View style={st.wrap}>{WHALES.map((w) => <Chip key={w.key} label={w.name} on={species === w.key} onPress={() => setSpecies(w.key)} />)}</View>
-          {species === 'other' ? <TextInput style={[st.input, { marginTop: 6 }]} value={other} onChangeText={setOther} placeholder="Which one? (optional)" placeholderTextColor={colors.muted} maxLength={40} /> : null}
-        </View>
-        <View><Text style={st.label}>How many</Text>
-          <View style={st.stepper}>
-            <Pressable style={st.step} onPress={() => setN(Math.max(1, n - 1))} accessibilityLabel="Fewer"><Text style={st.stepT}>−</Text></Pressable>
-            <Text style={st.qty}>{n}</Text>
-            <Pressable style={st.step} onPress={() => setN(Math.min(500, n + 1))} accessibilityLabel="More"><Text style={st.stepT}>+</Text></Pressable>
-          </View></View>
-        <View><Text style={st.label}>What were they doing? (optional)</Text>
-          <View style={st.wrap}>{BEHAVIORS.map((b) => <Chip key={b.key} label={b.name} on={behavior === b.key} onPress={() => setBehavior(behavior === b.key ? null : b.key)} />)}</View></View>
-        <View><Text style={st.label}>Notes (optional)</Text><TextInput style={[st.input, { height: 70 }]} multiline value={notes} onChangeText={setNotes} maxLength={500} placeholderTextColor={colors.muted} placeholder="e.g. heading north, lots of bait around" /></View>
-        <Text style={st.sub}>Everyone can see whale sightings on the map for 3 days. Keep at least 100 yards away (federal law).</Text>
-        <Btn label={busy ? 'Saving…' : 'Save sighting'} kind="primary" onPress={save} disabled={busy || !species} />
-      </ScrollView>
-    </View>
+    <FormSheet title="Log a whale sighting" where={`${formatLatLon(lat, lon)} · Now`} onClose={onCancel}
+      footer={<SaveBar label="Save sighting" missing={species ? null : 'Pick a species to save'} busy={busy} onPress={save} />}>
+      <FormCard label="Species" tag="Required">
+        <TileGrid items={tiles} value={species} onChange={(k) => setSpecies(species === k ? null : k)} />
+        {species === 'other' ? <Field value={other} onChangeText={setOther} placeholder="Which one? (optional)" /> : null}
+      </FormCard>
+      <FormCard>
+        <FormRow title="How many" sub="Best guess is fine" right={<Stepper value={n} onChange={setN} max={500} />} />
+        <CardLabel label="Behavior" tag="Optional" />
+        <ChipSet items={BEHAVIORS.map((b) => ({ key: b.key, label: b.name }))} value={behavior} onChange={(k) => setBehavior(behavior === k ? null : k)} />
+      </FormCard>
+      <FormCard label="Notes" tag="Optional">
+        <Field value={notes} onChangeText={setNotes} placeholder="Heading north, lots of bait around" multiline />
+      </FormCard>
+      <InfoLine text="Visible to everyone for 3 days. Stay at least 100 yards away (federal law)." />
+    </FormSheet>
   );
 }
 
@@ -139,18 +130,7 @@ const s = StyleSheet.create({
 });
 
 const useSt = makeStyles((colors) => ({
-  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: colors.panelSolid, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderColor: colors.line, paddingHorizontal: 16, paddingTop: 10, zIndex: 30 },
   headRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  h1: { color: colors.text, fontSize: 26, fontWeight: '700' },
-  x: { width: 44, height: 44, borderRadius: 22, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
-  where: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 10, marginTop: 4, marginBottom: 6, borderRadius: 10, backgroundColor: colors.inset },
   sub: { color: colors.muted, fontSize: 12.5, lineHeight: 17 },
   line: { color: colors.text, fontSize: 14.5 },
-  label: { color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 6 },
-  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  input: { minHeight: 44, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.inset, color: colors.text, paddingHorizontal: 12, fontSize: 16 },
-  stepper: { flexDirection: 'row', alignItems: 'center', height: 44, borderRadius: 12, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, maxWidth: 200 },
-  step: { width: 48, height: 44, alignItems: 'center', justifyContent: 'center' },
-  stepT: { color: colors.text, fontSize: 22 },
-  qty: { flex: 1, textAlign: 'center', color: colors.text, fontSize: 18, fontWeight: '700' },
 }));

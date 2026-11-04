@@ -4,6 +4,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { cardStyle, colors, makeStyles, radius, touch } from '../theme';
+import { tint } from './form';
 
 export type IconName = string;
 export function Icon({ name, size = 20, color }: { name: IconName; size?: number; color?: string }) {
@@ -116,8 +117,8 @@ export function Segmented<T extends string>({ options, value, onChange }: { opti
         const on = o.key === value;
         return (
           <Pressable key={o.key} onPress={() => onChange(o.key)} style={[s.segItem, on && s.segOn]} accessibilityRole="tab" accessibilityState={{ selected: on }}>
-            {o.icon ? <Ionicons name={o.icon as any} size={16} color={on ? colors.accentInk : colors.text} /> : null}
-            <Text style={[s.segT, on && { color: colors.accentInk }]}>{o.label}</Text>
+            {o.icon ? <Ionicons name={o.icon as any} size={16} color={on ? colors.accent : colors.muted} /> : null}
+            <Text style={[s.segT, on && { color: colors.text }]}>{o.label}</Text>
           </Pressable>
         );
       })}
@@ -175,19 +176,19 @@ export function Chip({ label, on, onPress, icon, dot }: { label: string; on?: bo
   const s = useS();
   return (
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: !!on }} accessibilityLabel={label}
-      style={({ pressed }) => [s.chip, on && s.chipOn, pressed && { opacity: 0.7 }]}>
+      style={({ pressed }) => [s.chip, on && { backgroundColor: tint(colors.accent), borderColor: colors.accent }, pressed && { opacity: 0.7 }]}>
       {dot ? <View style={[s.chipDot, { backgroundColor: dot }]} /> : null}
-      {icon ? <Ionicons name={icon as any} size={16} color={on ? colors.accentInk : colors.text} /> : null}
-      <Text style={[s.chipT, on && { color: colors.accentInk }]} numberOfLines={1}>{label}</Text>
+      {icon ? <Ionicons name={icon as any} size={16} color={on ? colors.accent : colors.text} /> : null}
+      <Text style={[s.chipT, on && { color: colors.accent }]} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
 }
 
 const useS = makeStyles((colors) => ({
-  sheet: { backgroundColor: colors.panelSolid, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 14,
+  sheet: { backgroundColor: colors.panelSolid, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 14,
     shadowColor: colors.shadow, shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: -2 }, elevation: 8 },
   handle: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: colors.border, marginBottom: 8 },
-  sheetX: { position: 'absolute', top: 12, right: 12, zIndex: 5, width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.border },
+  sheetX: { position: 'absolute', top: 12, right: 12, zIndex: 5, width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.inset, borderWidth: 1, borderColor: colors.border },
   btn: { flex: 1, flexDirection: 'row', gap: 8, minHeight: touch.min, borderRadius: radius.md, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   btnT: { fontSize: 16.5, fontWeight: '700' },
   iconBtn: { borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, alignItems: 'center', justifyContent: 'center',
@@ -197,7 +198,7 @@ const useS = makeStyles((colors) => ({
   k: { color: colors.muted, fontSize: 12, fontWeight: '600', letterSpacing: 0.3 },
   v: { color: colors.text, fontSize: 20, fontWeight: '700', fontVariant: ['tabular-nums'] },
   vBig: { fontSize: 34, fontWeight: '800' },
-  title: { color: colors.text, fontSize: 22, fontWeight: '800', paddingRight: 40 },   // room for the ✕
+  title: { color: colors.text, fontSize: 22, fontWeight: '800', letterSpacing: -0.2, paddingRight: 44 },   // room for the ✕
   note: { color: colors.muted, fontSize: 13, lineHeight: 18 },
   card: { ...cardStyle(colors), padding: 14, gap: 8 },
   sectionRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 8, marginBottom: 2, paddingHorizontal: 4 },
@@ -209,10 +210,10 @@ const useS = makeStyles((colors) => ({
   listTitle: { color: colors.text, fontSize: 16, fontWeight: '600' },
   listSub: { color: colors.muted, fontSize: 13, marginTop: 1 },
   listValue: { color: colors.muted, fontSize: 15 },
-  seg: { flexDirection: 'row', borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.inset },
-  segItem: { flex: 1, flexDirection: 'row', gap: 6, minHeight: 42, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
-  segOn: { backgroundColor: colors.accent },
-  segT: { color: colors.text, fontWeight: '700', fontSize: 14 },
+  seg: { flexDirection: 'row', borderWidth: 1, borderColor: colors.line, borderRadius: 10, padding: 3, backgroundColor: colors.inset },
+  segItem: { flex: 1, flexDirection: 'row', gap: 6, minHeight: 38, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, borderRadius: 8 },
+  segOn: { backgroundColor: colors.panelSolid, borderWidth: 1, borderColor: colors.border, shadowColor: colors.shadow, shadowOpacity: 0.08, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
+  segT: { color: colors.muted, fontWeight: '700', fontSize: 14 },
   header: { backgroundColor: colors.panelSolid, borderBottomWidth: 1, borderColor: colors.border, paddingHorizontal: 16, paddingBottom: 10 },
   back: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingTop: 6, marginLeft: -6 },
   backT: { color: colors.live, fontSize: 16, fontWeight: '600' },
@@ -222,8 +223,8 @@ const useS = makeStyles((colors) => ({
   backBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 2, minHeight: 40, paddingRight: 10, marginLeft: -4 },
   small: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 6, minHeight: 38, paddingHorizontal: 14, borderRadius: 19, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.panelSolid },
   smallT: { fontSize: 14.5, fontWeight: '700' },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.panelSolid },
-  chipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  chipDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 1, borderColor: 'rgba(255,255,255,0.8)' },
-  chipT: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  // Nov 4: same chip as the forms (components/form.tsx): smaller, soft fill, light tint of the main color when picked
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 38, paddingHorizontal: 13, borderRadius: 19, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.inset },
+  chipDot: { width: 9, height: 9, borderRadius: 5 },
+  chipT: { color: colors.text, fontSize: 13.5, fontWeight: '600' },
 }));

@@ -1,31 +1,23 @@
 // Log Catch (spec §8): conditions are captured automatically; the angler picks species, numbers,
 // technique, bait and — most important — who gets to see where it was.
 import { useEffect, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert, Image, Pressable, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { colors, touch, makeStyles } from '../theme';
+import { colors, makeStyles } from '../theme';
 import { formatLatLon } from '../geo';
 import { BAITS, FOUND_ON, PICKABLE_SPECIES, TECHNIQUES } from '../community/species';
 import { newClientId, queueCatch, type LocationMode } from '../community/catchApi';
 import { cachedGroups } from '../community/groupsApi';
 import { Ionicons } from '@expo/vector-icons';
-import { Btn, Chip as UiChip } from './ui';
+import { ChipSet, Disclosure, Field, FormCard, FormSheet, InfoLine, SaveBar, Segment, Stepper, TileGrid, ToggleRow } from './form';
 import { track } from '../analytics';
 import { friendly } from '../friendly';
 
 type Props = { lat: number; lon: number; nearestSpot?: { id: string; name: string } | null; depthFt?: number | null; onDone: (msg: string) => void; onCancel: () => void };
 
-const MODES: { key: LocationMode; title: string; sub: string }[] = [
-  // Nov 2: "Approximate" removed; Exact is the default.
-  { key: 'exact', title: 'Exact', sub: 'Public pin at the true position.' },
-  { key: 'area', title: 'Area only', sub: 'Shows a named area or spot, no coordinates.' },
-  { key: 'private', title: 'Private', sub: 'Only in your private log. Not on the public map.' },
-];
 
 export function LogCatchSheet({ lat, lon, nearestSpot, depthFt, onDone, onCancel }: Props) {
   const st = useSt();
-  const insets = useSafeAreaInsets();
   const [species, setSpecies] = useState<string | null>(null);
   const [qty, setQty] = useState(1);
   const [weight, setWeight] = useState('');
@@ -80,123 +72,120 @@ export function LogCatchSheet({ lat, lon, nearestSpot, depthFt, onDone, onCancel
     } finally { setBusy(false); }
   };
 
-  const Chip = ({ label, on, onPress, color }: { label: string; on: boolean; onPress: () => void; color?: string }) => <UiChip label={label} on={on} onPress={onPress} dot={color} />;
+  // Nov 4: rebuilt with the shared form look (components/form.tsx): cards, a species grid, pinned Save.
+  const [allOpen, setAllOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [more, setMore] = useState(false);
+  const top = TOP_SPECIES.map((c) => PICKABLE_SPECIES.find((s) => s.code === c)).filter(Boolean) as typeof PICKABLE_SPECIES;
+  const picked = species ? PICKABLE_SPECIES.find((s) => s.code === species) : null;
+  const shown = picked && !top.some((s) => s.code === picked.code) ? [picked, ...top.slice(0, 8)] : top;
+  const tiles = shown.map((s) => ({ key: s.code, label: SHORT[s.code] ?? s.name, dot: s.color }));
+  const list = PICKABLE_SPECIES.filter((s) => s.name.toLowerCase().includes(q.trim().toLowerCase()));
+  const modes = [
+    { key: 'exact' as LocationMode, label: 'Exact', note: 'Everyone sees the exact spot on the catch map.' },
+    { key: 'area' as LocationMode, label: 'Area', note: 'Shows a named area or spot, no coordinates.' },
+    { key: 'private' as LocationMode, label: 'Only me', note: 'Saved to your log only. Not on the public map.' },
+  ];
+  const missing = !species ? 'Pick a species to save' : mode === 'area' && !area.trim() && !nearestSpot ? 'Name the area to save' : null;
 
   return (
-    <View style={[st.sheet, { top: insets.top + 56 }]}>
-      <View style={st.head}>
-        <Text style={st.h1}>Log catch</Text>
-        <Pressable onPress={onCancel} style={st.x} accessibilityRole="button" accessibilityLabel="Cancel"><Ionicons name="close" size={22} color={colors.text} /></Pressable>
-      </View>
-      <View style={st.where}><Ionicons name="location" size={16} color={colors.live} /><Text style={[st.sub, { flex: 1 }]}>{formatLatLon(lat, lon)} · now. Water temp, tide, wind, depth and moon are added for you.</Text></View>
-      <ScrollView contentContainerStyle={{ gap: 14, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-        <Text style={st.groupH}>The fish</Text>
-        <View><Text style={st.label}>Species</Text>
-          <View style={st.wrap}>{PICKABLE_SPECIES.map((s) => <Chip key={s.code} label={s.name} on={species === s.code} onPress={() => setSpecies(s.code)} color={s.color} />)}</View></View>
-
-        <View style={st.row}>
-          <View style={{ flex: 1 }}><Text style={st.label}>How many</Text>
-            <View style={st.stepper}>
-              <Pressable style={st.step} onPress={() => setQty(Math.max(1, qty - 1))}><Text style={st.stepT}>−</Text></Pressable>
-              <Text style={st.qty}>{qty}</Text>
-              <Pressable style={st.step} onPress={() => setQty(Math.min(500, qty + 1))}><Text style={st.stepT}>+</Text></Pressable>
-            </View></View>
-          <View style={{ flex: 1 }}><Text style={st.label}>Weight (lb)</Text><TextInput style={st.input} value={weight} onChangeText={setWeight} keyboardType="decimal-pad" placeholder="est." placeholderTextColor={colors.muted} /></View>
-          <View style={{ flex: 1 }}><Text style={st.label}>Length (in)</Text><TextInput style={st.input} value={length} onChangeText={setLength} keyboardType="decimal-pad" placeholder="opt." placeholderTextColor={colors.muted} /></View>
-        </View>
-        <View style={st.wrap}><Chip label="Kept" on={kept === true} onPress={() => setKept(kept === true ? null : true)} /><Chip label="Released" on={kept === false} onPress={() => setKept(kept === false ? null : false)} /></View>
-
-        <Text style={st.groupH}>How you caught it</Text>
-        <View><Text style={st.label}>Found on</Text><View style={st.wrap}>{FOUND_ON.map((f) => <Chip key={f.key} label={f.label} on={foundOn === f.key} onPress={() => setFoundOn(foundOn === f.key ? null : f.key)} />)}</View></View>
-        <View><Text style={st.label}>Technique</Text><View style={st.wrap}>{TECHNIQUES.map((t) => <Chip key={t} label={t} on={technique === t} onPress={() => setTechnique(technique === t ? null : t)} />)}</View></View>
-        <View><Text style={st.label}>Bait / lure</Text><View style={st.wrap}>{BAITS.map((b) => <Chip key={b} label={b} on={bait === b} onPress={() => setBait(bait === b ? null : b)} />)}</View>
-          {bait === 'Other' || bait === 'Jig' || bait === 'Artificial lure' ? <TextInput style={[st.input, { marginTop: 6 }]} value={baitOther} onChangeText={setBaitOther} placeholder="Which one? (optional)" placeholderTextColor={colors.muted} /> : null}</View>
-
-        <View style={st.row}>
-          <View style={{ flex: 1 }}><Text style={st.label}>Fishing depth (ft)</Text><TextInput style={st.input} value={fishDepth} onChangeText={setFishDepth} keyboardType="number-pad" placeholderTextColor={colors.muted} placeholder="opt." /></View>
-          <View style={{ flex: 1 }}><Text style={st.label}>Water depth (ft)</Text><TextInput style={st.input} value={waterDepth} onChangeText={setWaterDepth} keyboardType="number-pad" placeholderTextColor={colors.muted} placeholder="opt." /></View>
-        </View>
-        <View><Text style={st.label}>Meter marks</Text><TextInput style={st.input} value={marks} onChangeText={setMarks} placeholder="e.g. marks at 40–60 ft" placeholderTextColor={colors.muted} /></View>
-        <Text style={st.groupH}>Notes and photos</Text>
-        <View><Text style={st.label}>Notes</Text><TextInput style={[st.input, { height: 70 }]} multiline value={notes} onChangeText={setNotes} placeholderTextColor={colors.muted} placeholder="optional" /></View>
-
-        <View><Text style={st.label}>Photos</Text>
-          <View style={st.wrap}>
-            {photos.map((p, i) => (
-              <Pressable key={i} onLongPress={() => setPhotos(photos.filter((_, j) => j !== i))}><Image source={{ uri: p.uri }} style={st.thumb} /></Pressable>
+    <FormSheet title="Log a catch" where={`${formatLatLon(lat, lon)} · Now`} hint="Water temp, tide, wind, depth and moon added for you" onClose={onCancel}
+      footer={<SaveBar label="Save catch" missing={missing} busy={busy} onPress={save} />}>
+      <FormCard label="Species" tag="Required">
+        <TileGrid items={tiles} value={species} onChange={(k) => setSpecies(species === k ? null : k)} />
+        <Pressable onPress={() => setAllOpen(!allOpen)} style={st.allBtn} accessibilityRole="button" accessibilityState={{ expanded: allOpen }}>
+          <Ionicons name={allOpen ? 'chevron-up' : 'search'} size={15} color={colors.accent} />
+          <Text style={st.allT}>{allOpen ? 'Hide the full list' : `All ${PICKABLE_SPECIES.length} species`}</Text>
+        </Pressable>
+        {allOpen ? (
+          <View style={{ gap: 2 }}>
+            <Field value={q} onChangeText={setQ} placeholder="Search species" />
+            {list.map((s, i) => (
+              <Pressable key={s.code} onPress={() => { setSpecies(s.code); setAllOpen(false); setQ(''); }} style={[st.listRow, i > 0 && st.listLine]} accessibilityRole="radio" accessibilityState={{ checked: species === s.code }}>
+                <View style={[st.dot, { backgroundColor: s.color }]} />
+                <Text style={st.listT}>{s.name}</Text>
+                {species === s.code ? <Ionicons name="checkmark" size={18} color={colors.accent} /> : null}
+              </Pressable>
             ))}
-            {photos.length < 4 ? <><UiChip label="Camera" icon="camera-outline" onPress={() => addPhoto(true)} /><UiChip label="Library" icon="images-outline" onPress={() => addPhoto(false)} /></> : null}
-          </View>
-          <Text style={st.sub}>GPS and camera data are removed from photos before upload.</Text>
-          {photos.length ? <Text style={st.sub}>Long-press a photo to remove it. Camera photos taken now help your report get verified.</Text> : null}
-        </View>
-
-        <Text style={st.groupH}>Privacy</Text>
-        <View style={st.privacy}>
-          <Text style={[st.label, { color: colors.text }]}>Who sees where this was?</Text>
-          {MODES.map((m) => (
-            <Pressable key={m.key} onPress={() => setMode(m.key)} style={[st.mode, mode === m.key && st.modeOn]} accessibilityRole="radio" accessibilityState={{ checked: mode === m.key }}>
-              <View style={[st.dot, mode === m.key && st.dotOn]} />
-              <View style={{ flex: 1 }}><Text style={st.modeT}>{m.title}{m.key === 'exact' ? '  ·  default' : ''}</Text><Text style={st.sub}>{m.sub}</Text></View>
-            </Pressable>
-          ))}
-          {mode === 'area' ? <TextInput style={st.input} value={area} onChangeText={setArea} placeholder="Area name, e.g. Catalina East End" placeholderTextColor={colors.muted} /> : null}
-          {mode !== 'private' ? (
-            <>
-              <View style={st.switchRow}><Text style={st.modeT}>Post anonymously</Text><Switch value={anon} onValueChange={setAnon} /></View>
-              {photos.length ? <View style={st.switchRow}><Text style={st.modeT}>Show photos on the public report</Text><Switch value={showPhotos} onValueChange={setShowPhotos} /></View> : null}
-            </>
-          ) : null}
-          <Text style={st.sub}>Your saved private spots are never attached to reports.</Text>
-        </View>
-        {groups.length ? (
-          <View style={st.privacy}>
-            <Text style={[st.label, { color: colors.text }]}>Also send to my group (exact spot)</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {groups.map((g) => {
-                const on = toGroups.includes(g.id);
-                return (
-                  <Pressable key={g.id} onPress={() => setToGroups(on ? toGroups.filter((x) => x !== g.id) : [...toGroups, g.id])}
-                    style={[st.mode, { flex: 0, paddingVertical: 8 }, on && st.modeOn]} accessibilityRole="checkbox" accessibilityState={{ checked: on }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Ionicons name={on ? 'checkbox' : 'square-outline'} size={18} color={on ? colors.accent : colors.muted} /><Text style={st.modeT}>{g.name}</Text></View>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <Text style={st.sub}>Only members of the groups you pick see where this was — even if the catch is Private on the public map. Sends when you have signal.</Text>
           </View>
         ) : null}
-        <Btn label={busy ? 'Saving…' : 'Save catch'} kind="primary" onPress={save} disabled={busy || !species} />
-      </ScrollView>
-    </View>
+      </FormCard>
+
+      <FormCard label="Size" tag="Weight and length optional">
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
+          <View style={{ flex: 1 }}><Text style={st.fieldL}>How many</Text><Stepper value={qty} onChange={setQty} max={500} wide /></View>
+          <Field label="Weight" value={weight} onChangeText={setWeight} unit="lb" keyboardType="decimal-pad" />
+          <Field label="Length" value={length} onChangeText={setLength} unit="in" keyboardType="decimal-pad" />
+        </View>
+        <ChipSet items={[{ key: 'kept', label: 'Kept' }, { key: 'released', label: 'Released' }]} value={kept === true ? 'kept' : kept === false ? 'released' : null}
+          onChange={(k) => setKept(k === 'kept' ? (kept === true ? null : true) : (kept === false ? null : false))} />
+      </FormCard>
+
+      <FormCard label="Found on" tag="Optional">
+        <ChipSet items={FOUND_ON} value={foundOn} onChange={(k) => setFoundOn(foundOn === k ? null : k)} />
+      </FormCard>
+
+      <FormCard label="Who sees the spot">
+        <Segment options={modes} value={mode} onChange={setMode} />
+        {mode === 'area' ? <Field value={area} onChangeText={setArea} placeholder="Area name, e.g. Catalina East End" /> : null}
+        {mode !== 'private' ? <ToggleRow title="Post anonymously" value={anon} onChange={setAnon} last={!photos.length} /> : null}
+        {mode !== 'private' && photos.length ? <ToggleRow title="Show photos on the public report" value={showPhotos} onChange={setShowPhotos} last /> : null}
+      </FormCard>
+
+      {groups.length ? (
+        <FormCard label="Also send to my group" tag="Exact spot">
+          <ChipSet items={groups.map((g) => ({ key: g.id, label: g.name, icon: toGroups.includes(g.id) ? 'checkbox' : 'square-outline' }))} value={toGroups}
+            onChange={(id) => setToGroups(toGroups.includes(id) ? toGroups.filter((x) => x !== id) : [...toGroups, id])} />
+          <Text style={st.sub}>Only members of the groups you pick see where this was, even if it's Only me on the public map.</Text>
+        </FormCard>
+      ) : null}
+
+      <Disclosure title="More details" sub="Bait, technique, depth, notes, photos" open={more} onPress={() => setMore(!more)} />
+      {more ? (
+        <>
+          <FormCard label="How you caught it" tag="Optional">
+            <Text style={st.fieldL}>Technique</Text>
+            <ChipSet items={TECHNIQUES.map((t) => ({ key: t, label: t }))} value={technique} onChange={(k) => setTechnique(technique === k ? null : k)} />
+            <Text style={st.fieldL}>Bait or lure</Text>
+            <ChipSet items={BAITS.map((b) => ({ key: b, label: b }))} value={bait} onChange={(k) => setBait(bait === k ? null : k)} />
+            {bait === 'Other' || bait === 'Jig' || bait === 'Artificial lure' ? <Field value={baitOther} onChangeText={setBaitOther} placeholder="Which one? (optional)" /> : null}
+          </FormCard>
+          <FormCard label="Depth" tag="Optional">
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Field label="Fishing depth" value={fishDepth} onChangeText={setFishDepth} unit="ft" keyboardType="number-pad" />
+              <Field label="Water depth" value={waterDepth} onChangeText={setWaterDepth} unit="ft" keyboardType="number-pad" />
+            </View>
+            <Field label="Meter marks" value={marks} onChangeText={setMarks} placeholder="Marks at 40–60 ft" />
+          </FormCard>
+          <FormCard label="Notes and photos" tag="Optional">
+            <Field value={notes} onChangeText={setNotes} placeholder="Anything worth remembering" multiline />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {photos.map((p, i) => (
+                <Pressable key={i} onLongPress={() => setPhotos(photos.filter((_, j) => j !== i))}><Image source={{ uri: p.uri }} style={st.thumb} /></Pressable>
+              ))}
+            </View>
+            {photos.length < 4 ? <ChipSet items={[{ key: 'cam', label: 'Camera', icon: 'camera-outline' }, { key: 'lib', label: 'Library', icon: 'images-outline' }]} value={null} onChange={(k) => addPhoto(k === 'cam')} /> : null}
+            <Text style={st.sub}>GPS and camera data are removed from photos before upload.{photos.length ? ' Long-press a photo to remove it.' : ''}</Text>
+          </FormCard>
+        </>
+      ) : null}
+      <InfoLine icon="lock-closed-outline" text="Your saved private spots are never attached to reports." />
+    </FormSheet>
   );
 }
 
+/** The fish most people log, shown as tiles; the rest are under "All species". */
+const TOP_SPECIES = ['YT', 'BFT', 'YFT', 'CAL', 'HAL', 'DOR', 'WSB', 'SAN', 'BAR'];
+const SHORT: Record<string, string> = { HAL: 'Halibut', BFT: 'Bluefin', YFT: 'Yellowfin', WSB: 'White seabass', MAR: 'Marlin', LOB: 'Lobster' };
+
 const useSt = makeStyles((colors) => ({
-  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, top: 60, backgroundColor: colors.panelSolid, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderColor: colors.line, paddingHorizontal: 16, paddingTop: 10, zIndex: 30 },
-  head: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  where: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 10, marginTop: 4, marginBottom: 6, borderRadius: 10, backgroundColor: colors.inset },
-  groupH: { color: colors.text, fontSize: 17, fontWeight: '800', paddingTop: 12, marginBottom: -4, borderTopWidth: 1, borderColor: colors.line },
-  h1: { color: colors.text, fontSize: 26, fontWeight: '700' },
-  x: { width: 44, height: 44, borderRadius: 22, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
-  xT: { color: colors.text, fontSize: 18 },
+  allBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 36 },
+  allT: { color: colors.accent, fontSize: 14, fontWeight: '700' },
+  listRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44 },
+  listLine: { borderTopWidth: 1, borderColor: colors.line },
+  listT: { flex: 1, color: colors.text, fontSize: 15 },
+  dot: { width: 10, height: 10, borderRadius: 5 },
+  fieldL: { color: colors.muted, fontSize: 12, fontWeight: '600', marginBottom: 5 },
   sub: { color: colors.muted, fontSize: 12, lineHeight: 17 },
-  label: { color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 6 },
-  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: { minHeight: 40, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, justifyContent: 'center' },
-  chipT: { color: colors.text, fontSize: 14, fontWeight: '700' },
-  row: { flexDirection: 'row', gap: 10 },
-  input: { minHeight: 44, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.inset, color: colors.text, paddingHorizontal: 12, fontSize: 16 },
-  stepper: { flexDirection: 'row', alignItems: 'center', height: 44, borderRadius: 12, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border },
-  step: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
-  stepT: { color: colors.text, fontSize: 22 },
-  qty: { flex: 1, textAlign: 'center', color: colors.text, fontSize: 18, fontWeight: '700' },
   thumb: { width: 72, height: 72, borderRadius: 10 },
-  privacy: { gap: 8, borderWidth: 1, borderColor: colors.live, borderRadius: 14, padding: 12 },
-  mode: { flexDirection: 'row', gap: 10, alignItems: 'center', minHeight: touch.min, borderRadius: 12, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, padding: 10 },
-  modeOn: { borderColor: colors.accent, backgroundColor: colors.warnBg },
-  modeT: { color: colors.text, fontSize: 15, fontWeight: '600' },
-  dot: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.muted },
-  dotOn: { borderColor: colors.accent, backgroundColor: colors.accent },
-  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
 }));

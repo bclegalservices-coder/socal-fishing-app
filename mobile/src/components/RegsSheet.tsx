@@ -86,7 +86,7 @@ export function RegsSheet({ onClose }: { onClose: () => void }) {
     <View style={[st.page, { paddingTop: insets.top + 6, paddingBottom: insets.bottom }]}>
       <View style={st.head}>
         <Text style={st.h1}>Fish size and limits</Text>
-        <Pressable onPress={onClose} style={st.x} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close"><Ionicons name="close" size={22} color={colors.text} /></Pressable>
+        <Pressable onPress={onClose} style={st.x} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close"><Ionicons name="close" size={19} color={colors.text} /></Pressable>
       </View>
       <View style={st.searchBox}>
         <Ionicons name="search" size={18} color={colors.muted} />
@@ -171,11 +171,11 @@ function Line({ k, v }: { k: string; v: string }) {
 }
 
 const useSt = makeStyles((colors) => ({
-  page: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: colors.panelSolid, paddingHorizontal: 14, zIndex: 40, gap: 8 },
+  page: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: colors.bg, paddingHorizontal: 14, zIndex: 40, gap: 8 },   // Nov 4: cards stand out on the background
   head: { flexDirection: 'row', alignItems: 'center' },
   h1: { flex: 1, color: colors.text, fontSize: 24, fontWeight: '700' },
-  x: { width: 44, height: 44, borderRadius: 22, borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
-  searchBox: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 46, borderRadius: 12, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.inset, paddingHorizontal: 12 },
+  x: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, backgroundColor: colors.inset, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  searchBox: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 46, borderRadius: 12, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.panelSolid, paddingHorizontal: 12 },
   input: { flex: 1, color: colors.text, fontSize: 16, paddingVertical: 8 },
   tabs: { gap: 6, paddingVertical: 2 },
   tab: { minHeight: 38, paddingHorizontal: 14, borderRadius: 19, borderWidth: 1.5, borderColor: colors.border, justifyContent: 'center' },

@@ -229,7 +229,7 @@ function Chip({ label, on, onPress, dot }: { label: string; on: boolean; onPress
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [st.chip, on && st.chipOn, pressed && { opacity: 0.7 }]} accessibilityRole="button" accessibilityState={{ selected: on }}>
       {dot ? <View style={[st.chipDot, { backgroundColor: dot }]} /> : null}
-      <Text style={[st.chipT, on && { color: colors.accentInk }]}>{label}</Text>
+      <Text style={[st.chipT, on && { color: colors.accent }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -248,8 +248,8 @@ const useSt = makeStyles((colors) => ({
   clearBtn: { minHeight: 42, paddingHorizontal: 14, borderRadius: 21, justifyContent: 'center', borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.panelSolid },
   clearT: { color: colors.alert, fontSize: 15, fontWeight: '700' },
   fLabel: { color: colors.muted, fontSize: 12.5, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.panelSolid },
-  chipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 38, paddingHorizontal: 13, borderRadius: 19, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.inset },
+  chipOn: { backgroundColor: /^#[0-9a-f]{6}$/i.test(colors.accent) ? colors.accent + '22' : colors.inset, borderColor: colors.accent },
   chipDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 1, borderColor: 'rgba(255,255,255,0.8)' },
   chipT: { color: colors.text, fontSize: 14, fontWeight: '700' },
   input: { flex: 1, minHeight: 44, borderRadius: 12, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.inset, color: colors.text, paddingHorizontal: 12, fontSize: 16 },

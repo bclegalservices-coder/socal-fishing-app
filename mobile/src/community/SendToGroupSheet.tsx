@@ -1,9 +1,9 @@
 // From the map: "Come to me" / send my position, or share the spot you're looking at — to one or more groups.
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { colors, makeStyles } from '../theme';
+import { Alert } from 'react-native';
 import { formatLatLon } from '../geo';
-import { Btn, Note, Row, Sheet, Title } from '../components/ui';
+import { Note, Sheet, Title } from '../components/ui';
+import { ChipSet, Field, FormCard, FormSheet, InfoLine, SaveBar } from '../components/form';
 import { track } from '../analytics';
 import { cachedGroups, myGroups, sendToGroups } from './groupsApi';
 
@@ -12,7 +12,6 @@ const QUICK = ['On fish!', 'Wide open — bring bait', 'Breaking fish here', 'Ke
 type Props = { mode: 'me' | 'spot'; pt: { lat: number; lon: number; name?: string } | null; onClose: () => void; onDone: (msg: string) => void };
 
 export function SendToGroupSheet({ mode, pt, onClose, onDone }: Props) {
-  const st = useSt();
   const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
   const [chosen, setChosen] = useState<string[]>([]);
   const [note, setNote] = useState('');
@@ -48,50 +47,23 @@ export function SendToGroupSheet({ mode, pt, onClose, onDone }: Props) {
       </Sheet>
     );
   }
+  // Nov 4: shared form look (components/form.tsx)
+  const where = pt ? formatLatLon(pt.lat, pt.lon) : 'Waiting for GPS…';
   return (
-    <Sheet maxHeight={600} onClose={onClose}>
-      <Title>{mode === 'me' ? 'Send my position' : `Share "${pt?.name ?? 'this spot'}"`}</Title>
-      <Text style={st.coord}>{pt ? formatLatLon(pt.lat, pt.lon) : 'Waiting for GPS…'}</Text>
-      <View style={st.wrap}>
-        {groups.map((g) => (
-          <Pressable key={g.id} onPress={() => toggle(g.id)} style={[st.chip, chosen.includes(g.id) && st.on]} accessibilityRole="checkbox" accessibilityState={{ checked: chosen.includes(g.id) }}>
-            <Text style={[st.chipT, chosen.includes(g.id) && st.onT]}>{chosen.includes(g.id) ? '✓ ' : ''}{g.name}</Text>
-          </Pressable>
-        ))}
-      </View>
-      <View style={st.wrap}>
-        {QUICK.map((q) => (
-          <Pressable key={q} onPress={() => setNote(q)} style={st.quick}><Text style={st.quickT}>{q}</Text></Pressable>
-        ))}
-      </View>
-      <TextInput value={note} onChangeText={setNote} placeholder="Add a note (optional)" placeholderTextColor={colors.muted} style={st.input} maxLength={200} />
-      {mode === 'me' ? (
-        <>
-          <Btn label={busy ? 'Sending…' : 'Come to me'} icon="megaphone" kind="primary" disabled={busy || !pt} onPress={() => send('ping')} />
-          <Row>
-            <Btn label="Just my position" icon="locate-outline" disabled={busy || !pt} onPress={() => send('position')} />
-            <Btn label="Cancel" onPress={onClose} />
-          </Row>
-        </>
-      ) : (
-        <Row>
-          <Btn label={busy ? 'Sending…' : 'Share spot'} icon="bookmark" kind="primary" disabled={busy || !pt} onPress={() => send('spot')} />
-          <Btn label="Cancel" onPress={onClose} />
-        </Row>
-      )}
-      <Note>Only members of the groups you pick see this — exact coordinates, never the public map. Emergency? Use VHF 16 or call the Coast Guard; this is not an emergency service.</Note>
-    </Sheet>
+    <FormSheet title={mode === 'me' ? 'Send my position' : `Share "${pt?.name ?? 'this spot'}"`} where={where} onClose={onClose}
+      footer={mode === 'me'
+        ? <SaveBar label="Come to me" busy={busy} missing={!pt ? 'Waiting for GPS…' : !chosen.length ? 'Pick a group' : null} onPress={() => send('ping')}
+            secondary={{ label: 'Just my position', onPress: () => send('position') }} />
+        : <SaveBar label="Share spot" busy={busy} missing={!pt ? 'Waiting for GPS…' : !chosen.length ? 'Pick a group' : null} onPress={() => send('spot')} />}>
+      <FormCard label="Send to" tag={`${chosen.length} of ${groups.length}`}>
+        <ChipSet items={groups.map((g) => ({ key: g.id, label: g.name, icon: chosen.includes(g.id) ? 'checkbox' : 'square-outline' }))} value={chosen} onChange={toggle} />
+      </FormCard>
+      <FormCard label="Message" tag="Optional">
+        <ChipSet items={QUICK.map((q) => ({ key: q, label: q }))} value={QUICK.includes(note) ? note : null} onChange={(q) => setNote(note === q ? '' : q)} />
+        <Field value={note} onChangeText={setNote} placeholder="Add a note" />
+      </FormCard>
+      <InfoLine icon="lock-closed-outline" text="Only members of the groups you pick see this, with exact coordinates. Never on the public map." />
+      <InfoLine icon="warning-outline" text="Emergency? Use VHF 16 or call the Coast Guard. This is not an emergency service." />
+    </FormSheet>
   );
 }
-
-const useSt = makeStyles((colors) => ({
-  coord: { color: colors.text, fontSize: 17, fontWeight: '600', fontVariant: ['tabular-nums'] },
-  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, borderRadius: 18, paddingHorizontal: 12, minHeight: 40, justifyContent: 'center' },
-  on: { backgroundColor: colors.accent, borderColor: colors.accent },
-  chipT: { color: colors.text, fontWeight: '700', fontSize: 14 },
-  onT: { color: colors.accentInk },
-  quick: { borderWidth: 1.5, backgroundColor: colors.panelSolid, borderColor: colors.border, borderRadius: 14, paddingHorizontal: 10, minHeight: 40, justifyContent: 'center' },
-  quickT: { color: colors.muted, fontSize: 13 },
-  input: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.inset, color: colors.text, paddingHorizontal: 12, fontSize: 16 },
-}));
