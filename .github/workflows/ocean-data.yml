@@ -7,12 +7,12 @@ on:
     - cron: "20 14 * * *"   # 7:20 AM Pacific (PDT) — after NOAA's overnight products post
     - cron: "20 2 * * *"    # 7:20 PM Pacific — catches late-posting chlorophyll
     - cron: "50 4,10,16,22 * * *"  # wind: ~5 h after each GFS run
-    - cron: "30 15 * * 1"          # rules & hazards (MPAs, wrecks, lanes): Mondays
+    - cron: "30 15 * * 1"          # rules & hazards (MPAs, wrecks, lanes) + fish size/bag limits checked against CDFW: Mondays
     - cron: "20 8,20 * * *"        # Nov 2: water temp + chlorophyll only, 2 more times a day (grab new maps sooner)
   workflow_dispatch:
     inputs:
       job:
-        description: "sst, chl, bathy, wind, rules, harbors, navmask / navmask-rebuild (auto-route water map), bottomhd (HD bottom, pilot area), bottomhd-socal (HD bottom for ALL of SoCal — keeps going by itself until done), bottomhd-overview (HD bottom shows when zoomed out — fast), bottomhd-preview (picture of old vs new HD bottom, changes nothing), bottomhd-restore (go back to the HD bottom from before the smooth-line builds; -v3 / -v4 / -v5 for those), crm (sharper seafloor + contour detail), all, verify or discover"
+        description: "sst, chl, surface (water temp + chlorophyll), bathy, wind, rules, regs (fish size and bag limits: check CDFW for changes, read changed pages 3 ways), regs-undo (take back automatic fish-rule changes), harbors, navmask / navmask-rebuild (auto-route water map), bottomhd (HD bottom, pilot area), bottomhd-socal (HD bottom for ALL of SoCal — keeps going by itself until done), bottomhd-overview (HD bottom shows when zoomed out — fast), bottomhd-preview (picture of old vs new HD bottom, changes nothing), bottomhd-restore (go back to the HD bottom from before the smooth-line builds; -v3 / -v4 / -v5 for those), crm (sharper seafloor + contour detail), all, verify or discover"
         default: "all"
 
 permissions:
@@ -29,6 +29,8 @@ jobs:
     env:
       STORAGE: r2
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # Nov 3: fish rules self-checking reads (optional)
+      REGS_AUTO: ${{ vars.REGS_AUTO }}                     # "on" = apply checked fish-rule changes; anything else = preview
       R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}

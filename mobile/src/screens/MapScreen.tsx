@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useAwakeMode } from '../screenAwake';
-import { Camera, GeoJSONSource, Layer, LogManager, Map as MapView, Marker, UserLocation } from '@maplibre/maplibre-react-native';
+import { Camera, GeoJSONSource, Layer, LogManager, Map as MapView, Marker, UserLocation, ViewAnnotation } from '@maplibre/maplibre-react-native';
 import type { CameraRef } from '@maplibre/maplibre-react-native';
 import { API_URL, CHART_ATTRIBUTION, DEFAULT_CENTER, DEFAULT_ZOOM, CHART_TILE_SIZE, NOAA_CHART_MAXZOOM, NOAA_CHART_MINZOOM, noaaChartTiles, noaaDepthTiles } from '../config';
 import { boatColor, cardStyle, colors, makeStyles, routeColor, setThemePosition, touch, useTheme } from '../theme';
@@ -25,13 +25,14 @@ import { autoRate, ReplayBar, ReplayHud } from '../components/TripReplay';
 import { analyze, at as tripAt, autoName, placesFromHarbors, speedLines, type TripAnalysis } from '../trips';
 import { exportTrackGPX } from '../io/transfer';
 import { MeasureCard } from '../components/MeasureCard';
+import { RegsSheet, refreshRegsWeekly } from '../components/RegsSheet';
 import { AirCard, AirChip, AirListSheet, AirMapLayer, WatchedPathLayer, useAirTraffic, useWatchList, useWatchedPaths, type Plane } from '../components/AirTraffic';
 import { SpotterHistoryBar, SpotterHistoryLayer, SpotterSessionCard, useSpotterHistory } from '../components/SpotterHistory';
 import type { SpotSession } from '../spotterHistory';
 import { usePro } from '../pro';
 import { HoopBanner, HoopMapLayer, HoopOrderSheet, HoopPanel, HoopPastLayer } from '../components/Hoop';
 import * as H from '../hoop';
-import { deg3 as mDeg3, legs as mLegs, measureFC, type MPt } from '../measure';
+import { deg3 as mDeg3, legs as mLegs, measureFC, movePoint, type MPt } from '../measure';
 import { fmtDist as uDist, useUnits } from '../units';
 import { SearchSheet, type SearchHit } from '../components/SearchSheet';
 import { BuoyCard } from '../components/BuoyCard';
@@ -257,6 +258,8 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const [mpaHere, setMpaHere] = useState<any[]>([]);
   const [mpaDismissed, setMpaDismissed] = useState<string | null>(null);
   const [today, setToday] = useState(false);
+  const [regsOpen, setRegsOpen] = useState(false);   // Nov 3: Fish size and limits page
+  useEffect(() => { refreshRegsWeekly(); }, []);   // keep the offline copy of the fishing rules fresh
   const net = useNetwork();
   const protectedIdx = useMemo(() => protectedIndex(rules), [rules]);
   const insideAt = (p: Pt) => findContaining(protectedIdx, p.lat, p.lon);
@@ -739,13 +742,24 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const coordOf = (f: any): Pt => ({ lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] });
   // MapLibre v11 press events carry the tapped position in nativeEvent.lngLat ([lon, lat]).
   const lngLatOf = (e: any): Pt => ({ lon: e.nativeEvent.lngLat[0], lat: e.nativeEvent.lngLat[1] });
+  // Nov 2: measure points can be pressed-and-held then dragged. While/just after a drag, the map's own tap/long-press
+  // must not also drop a new point.
+  const mDragAt = useRef(0);
+  const dragMeasure = (i: number, e: any) => {
+    mDragAt.current = Date.now();
+    const ll = e?.nativeEvent?.lngLat;
+    if (!ll) return;
+    setMeasure((m) => (m ? movePoint(m, i, { lon: ll[0], lat: ll[1] }) : m));
+  };
   const onMapPress = (e: any) => {
+    if (measure && Date.now() - mDragAt.current < 600) return;
     if (measure) { setMeasure([...measure, lngLatOf(e)]); return; }
     if (Date.now() - featurePressAt.current < 350) return;
     if (draft) { setDraft([...draft, lngLatOf(e)]); return; }
     setSel(null); setBuoy(null); setClusterSel(null); setRuleSel(null); setSciSel(null); setSpotSel(null);
   };
   const onLongPress = (e: any) => {
+    if (measure && Date.now() - mDragAt.current < 600) return;
     if (measure) { setMeasure([...measure, lngLatOf(e)]); return; }
     if (draft) { setDraft([...draft, lngLatOf(e)]); return; }
     setPanel('none'); setBuoy(null); setSel({ kind: 'pin', pt: lngLatOf(e) }); track('pin_dropped');
@@ -948,13 +962,14 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     const h = here();
     bottom = <MapActions onClose={() => setPanel('none')} actions={[
       { key: 'log', label: 'Log a catch', sub: 'At your position', icon: 'fish', tint: colors.accent, onPress: () => openLog(null) },
-      { key: 'whale', label: 'Log a whale sighting', sub: 'At your position', icon: 'emoji:🐋', tint: '#00B7E0', onPress: () => openWhale(null) },
+      { key: 'whale', label: 'Log a whale sighting', sub: 'At your position', icon: 'custom:whale', tint: '#00B7E0', onPress: () => openWhale(null) },
       { key: 'save', label: 'Save this spot', sub: h ? 'Where the boat is now' : 'Waiting for GPS', icon: 'bookmark', onPress: () => { if (h) saveSpot({ ...h, name: undefined } as any); else Alert.alert('Waiting for GPS', 'Long-press the map to save any other spot.'); } },
       { key: 'crew', label: 'Send to my crew', sub: 'Come to me / my position', icon: 'megaphone', tint: colors.buddy, hidden: !supabaseReady, onPress: () => { setSel(null); setCrew({ mode: 'me', pt: null }); } },
       { key: 'route', label: 'Routes', sub: `${routes.length} saved · plan a new one`, icon: 'git-commit', onPress: () => setPanel('routes') },
       { key: 'track', label: active ? 'Recording…' : 'Trips', sub: active ? 'Tap to stop and save' : `Record, play back and compare · ${tracks.length} saved`, icon: active ? 'stop-circle' : 'radio-button-on', tint: colors.alert, active: !!active, onPress: () => setPanel('tracks') },
       { key: 'hoop', label: 'Hoop netting', sub: hoop ? `${H.down(hoop).length} down · next No. ${H.nextUp(hoop)?.no ?? '—'}` : 'Number your nets, pull them in soak order', icon: 'ellipse-outline', tint: '#FF2BD6', active: !!hoop, onPress: () => { setSel(null); startHoop(); } },
       { key: 'measure', label: 'Measure distance', sub: 'Distance and bearing between points', icon: 'resize', onPress: () => { setPanel('none'); setSel(null); setMeasure([]); track('measure_used'); } },
+      { key: 'regs', label: 'Fish size and limits', sub: 'Size and bag limits, seasons, off-limits fish', icon: 'book', tint: '#0E9AA7', onPress: () => { setPanel('none'); setRegsOpen(true); } },
       { key: 'today', label: "Today's report", sub: "What's biting, water, warnings", icon: 'newspaper', tint: colors.ok, onPress: () => { setToday(true); track('screen_view', { screen: 'today' }); } },
     ]} />;
   } else if (draft) {
@@ -1103,10 +1118,21 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           <GeoJSONSource id="measure" data={measureFC(measure)}>
             <Layer type="line" id="measure-casing" filter={['==', ['geometry-type'], 'LineString'] as any} style={{ lineColor: '#FFFFFF', lineWidth: 6, lineOpacity: 0.9 }} />
             <Layer type="line" id="measure-line" filter={['==', ['geometry-type'], 'LineString'] as any} style={{ lineColor: '#111827', lineWidth: 2.5, lineDasharray: [2, 1.5] }} />
-            <Layer type="circle" id="measure-pts" filter={['==', ['geometry-type'], 'Point'] as any}
-              style={{ circleRadius: ['case', ['get', 'end'], 8, 5] as any, circleColor: ['case', ['==', ['get', 'i'], 0], '#7C3AED', '#E11D48'] as any, circleStrokeColor: '#FFFFFF', circleStrokeWidth: 2.5 }} />
           </GeoJSONSource>
         ) : null}
+        {/* Nov 2: the points are draggable — press and hold one, then drag it to make the line longer/shorter or swing it. */}
+        {measure ? measure.map((p, i) => {
+          const end = i === 0 || i === measure.length - 1;
+          const r = end ? 8 : 6;
+          return (
+            <ViewAnnotation key={`mpt-${i}`} id={`mpt-${i}`} lngLat={[p.lon, p.lat]} anchor="center" draggable
+              onDragStart={(e: any) => dragMeasure(i, e)} onDrag={(e: any) => dragMeasure(i, e)} onDragEnd={(e: any) => dragMeasure(i, e)}>
+              <View style={st.mHit}>
+                <View style={{ width: r * 2 + 5, height: r * 2 + 5, borderRadius: r + 3, borderWidth: 2.5, borderColor: '#FFFFFF', backgroundColor: i === 0 ? '#7C3AED' : '#E11D48' }} />
+              </View>
+            </ViewAnnotation>
+          );
+        }) : null}
         {measure ? mLegs(measure).map((l, i) => (
           <Marker key={`mleg-${i}`} lngLat={[l.mid.lon, l.mid.lat]} anchor="bottom" offset={[0, -6]}>
             <View pointerEvents="none" style={st.mLabel}>
@@ -1316,6 +1342,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         <LogCatchSheet lat={logAt.lat} lon={logAt.lon} nearestSpot={nearestPublicSpot(logAt)} depthFt={null}
           onCancel={() => setLogAt(null)} onDone={(m) => { setLogAt(null); setToast(m); }} />
       ) : null}
+      {regsOpen ? <RegsSheet onClose={() => setRegsOpen(false)} /> : null}
       {today ? <TodaySheet onClose={() => setToday(false)} onOpenCatchMap={() => { setToday(false); setLayers((p) => ({ ...p, on: { ...p.on, catches: true } })); setCatchHours(24); }} /> : null}
       {toast ? <View style={st.toast} pointerEvents="none"><Text style={st.toastT}>{toast}</Text></View> : null}
       {panel === 'search' ? <SearchSheet boat={here()} center={view ? { lat: (view.minLat + view.maxLat) / 2, lon: (view.minLon + view.maxLon) / 2 } : null} mySpots={mySpots} publicSpots={publicSpots} harbors={harborFc} onPick={onSearchPick} onClose={() => setPanel('none')} /> : null}
@@ -1364,6 +1391,7 @@ const useSt = makeStyles((colors) => ({
   wpNum: { minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, backgroundColor: '#FFFFFF', borderWidth: 2, borderColor: '#FF1CF0', alignItems: 'center', justifyContent: 'center' },
   wpNumNext: { borderWidth: 2.5 },
   wpNumT: { color: '#7A0F7A', fontSize: 10, fontWeight: '900' },
+  mHit: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
   mLabel: { flexDirection: 'row', gap: 14, backgroundColor: 'rgba(31,41,55,0.9)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6 },
   mLabelV: { color: '#FFFFFF', fontSize: 16, fontWeight: '800', fontVariant: ['tabular-nums'] },
   mLabelK: { color: '#D1D5DB', fontSize: 10.5, fontWeight: '700' },

@@ -30,6 +30,7 @@ export function MeasureCard({ pts, canUseBoat, onFromBoat, onUndo, onClear, onDo
         </View>
       )}
       {ls.length > 1 ? <Text style={st.hint}>{ls.length} legs. Each leg's distance and bearing is on the map. Tap to add more points.</Text> : null}
+      {pts.length >= 2 ? <Text style={st.hint}>To move a point: press and hold it, then drag it. The line stretches, shrinks or swings with it.</Text> : null}
       <View style={st.row}>
         {canUseBoat && !pts.length ? <Btn icon="navigate" label="From my boat" onPress={onFromBoat} /> : null}
         {pts.length ? <Btn icon="arrow-undo" label="Undo" onPress={onUndo} /> : null}

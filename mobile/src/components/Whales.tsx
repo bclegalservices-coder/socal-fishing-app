@@ -1,5 +1,6 @@
 // Whale sightings (Nov 2): log one from the + menu (quick species picker like Log a catch), see them on the map as
 // whale pins colored by age (same neon colors as catches), tap one for the details.
+// Nov 3: the whale is an outline icon in the app's own style (WhaleIcon), not the 🐋 emoji.
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,6 +10,7 @@ import { colors, makeStyles } from '../theme';
 import { formatLatLon } from '../geo';
 import { Btn, Chip, Note, Sheet, SmallBtn, Title } from './ui';
 import { agoShort, catchAge } from './CatchMap';
+import { WhaleIcon } from './WhaleIcon';
 import { BEHAVIORS, WHALES, behaviorName, deleteWhale, logWhale, whaleName, whalesIn, type Sighting } from '../community/whaleApi';
 import { friendly } from '../friendly';
 import { track } from '../analytics';
@@ -41,8 +43,8 @@ export function WhaleMarkers({ rows, night, onPress }: { rows: Sighting[]; night
             <Pressable onPress={() => onPress(w)} hitSlop={6} style={[s.wrap, a.maxH === Infinity && { opacity: 0.62 }]} accessibilityRole="button"
               accessibilityLabel={`${whaleName(w.species, w.other_name)} sighting, ${agoShort(h)} ago. Tap for details.`}>
               <View style={[s.glow, { shadowColor: a.color }]}>
-                <View style={[s.bubble, { backgroundColor: night ? '#0B1B2E' : '#FFFFFF', borderColor: a.color }]}>
-                  <Text style={s.emoji}>🐋</Text>
+                <View style={[s.bubble, { backgroundColor: a.color, borderColor: night ? '#0B1B2E' : '#FFFFFF' }]}>
+                  <WhaleIcon size={24} color={night ? '#0B1B2E' : '#FFFFFF'} />
                 </View>
               </View>
               {w.how_many > 1 ? <View style={[s.count, { borderColor: a.color }]}><Text style={s.countT}>{w.how_many}</Text></View> : null}
@@ -64,7 +66,7 @@ export function WhaleCard({ w, onClose, onDeleted }: { w: Sighting; onClose: () 
   return (
     <Sheet onClose={onClose}>
       <View style={st.headRow}>
-        <Text style={{ fontSize: 26 }}>🐋</Text>
+        <WhaleIcon size={28} color={colors.accent} />
         <Title>{w.how_many > 1 ? `${w.how_many} × ` : ''}{whaleName(w.species, w.other_name)}</Title>
       </View>
       <Note>{agoShort(h)} ago · {when.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}, {when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</Note>
@@ -129,10 +131,9 @@ export function LogWhaleSheet({ lat, lon, onDone, onCancel }: { lat: number; lon
 const s = StyleSheet.create({
   wrap: { alignItems: 'center', paddingTop: 4, paddingHorizontal: 6 },
   glow: { shadowOpacity: 0.95, shadowRadius: 7, shadowOffset: { width: 0, height: 0 }, elevation: 6 },
-  bubble: { width: 38, height: 38, borderRadius: 19, borderWidth: 3, alignItems: 'center', justifyContent: 'center' },
+  bubble: { width: 38, height: 38, borderRadius: 19, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   count: { position: 'absolute', top: 0, right: 0, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 3, backgroundColor: '#FFFFFF', borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   countT: { color: '#0A1A2A', fontSize: 10.5, fontWeight: '900' },
-  emoji: { fontSize: 21, lineHeight: 25 },
   tag: { marginTop: 3, borderRadius: 7, paddingHorizontal: 6, paddingVertical: 1 },
   tagT: { fontSize: 11.5, fontWeight: '900' },
 });

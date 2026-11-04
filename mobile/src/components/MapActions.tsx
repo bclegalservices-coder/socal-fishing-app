@@ -3,6 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, makeStyles } from '../theme';
 import { Sheet } from './ui';
+import { WhaleIcon } from './WhaleIcon';
 
 export type MapAction = { key: string; label: string; sub?: string; icon: string; tint?: string; onPress: () => void; hidden?: boolean; active?: boolean };
 
@@ -19,7 +20,7 @@ export function MapActions({ actions, onClose }: { actions: MapAction[]; onClose
         {shown.map((a) => (
           <Pressable key={a.key} onPress={() => { onClose(); a.onPress(); }} style={({ pressed }) => [st.tile, a.active && st.tileOn, pressed && { opacity: 0.7 }]}
             accessibilityRole="button" accessibilityLabel={a.label}>
-            <View style={[st.icon, { backgroundColor: (a.tint ?? colors.live) + '1F' }]}>{a.icon.startsWith('emoji:') ? <Text style={{ fontSize: 24 }}>{a.icon.slice(6)}</Text> : <Ionicons name={a.icon as any} size={24} color={a.tint ?? colors.live} />}</View>
+            <View style={[st.icon, { backgroundColor: (a.tint ?? colors.live) + '1F' }]}>{a.icon === 'custom:whale' ? <WhaleIcon size={26} color={a.tint ?? colors.live} /> : a.icon.startsWith('emoji:') ? <Text style={{ fontSize: 24 }}>{a.icon.slice(6)}</Text> : <Ionicons name={a.icon as any} size={24} color={a.tint ?? colors.live} />}</View>
             <Text style={st.label} numberOfLines={1}>{a.label}</Text>
             {a.sub ? <Text style={st.sub} numberOfLines={2}>{a.sub}</Text> : null}
           </Pressable>

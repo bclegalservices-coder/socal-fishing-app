@@ -19,6 +19,7 @@ import { SPOT_COLORS } from './spotColors';
 import { CHART_LOOKS, DEFAULT_LAYERS, PRESETS, type ChartLook, type LayerKey, type LayerState, type MapOverlay } from './state';
 import { track } from '../analytics';
 import { PresentedBy } from '../ads/Sponsor';
+import { WhaleIcon } from '../components/WhaleIcon';
 
 type Props = { catalog: Catalog | null; cached: boolean; savedAt?: number | null; onRetry?: () => void; s: LayerState; set: (fn: (s: LayerState) => LayerState) => void;
   radarPlaying: boolean; setRadarPlaying: (b: boolean) => void; onClose: () => void; rulesChecked?: string | null; onSaveArea?: () => void; killed?: string[] };
@@ -59,9 +60,9 @@ const CHIP_ORDER: LayerKey[] = ['sst', 'breaks', 'chl', 'chlEdges', 'bathyHd', '
 
 // ---------------------------------------------------------------- building blocks (top level = stable)
 
-function Tile({ icon, tint }: { icon: Icon; tint: string }) {
+function Tile({ icon, tint, whale }: { icon: Icon; tint: string; whale?: boolean }) {
   const st = useSt();
-  return <View style={[st.tile, { backgroundColor: tint }]}><MaterialCommunityIcons name={icon} size={18} color="#FFFFFF" /></View>;
+  return <View style={[st.tile, { backgroundColor: tint }]}>{whale ? <WhaleIcon size={20} color="#FFFFFF" /> : <MaterialCommunityIcons name={icon} size={18} color="#FFFFFF" />}</View>;
 }
 
 /** Big, crisp switch in the brand color. Only a picture: the row around it takes the tap. */
@@ -79,14 +80,14 @@ function Toggle({ on }: { on: boolean }) {
   );
 }
 
-function LayerRow({ icon, tint, title, sub, on, disabled, last, onPress }:
-  { icon: Icon; tint: string; title: string; sub?: string; on: boolean; disabled?: boolean; last?: boolean; onPress: () => void }) {
+function LayerRow({ icon, tint, title, sub, on, disabled, last, onPress, whale }:
+  { whale?: boolean; icon: Icon; tint: string; title: string; sub?: string; on: boolean; disabled?: boolean; last?: boolean; onPress: () => void }) {
   const st = useSt();
   return (
     <Pressable onPress={disabled ? undefined : onPress} disabled={disabled} hitSlop={2}
       style={({ pressed }) => [st.row, on && st.rowOn, pressed && !disabled && st.rowPressed, disabled && { opacity: 0.4 }]}
       accessibilityRole="switch" accessibilityState={{ checked: on, disabled: !!disabled }} accessibilityLabel={title}>
-      <Tile icon={icon} tint={tint} />
+      <Tile icon={icon} tint={tint} whale={whale} />
       <View style={[st.rowBody, !last && st.sep]}>
         <View style={{ flex: 1 }}>
           <Text style={[st.rowT, on && st.rowTOn]}>{title}</Text>
@@ -172,7 +173,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
   const Row = ({ k, icon, tint, title, sub, disabled, last }: { k: LayerKey; icon: Icon; tint: string; title: string; sub?: string; disabled?: boolean; last?: boolean }) => {
     const off = killed.includes(k);
     return <LayerRow key={k} icon={icon} tint={tint} title={title} sub={off ? 'Temporarily off while we fix it — back soon' : sub}
-      on={!!s.on[k]} disabled={disabled || off} last={last} onPress={() => toggle(k)} />;
+      on={!!s.on[k]} disabled={disabled || off} last={last} onPress={() => toggle(k)} whale={k === 'whales'} />;
   };
 
   const chartRows = ([

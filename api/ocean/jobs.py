@@ -404,7 +404,7 @@ def verify():
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("job", choices=["sst", "chl", "surface", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "bottomhd", "bottomhd-socal", "bottomhd-rebuild", "bottomhd-preview", "bottomhd-overview", "bottomhd-restore", "bottomhd-restore-v3", "bottomhd-restore-v4", "bottomhd-restore-v5", "bottomhd-restore-v6", "crm", "crm-rebuild", "all", "discover", "verify"])
+    p.add_argument("job", choices=["sst", "chl", "surface", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "bottomhd", "bottomhd-socal", "bottomhd-rebuild", "bottomhd-preview", "bottomhd-overview", "bottomhd-restore", "bottomhd-restore-v3", "bottomhd-restore-v4", "bottomhd-restore-v5", "bottomhd-restore-v6", "crm", "crm-rebuild", "regs", "regs-undo", "all", "discover", "verify"])
     p.add_argument("--region", default="socal")
     p.add_argument("--days", default="0,1,2,3,7")
     p.add_argument("--file", default=None, help="local seafloor file for `bathy`")
@@ -441,12 +441,25 @@ def main(argv=None):
         from navroute.build import run as run_navmask
         http = httpx.Client(timeout=120, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})
         return run_navmask(get_store(), REGIONS[a.region], a.region, http, log, force=a.force or a.job == "navmask-rebuild")
+    if a.job == "regs-undo":   # take back every automatic fish-rule change (hand-checked numbers show again)
+        from regs.auto import undo
+        return undo(get_store(), log)
+    if a.job == "regs":   # Nov 3: fish size and bag limits — check the official CDFW pages for changes
+        from regs.watch import run as run_regs
+        http = httpx.Client(timeout=60, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (compatible; ChannelNav rules check)"})
+        return run_regs(get_store(), http, log)
     if a.job in ("rules", "harbors"):
         failed_weekly = []
         if a.job == "rules":
             from rules.job import run as run_rules
             m = run_rules(get_store(), REGIONS[a.region], log)
             log(f"rules: {sum(1 for l in m['layers'] if l.get('available'))}/{len(m['layers'])} layers available")
+        try:   # Nov 3: fish size and bag limits are checked against CDFW every week too
+            from regs.watch import run as run_regs
+            run_regs(get_store(), httpx.Client(timeout=60, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (compatible; ChannelNav rules check)"}), log)
+        except Exception as e:
+            failed_weekly.append("regs")
+            log(f"FAILED regs: {e}")
         try:   # harbors ride along with the weekly rules job
             from harbors.job import run as run_harbors
             run_harbors(get_store(), log)

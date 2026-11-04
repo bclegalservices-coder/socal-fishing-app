@@ -13,6 +13,11 @@ export function legs(pts: MPt[]): Leg[] {
   }
   return out;
 }
+/** Nov 2: press-and-hold a point, then drag it — puts point i at its new spot (others stay put). */
+export function movePoint(pts: MPt[], i: number, to: MPt): MPt[] {
+  if (i < 0 || i >= pts.length || !isFinite(to.lat) || !isFinite(to.lon)) return pts;
+  return pts.map((p, j) => (j === i ? { lat: to.lat, lon: to.lon } : p));
+}
 export const totalNm = (pts: MPt[]) => legs(pts).reduce((s, l) => s + l.nm, 0);
 /** 263° for labels; always three digits like a chart (005°). */
 export const deg3 = (d: number) => `${String(Math.round(((d % 360) + 360) % 360) % 360).padStart(3, '0')}°`;

@@ -702,7 +702,7 @@ async function feedback(view = 'feedback') {
 
 async function health() {
   // Nov 1: satellite products themselves arrive 1–3 days late (Copernicus gap-free chlorophyll ~3 days), plus the job runs twice a day
-  const limits = { sst: 54, chl: 96, wind: 12, rules: 24 * 60 };
+  const limits = { sst: 54, chl: 96, wind: 12, rules: 24 * 60, regs: 8 * 24 };
   let api = null, layers = [];
   try { api = await (await fetch(cfg.api + '/health')).json(); layers = (await (await fetch(cfg.api + '/layers')).json()).layers; } catch (e) { api = { status: 'unreachable', database: String(e) }; }
   const row = (key, label, t) => { const h = t ? (Date.now() - new Date(t)) / 36e5 : Infinity; const cls = !t ? 'bad' : h > limits[key] ? 'warn' : 'good'; return `<tr><td>${esc(label)}</td><td class="${cls}">${t ? esc(ago(t)) : 'missing'}</td><td class="muted">limit ${limits[key] >= 48 ? limits[key] / 24 + ' days' : limits[key] + ' h'}</td></tr>`; };
@@ -710,7 +710,12 @@ async function health() {
   const sources = must(await sb.from('data_sources').select('*').order('name'));
   $('#main').innerHTML = `<h2>Data health</h2><div class="card"><b>API</b>: <span class="${api.status === 'ok' ? 'good' : 'bad'}">${esc(api.status)}</span> · database: <span class="${api.database === 'ok' ? 'good' : 'bad'}">${esc(api.database)}</span></div>
   <div class="card"><table><tr><th>Layer</th><th>Latest data</th><th></th></tr>
-  ${row('sst', 'Water temperature (SST)', g('sst').dates?.[0]?.observed_at)}${row('chl', 'Chlorophyll', g('chl').dates?.[0]?.observed_at)}${row('wind', 'Wind forecast run', g('wind').run)}${row('rules', 'MPAs & hazards checked', g('rules').checked_at)}</table>
+  ${row('sst', 'Water temperature (SST)', g('sst').dates?.[0]?.observed_at)}${row('chl', 'Chlorophyll', g('chl').dates?.[0]?.observed_at)}${row('wind', 'Wind forecast run', g('wind').run)}${row('rules', 'MPAs & hazards checked', g('rules').checked_at)}${row('regs', 'Fish size & limits checked vs CDFW', g('regs').checked_at)}</table>
+  ${(g('regs').changed || []).length ? `<div class="warn">CDFW changed these rules pages since the rules were written (${esc(g('regs').rules_checked)}): ${esc(g('regs').changed.join(', '))}. Ask Claude to update the fish size and limits.</div>` : ''}${(g('regs').failed || []).length ? `<div class="muted">Couldn't read this week: ${esc(g('regs').failed.join(', '))}</div>` : ''}
+  ${g('regs').checked_at ? `<div class="muted">Fish rules self-check: ${g('regs').auto_key ? (g('regs').auto_mode === 'on' ? '<span class="good">ON — checked changes are applied</span>' : '<span class="warn">PREVIEW — shows what it would change, changes nothing</span>') : '<span class="warn">off — no Claude API key saved in GitHub</span>'}</div>` : ''}
+  ${(g('regs').auto_changes || []).map((c) => `<div class="${c.applied ? 'good' : 'muted'}">${c.applied ? 'Changed' : 'Would change'}: ${esc(c.name)} ${esc(c.field === 'bag' ? 'bag limit' : 'size')} ${esc(c.old)} → <b>${esc(c.new)}</b> (${esc(c.on)}; reads ${esc(JSON.stringify(c.reads))})</div>`).join('')}
+  ${Object.entries(g('regs').auto_unsure || {}).map(([id, u]) => `<div class="warn">Needs a person: ${esc(id)} — ${esc((u.why || []).join('; '))}</div>`).join('')}
+  ${(g('regs').auto_changes || []).some((c) => c.applied) ? '<div class="muted">To take back automatic changes: GitHub → Actions → Ocean data → Run workflow → job: regs-undo</div>' : ''}
   ${(g('rules').layers || []).map((l) => `<div class="muted">${esc(l.label)}: ${l.available ? `<span class="good">${esc(l.count)} features</span>${l.stale ? ' <span class="warn">(last good copy — latest check failed)</span>' : ''}` : `<span class="warn">${esc(l.error || l.note || 'unavailable')}</span>`}</div>`).join('')}
   <p class="muted">If a layer goes amber/red: GitHub → Actions → Ocean data → look at the latest run's log.</p></div>
   <div class="card"><h3>Data-source registry</h3><table><tr><th>Source</th><th>Provider</th><th>Notes</th><th>Verified</th><th>Enabled</th><th></th></tr>

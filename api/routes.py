@@ -58,8 +58,19 @@ async def layers():
     rules = store.get("manifests/rules.json")
     if rules:
         out.append({"key": "rules", **json.loads(rules)})
+    regs = store.get("manifests/regs.json")   # Nov 3: fish size and bag limits weekly CDFW check (admin data health)
+    if regs:
+        out.append({"key": "regs", **json.loads(regs)})
     out.extend(EXTERNAL_LAYERS)
     return {"layers": out}
+
+
+@router.get("/regs")
+async def regs():
+    """Nov 3: California fish size and bag limits (Southern California) for the app's 'Fish size and limits' page,
+    plus which official CDFW pages changed since the rules were last checked (weekly job)."""
+    from regs.watch import payload
+    return await asyncio.to_thread(payload, get_store())
 
 
 @router.get("/air")
