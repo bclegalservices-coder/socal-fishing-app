@@ -1,6 +1,6 @@
 // Whale sightings (Nov 2): log one from the + menu (quick species picker like Log a catch), see them on the map as
 // whale pins colored by age (same neon colors as catches), tap one for the details.
-// Nov 3: the whale is an outline icon in the app's own style (WhaleIcon), not the 🐋 emoji.
+// Nov 3: the whale is our own humpback silhouette icon (WhaleIcon), not the 🐋 emoji.
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
