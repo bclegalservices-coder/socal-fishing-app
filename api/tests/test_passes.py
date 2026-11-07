@@ -153,13 +153,13 @@ def test_job_previews_by_default_and_publishes_when_turned_on(monkeypatch):
     monkeypatch.setattr(passes, "earthdata_client", lambda: object())
     monkeypatch.setattr(passes, "composite", lambda *a, **k: comp)
     published = []
-    monkeypatch.setattr(jobs, "process_surface", lambda layer, region, when, http, store, ds, grid: published.append((ds, grid)) or {"date": "2026-11-06", "tiles": "t"})
+    monkeypatch.setattr(jobs, "process_surface", lambda layer, region, when, http, store, ds, grid, tag="": published.append((ds, grid, tag)) or {"date": "2026-11-06", "tiles": "t"})
     monkeypatch.delenv("PASSES", raising=False)
     r = jobs.run_passes("chl", "socal")
     assert r["mode"] == "preview" and not published and json.loads(st.get("manifests/passes-chl.json"))["fresh_share"] == 0.4
     monkeypatch.setenv("PASSES", "on")
     r = jobs.run_passes("chl", "socal")
-    assert r["published"] == "2026-11-06" and "NOAA-21" in published[0][0].source
+    assert r["published"] == "2026-11-06" and "NOAA-21" in published[0][0].source and published[0][2] == "-live"
     m = json.loads(st.get("manifests/chl.json"))
     assert m["dates"][0]["live"] is True and m["dates"][0]["passes"][0]["sat"] == "NOAA-21"
 
@@ -195,3 +195,22 @@ def test_clouds_are_filled_and_blend_in_with_no_blanks_or_steps():
     assert edge_jump < 0.3                                      # no visible step at the cloud edge
     c = blend(Grid(lats, lons, np.where(cloud, np.nan, 10 ** (truth / 40)).astype(np.float32), {}), None, log_space=True)
     assert np.isfinite(c.values).all() and (np.asarray(c.values) > 0).all()   # chlorophyll: filled, never zero/negative
+
+
+def test_daily_job_never_paints_over_a_newer_live_map():
+    import json as _j
+    from ocean import jobs
+    st = _Store()
+    live = {"date": "2026-11-06", "observed_at": "2026-11-06T21:50:00Z", "tiles": "live-tiles", "live": True}
+    st.put("manifests/sst.json", _j.dumps({"dates": [live]}).encode())
+    mp = _MP()
+    try:
+        mp.setattr(jobs, "get_store", lambda: st)
+        mp.setattr(jobs.httpx, "Client", lambda *a, **k: None)
+        daily = {"date": "2026-11-06", "observed_at": "2026-11-06T09:00:00Z", "tiles": "daily-tiles"}
+        mp.setattr(jobs, "_latest_surface", lambda *a, **k: (jobs.DATASETS["sst"], daily))
+        jobs.run_surface("sst", "socal", [0])
+        m = _j.loads(st.get("manifests/sst.json"))
+        assert m["dates"][0]["tiles"] == "live-tiles"          # the newer live map stays
+    finally:
+        mp.undo()

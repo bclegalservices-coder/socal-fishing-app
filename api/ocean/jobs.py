@@ -75,11 +75,12 @@ def grid_day(g: Grid) -> str:
     return (g.meta.get("observed_at") or datetime.now(timezone.utc).isoformat())[:10]
 
 
-def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds=None, grid: Grid | None = None) -> dict:
+def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds=None, grid: Grid | None = None, tag: str = "") -> dict:
     ds = ds or DATASETS[layer]
     g = grid if grid is not None else fetch_surface(layer, region, when, http, ds)
     day = (g.meta.get("observed_at") or datetime.now(timezone.utc).isoformat())[:10]
-    base = f"{layer}/{region}/{day}"
+    # Nov 7: today's-passes maps (tag "-live") get their own pictures, so the daily job can't paint over them
+    base = f"{layer}/{region}/{day}{tag}"
     store.put(f"grids/{base}.npz", g.to_bytes())
 
     cmap = sst_scale(g) if layer == "sst" else CHL
@@ -103,14 +104,14 @@ def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds
                 n += 1
     b = break_settings(layer, ds.resolution_m)
     fc = break_lines(g, b["moderate"], b["strong"], b["interval"], log10=(layer == "chl"), sigma_cells=b["sigma"])
-    store.put(f"vectors/{layer}-breaks/{region}/{day}.geojson", json.dumps(fc).encode(), "application/geo+json")
+    store.put(f"vectors/{layer}-breaks/{region}/{day}{tag}.geojson", json.dumps(fc).encode(), "application/geo+json")
     log(f"{layer} {day}: {n} tiles, {len(fc['features'])} break groups")
     return {
         "date": day, "observed_at": g.meta.get("observed_at"), "region": region,
         # ?v= changes every run, so phones and the CDN fetch the redrawn map right away instead of a saved copy
         # (the pictures are kept for a day, and a same-day redraw would otherwise not show until tomorrow).
         "tiles": store.url(f"tiles/{base}") + "/{z}/{x}/{y}.png?v=" + RUN_STAMP,
-        "breaks": store.url(f"vectors/{layer}-breaks/{region}/{day}.geojson") + "?v=" + RUN_STAMP,
+        "breaks": store.url(f"vectors/{layer}-breaks/{region}/{day}{tag}.geojson") + "?v=" + RUN_STAMP,
         "grid": f"grids/{base}.npz", "tile_count": n,
         **({"legend": legend(cmap, "°F", sst_ticks(cmap))} if layer == "sst" else {}),
     }
@@ -330,7 +331,7 @@ def run_passes(layer: str, region: str, now: datetime | None = None):
                      kind="interpolated",   # gap-free now: colors run right up to the shore everywhere
                      source=f"Today's satellite passes ({', '.join(sats)}) via NASA Earthdata"
                             + (f"; clouds filled from {base_info.get('source', 'the daily map')} ({base_info.get('day', '')}), matched to today" if raw else "; clouds filled from the water around them"))
-        entry = process_surface(layer, region, "last", http, store, ds, grid=g)
+        entry = process_surface(layer, region, "last", http, store, ds, grid=g, tag="-live")
         entry.update({"passes": comp.meta["passes"], "fresh_share": comp.meta["fresh_share"], "live": True, "source": ds.source})
         m = _manifest(store, layer)
         by_date = {d["date"]: d for d in m.get("dates", []) if d.get("tiles")}
@@ -365,7 +366,11 @@ def run_surface(layer: str, region: str, days: list[int]):
         except Exception as e:  # one missing day shouldn't stop the run
             log(f"{layer} {d}: skipped ({e})")
     by_date = {d["date"]: d for d in m["dates"]}
-    by_date.update({e["date"]: e for e in entries})
+    for e in entries:   # Nov 7: never replace a newer today's-passes map with an older daily map of the same day
+        old = by_date.get(e["date"])
+        if old and old.get("live") and (old.get("observed_at") or "") >= (e.get("observed_at") or ""):
+            continue
+        by_date[e["date"]] = e
     m.update({
         "label": LABELS[layer], "note": _note(layer, ds), "legend": LEGENDS[layer], "kind": ds.kind,
         "source": ds.source, "dataset": ds.dataset_id, "resolution_m": ds.resolution_m, "verified": ds.verified,
@@ -516,7 +521,11 @@ def main(argv=None):
             try:
                 run_passes(layer, a.region)
             except Exception as e:
-                log(f"FAILED passes {layer}: {type(e).__name__}: {e}")
+                import traceback
+                log(f"FAILED passes {layer}: {type(e).__name__}: {e}\n{traceback.format_exc()[-1500:]}")
+                store_err = get_store()
+                store_err.put(f"manifests/passes-{layer}.json", json.dumps({"layer": layer, "checked_at": datetime.now(timezone.utc).isoformat(),
+                              "mode": "on", "error": f"Failed: {type(e).__name__}: {str(e)[:200]}"}).encode(), "application/json")
         return
     if a.job == "regs-undo":   # take back every automatic fish-rule change (hand-checked numbers show again)
         from regs.auto import undo
