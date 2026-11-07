@@ -1,4 +1,4 @@
-// Look & feel. Themes (Oct 23): six day themes and three night themes; you pick one of each in Me → Display, and
+// Look & feel. Themes (Nov 6 overhaul): four day themes and four night themes; you pick one of each in Me → Display, and
 // Auto switches between them at sunset / sunrise. Harbor Blue and Red Light are the original two palettes:
 //   DAY   — white surfaces, crisp borders, high contrast in sunlight.
 //   NIGHT — "red light" helm mode: near-black, warm red/amber text, no blue light, chart dimmed — keeps your
@@ -41,6 +41,8 @@ export type Palette = {
   route?: string;           // the Go To / route line (default: bright magenta by day, accent at night)
   boat?: string;            // your boat while navigating (default: bright blue by day, accent at night)
   wash?: string | null;     // tint laid over the whole map (red-light themes protect night vision)
+  land?: string;            // Nov 6: land color on the map (night themes; day uses the chart's own land)
+  coast?: string;           // Nov 6: color the night chart is tinted toward (coastline, land edges)
 };
 
 export type ThemeInfo = { id: string; name: string; note: string; mode: Mode; palette: Palette };
@@ -74,35 +76,39 @@ export const DAY: Palette = {
   layerBrightness: 1,
 };
 
-export const NIGHT: Palette = {
-  bg: '#000000',
-  water: '#050302',
-  panel: 'rgba(12,6,5,0.94)',
-  panelSolid: '#0D0706',
-  inset: '#160C0A',
-  line: '#2A1714',
-  border: '#4A2722',
-  text: '#F0B8A6',
-  muted: '#A8786B',
-  faint: '#7A5349',
-  accent: '#E5793A',
-  accentInk: '#140804',
-  live: '#D99A6C',
-  alert: '#FF4E3D',
-  alertBg: '#2A0C08',
-  ok: '#B5A35E',
-  okBg: '#1A1508',
-  warn: '#E0A050',
-  warnBg: '#1F1206',
-  infoBg: '#1A0D0A',
+// Nov 6: night themes rebuilt. The water is a deep color (not pure black), land a shade lighter in the same family,
+// and the NOAA chart is dimmed and tinted toward `coast` (MapScreen), so nothing on the map glares.
+export const NIGHT: Palette = {   // Red Light — protects night vision
+  bg: '#0B0202',
+  water: '#0E0303',
+  land: '#220B09',
+  coast: '#5A1F18',
+  panel: 'rgba(20,5,5,0.94)',
+  panelSolid: '#140505',
+  inset: '#1E0807',
+  line: '#2E0F0C',
+  border: '#4A1A14',
+  text: '#F07A62',
+  muted: '#C0604E',
+  faint: '#7A3328',
+  accent: '#D9483A',
+  accentInk: '#140303',
+  live: '#E8906E',
+  alert: '#FF5A45',
+  alertBg: '#2A0806',
+  ok: '#C9A25A',
+  okBg: '#1C1206',
+  warn: '#E8A050',
+  warnBg: '#221006',
+  infoBg: '#1C0907',
   buddy: '#C77DA0',
   shadow: '#000000',
   overlay: 'rgba(0,0,0,0.6)',
   statusBar: 'light-content',
-  chartBrightness: 0.38,
+  chartBrightness: 0.22,
   layerBrightness: 0.6,
+  wash: 'rgba(40,0,0,0.18)',
 };
-NIGHT.wash = 'rgba(28,0,0,0.3)';
 
 const dark = (p: Partial<Palette>): Palette => ({ ...DAY, statusBar: 'light-content', shadow: '#000000', overlay: 'rgba(0,0,0,0.55)', ...p } as Palette);
 
@@ -128,32 +134,46 @@ export const HIGH_CONTRAST: Palette = { ...DAY,
   bg: '#FFFFFF', water: '#AADAFF', panel: '#FFFFFF', panelSolid: '#FFFFFF', inset: '#F2F2F2', line: '#000000', border: '#000000',
   text: '#000000', muted: '#1A1A1A', faint: '#3D3D3D', accent: '#0047AB', live: '#006B2D', alert: '#B00000', ok: '#006B2D', warn: '#7A4500' };
 
-export const AMBER: Palette = { ...NIGHT,
-  bg: '#000000', water: '#060400', panel: 'rgba(26,17,3,0.94)', panelSolid: '#1A1103', inset: '#221704', line: '#3A2808', border: '#5A3E10',
-  text: '#FFB347', muted: '#B27A2A', faint: '#7E5720', accent: '#D98A12', accentInk: '#1A0F00', live: '#FFC56B',
+export const AMBER: Palette = { ...NIGHT,   // warm, a bit easier to read than red
+  bg: '#0D0902', water: '#100B02', land: '#231A08', coast: '#5C4515',
+  panel: 'rgba(23,16,3,0.94)', panelSolid: '#171003', inset: '#211705', line: '#33260A', border: '#4A3810',
+  text: '#F2B45A', muted: '#C08A3A', faint: '#7A5A20', accent: '#D9921C', accentInk: '#160D00', live: '#F5C26E',
   alertBg: '#2A1204', okBg: '#1A1608', warnBg: '#241604', infoBg: '#1A1206', buddy: '#D99A6C',
-  chartBrightness: 0.42, layerBrightness: 0.62, wash: 'rgba(28,14,0,0.3)' };
+  chartBrightness: 0.24, layerBrightness: 0.62, wash: 'rgba(36,20,0,0.16)' };
 
-export const DARK_BLUE: Palette = dark({
-  bg: '#0B1220', water: '#0D1728', panel: 'rgba(20,30,51,0.96)', panelSolid: '#141E33', inset: '#1A2640', line: '#22304D', border: '#33456A',
-  text: '#E3EAF5', muted: '#8A9BB8', faint: '#65779A', accent: '#4A8DF8', accentInk: '#071022', live: '#34D399',
-  alert: '#FF6B5E', alertBg: '#3A1418', ok: '#34D399', okBg: '#0F3328', warn: '#F5B54A', warnBg: '#36290F', infoBg: '#18284A', buddy: '#B794F6',
-  chartBrightness: 0.55, layerBrightness: 0.78, route: '#FF1CF0', boat: '#00A3FF', wash: null });
+/** Night Navy (Nov 6, the new default night look): navy water, slate land, soft white text — a normal dark mode. */
+export const NIGHT_NAVY: Palette = dark({
+  bg: '#0A1626', water: '#0B1E33', land: '#1F2833', coast: '#3E5570',
+  panel: 'rgba(15,27,43,0.95)', panelSolid: '#0F1B2B', inset: '#16243A', line: '#1C2E46', border: '#26405E',
+  text: '#D5E2F0', muted: '#8FA6C0', faint: '#5E7C9C', accent: '#4FB3E8', accentInk: '#04121F', live: '#6FD3A8',
+  alert: '#FF6B5E', alertBg: '#3A1418', ok: '#6FD3A8', okBg: '#0F3328', warn: '#F5B54A', warnBg: '#36290F', infoBg: '#14284A', buddy: '#B794F6',
+  chartBrightness: 0.3, layerBrightness: 0.8, route: '#E05AD0', boat: '#4FB3E8', wash: null });
+
+/** Dusk (Nov 6): a softer dark blue for evenings and at the dock (replaces Deep Ocean / Sunset / Dark Blue). */
+export const DUSK: Palette = dark({
+  bg: '#122236', water: '#14283D', land: '#2A3340', coast: '#4D6580',
+  panel: 'rgba(26,38,56,0.96)', panelSolid: '#1A2638', inset: '#213049', line: '#28395A', border: '#33496A',
+  text: '#E6EEF7', muted: '#A3B6CB', faint: '#6E8BAA', accent: '#5FC4B6', accentInk: '#062420', live: '#5FD39A',
+  alert: '#FF6B5E', alertBg: '#3A1714', ok: '#5FD39A', okBg: '#12352A', warn: '#F5B54A', warnBg: '#3A2A10', infoBg: '#1C3350', buddy: '#C4A1FF',
+  chartBrightness: 0.38, layerBrightness: 0.85, route: '#FF4FD8', boat: '#5FC4B6', wash: null });
+export const DARK_BLUE = NIGHT_NAVY;   // older name
 
 export const DAY_THEMES: ThemeInfo[] = [
   { id: 'harbor', name: 'Harbor Blue', note: 'The original', mode: 'day', palette: DAY },
   { id: 'channelnav', name: 'Channel Nav', note: 'Logo blue, black and green', mode: 'day', palette: CHANNEL_NAV },
-  { id: 'ocean', name: 'Deep Ocean', note: 'Navy and teal', mode: 'day', palette: DEEP_OCEAN },
   { id: 'kelp', name: 'Kelp', note: 'Kelp green and sand', mode: 'day', palette: KELP },
-  { id: 'sunset', name: 'Sunset', note: 'Charcoal and orange', mode: 'day', palette: SUNSET },
   { id: 'contrast', name: 'High Contrast', note: 'For bright sun', mode: 'day', palette: HIGH_CONTRAST },
 ];
 export const NIGHT_THEMES: ThemeInfo[] = [
-  { id: 'red', name: 'Red Light', note: 'Best for night vision', mode: 'night', palette: NIGHT },
-  { id: 'amber', name: 'Amber', note: 'Warm, easier to read', mode: 'night', palette: AMBER },
-  { id: 'darkblue', name: 'Dark Blue', note: 'At the dock — not night-vision safe', mode: 'night', palette: DARK_BLUE },
+  { id: 'navy', name: 'Night Navy', note: 'Easy on the eyes', mode: 'night', palette: NIGHT_NAVY },
+  { id: 'red', name: 'Red Light', note: 'Protects night vision', mode: 'night', palette: NIGHT },
+  { id: 'amber', name: 'Amber', note: 'Warm, a bit easier to read', mode: 'night', palette: AMBER },
+  { id: 'dusk', name: 'Dusk', note: 'Evenings and at the dock', mode: 'night', palette: DUSK },
 ];
-export const findTheme = (list: ThemeInfo[], id: string | null | undefined) => list.find((t) => t.id === id) ?? list[0];
+/** Nov 6: themes that were removed or renamed → what they become. */
+const RENAMED: Record<string, string> = { darkblue: 'navy', ocean: 'harbor', sunset: 'harbor' };
+export const findTheme = (list: ThemeInfo[], id: string | null | undefined) =>
+  list.find((t) => t.id === id) ?? list.find((t) => t.id === RENAMED[id ?? '']) ?? list[0];
 
 /** Route line and boat colors for a palette (bright magenta / blue unless the theme says otherwise). */
 export const routeColor = (p: Palette, mode: Mode) => p.route ?? (mode === 'night' ? p.accent : '#FF1CF0');
@@ -200,7 +220,7 @@ export function isNightAt(lat: number, lon: number, now = new Date()): boolean {
 type Ctx = { mode: Mode; setting: ThemeSetting; setSetting: (s: ThemeSetting) => void; toggle: () => void; palette: Palette;
   themeId: string; dayTheme: string; nightTheme: string; setDayTheme: (id: string) => void; setNightTheme: (id: string) => void };
 const ThemeCtx = createContext<Ctx>({ mode: 'day', setting: 'auto', setSetting: () => {}, toggle: () => {}, palette: DAY,
-  themeId: 'harbor', dayTheme: 'harbor', nightTheme: 'red', setDayTheme: () => {}, setNightTheme: () => {} });
+  themeId: 'harbor', dayTheme: 'harbor', nightTheme: 'navy', setDayTheme: () => {}, setNightTheme: () => {} });
 const KEY = 'theme-setting:v1';
 const DAY_KEY = 'theme-day:v1';
 const NIGHT_KEY = 'theme-night:v1';
@@ -210,7 +230,7 @@ export function setThemePosition(lat: number, lon: number) { lastPos = { lat, lo
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [setting, setSettingState] = useState<ThemeSetting>('auto');
   const [dayTheme, setDayState] = useState('harbor');
-  const [nightTheme, setNightState] = useState('red');
+  const [nightTheme, setNightState] = useState('navy');
   const [autoNight, setAutoNight] = useState(() => isNightAt(lastPos.lat, lastPos.lon));
   useEffect(() => {
     AsyncStorage.multiGet([KEY, DAY_KEY, NIGHT_KEY]).then((rows) => {

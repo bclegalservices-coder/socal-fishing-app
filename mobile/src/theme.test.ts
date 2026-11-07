@@ -1,6 +1,6 @@
 jest.mock('@react-native-async-storage/async-storage', () => ({ getItem: jest.fn(), setItem: jest.fn(), removeItem: jest.fn() }));
 jest.mock('react-native', () => ({ StyleSheet: { create: (s: any) => s } }));
-import { AMBER, DAY, DAY_THEMES, NIGHT, NIGHT_THEMES, boatColor, findTheme, isNightAt, routeColor, sunTimes } from './theme';
+import { AMBER, NIGHT_NAVY, DAY, DAY_THEMES, NIGHT, NIGHT_THEMES, boatColor, findTheme, isNightAt, routeColor, sunTimes } from './theme';
 
 test('sunrise and sunset for Newport Beach in October', () => {
   const t = sunTimes(33.6, -117.9, new Date(2026, 9, 10, 12))!;
@@ -42,9 +42,11 @@ test('every theme is complete and readable (4.5:1 or better)', () => {
   }
 });
 
-test('the original two looks are unchanged and are the defaults', () => {
+test('Harbor Blue is the default day look, Night Navy the default night look', () => {
   expect(findTheme(DAY_THEMES, undefined).palette).toBe(DAY);
-  expect(findTheme(NIGHT_THEMES, 'nope').palette).toBe(NIGHT);
+  expect(findTheme(NIGHT_THEMES, 'nope').palette).toBe(NIGHT_NAVY);   // Nov 6: Night Navy is the default night look
+  expect(findTheme(NIGHT_THEMES, 'darkblue').palette).toBe(NIGHT_NAVY);
+  expect(findTheme(NIGHT_THEMES, 'red').palette).toBe(NIGHT);
   expect(routeColor(DAY, 'day')).toBe('#FF1CF0');
   expect(boatColor(DAY, 'day')).toBe('#00A3FF');
 });

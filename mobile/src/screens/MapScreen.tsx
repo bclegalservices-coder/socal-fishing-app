@@ -101,9 +101,14 @@ LogManager.onLog((e) => {
 // other layers in their normal order. (Oct 20: "slot" placeholder layers + beforeId crashed MapLibre on iOS.)
 // Map Studio (Oct 30): the light themes take the water / land colors sent from the Studio; dark themes keep their own.
 const lightWater = () => colors.water === '#AADAFF';
-const landColor = (look: MapLook) => (lightWater() ? look.land ?? '#F2EEE3' : colors.inset);
+const landColor = (look: MapLook) => (lightWater() ? look.land ?? '#F2EEE3' : colors.land ?? colors.inset);
 const waterColor = (look: MapLook) => (lightWater() ? look.water ?? colors.water : colors.water);
-function buildMapStyle(chartUrl: string, depthUrl: string | null, look: MapLook = {}) {
+/** Nov 6: at night the NOAA chart is dimmed and its colors muted, so its land isn't a bright khaki next to dark water
+ *  (the theme's `chartBrightness` had stopped being used). Day: the chart as NOAA draws it. */
+const chartPaint = (night: boolean) => (night
+  ? { 'raster-fade-duration': 100, 'raster-brightness-max': colors.chartBrightness, 'raster-brightness-min': 0, 'raster-saturation': -0.55, 'raster-contrast': 0.1 }
+  : { 'raster-fade-duration': 100 });
+function buildMapStyle(chartUrl: string, depthUrl: string | null, look: MapLook = {}, night = false) {
   return {
     version: 8,
     sources: {
@@ -117,8 +122,8 @@ function buildMapStyle(chartUrl: string, depthUrl: string | null, look: MapLook 
       { id: 'land-fill', type: 'fill', source: 'land', paint: { 'fill-color': landColor(look), 'fill-antialias': true } },
       // Oct 29 v2: the baby-blue "water" background shows through the chart (its water fill is left out), and NOAA's
       // depth numbers + lines are drawn on top of it
-      ...(depthUrl ? [{ id: 'noaa-depths', type: 'raster', source: 'noaaDepths', paint: { 'raster-fade-duration': 100 } }] : []),
-      { id: 'noaa-chart', type: 'raster', source: 'noaa', paint: { 'raster-fade-duration': 100 } },
+      ...(depthUrl ? [{ id: 'noaa-depths', type: 'raster', source: 'noaaDepths', paint: night ? { ...chartPaint(true), 'raster-brightness-max': Math.min(1, colors.chartBrightness * 2.4), 'raster-saturation': -0.3 } : chartPaint(false) }] : []),
+      { id: 'noaa-chart', type: 'raster', source: 'noaa', paint: chartPaint(night) },
       // Invisible markers that fix the layer order (see layers/order.ts): shading goes below the first,
       // lines and dots below the second, and the boat / route / waypoints are always added above both.
       { id: SHADING_TOP, type: 'background', paint: { 'background-color': 'rgba(0,0,0,0)', 'background-opacity': 0 } },
@@ -197,7 +202,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   useEffect(() => onConfig((c) => setLook(mapLook(c))), []);
   const lookKey = JSON.stringify(look);
   const depthUrl = useMemo(() => noaaDepthTiles({ ...DEFAULT_LAYERS.chart, ...layers.chart }, theme.mode === 'night', killed.includes('chart_helper'), look), [layers.chart, theme.mode, killed.join(','), lookKey]);
-  const mapStyle = useMemo(() => buildMapStyle(chartUrl, depthUrl, look), [chartUrl, depthUrl, colors.water, lookKey]);
+  const mapStyle = useMemo(() => buildMapStyle(chartUrl, depthUrl, look, theme.mode === 'night'), [chartUrl, depthUrl, colors.water, lookKey, theme.themeId, theme.mode]);
   // 3D view (Map options): tip the camera back; flat again when switched off.
   useEffect(() => { camera.current?.setStop({ pitch: layers.tilt ? 55 : 0, duration: 600 }).catch(() => {}); }, [layers.tilt]);
   const [compareOffset, setCompareOffset] = useState<number | null>(null);
