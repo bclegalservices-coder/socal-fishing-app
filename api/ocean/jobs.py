@@ -228,6 +228,7 @@ def _latest_surface(layer: str, region: str, http: httpx.Client, store):
         i = pick_freshest([(ds, day) for ds, day, _ in found])
         ds, day, g = found[i]
         log(f"sst: using {ds.dataset_id} ({day}) — newest of {', '.join(d for _, d, _ in found)}")
+        save_base(store, layer, region, g, ds)
         return ds, process_surface(layer, region, "last", http, store, ds, grid=g)
     # Chlorophyll (Nov 2): the cloud-free Copernicus map runs ~3 days behind; NOAA's daily satellite maps are ~1 day
     # old but have holes wherever it was cloudy. Ask every source for its newest day, use the NEWEST one, and fill its
@@ -259,6 +260,12 @@ def _latest_surface(layer: str, region: str, http: httpx.Client, store):
         g.meta["filled_from"] = used[1:]
         ds = replace(ds, source=f"{ds.source} — cloud gaps filled from older cloud-free maps")
     log(f"chl: using {used[0]} ({day}){' + gaps from ' + ', '.join(used[1:]) if len(used) > 1 else ''} — newest of {', '.join(d for _, d, _ in found)}")
+    save_base(store, layer, region, g, ds)
+    if coverage(g) < 0.999:   # Nov 6: no blank clouds — fill what's left so it blends in with the water around it
+        from dataclasses import replace
+        from .passes import blend
+        g = blend(g, None, log_space=True)
+        ds = replace(ds, kind="interpolated", source=f"{ds.source} — remaining cloud gaps blended in")
     return ds, process_surface(layer, region, "last", http, store, ds, grid=g)
 
 
@@ -275,6 +282,69 @@ def fill_gaps(newer: Grid, older: Grid) -> Grid:
     v = np.asarray(newer.values, dtype=np.float64)
     out = np.where(np.isfinite(v), v, o)
     return Grid(newer.lats, newer.lons, out.astype(np.asarray(newer.values).dtype), dict(newer.meta))
+
+
+def save_base(store, layer: str, region: str, g: Grid, ds):
+    """Keep the latest regular daily map: today's satellite passes fill their cloud gaps from it (passes job)."""
+    if store is None:
+        return
+    try:   # never let this stop the daily map
+        store.put(f"grids/{layer}/{region}/base.npz", g.to_bytes())
+        store.put(f"grids/{layer}/{region}/base.json", json.dumps({"dataset": ds.dataset_id, "source": ds.source, "kind": ds.kind,
+                                                                  "erddap": ds.erddap, "day": grid_day(g)}).encode(), "application/json")
+    except Exception as e:
+        log(f"{layer}: couldn't keep the daily map for today's passes ({e})")
+
+
+def run_passes(layer: str, region: str, now: datetime | None = None):
+    """Nov 6: today's satellite passes (ocean/passes.py) → the newest map, refreshed through the day.
+    preview mode: build it and report on the admin page only; on: publish it as today's map in the app."""
+    from dataclasses import replace
+    from . import passes
+    store = get_store()
+    http = httpx.Client(timeout=120, follow_redirects=True, headers={"User-Agent": "ChannelNav/1.0 (satellite passes)"})
+    auth = passes.earthdata_client()
+    report = {"layer": layer, "checked_at": datetime.now(timezone.utc).isoformat(), "mode": passes.mode(), "login": bool(auth)}
+    try:
+        if not auth:
+            report["error"] = "No NASA Earthdata login saved in GitHub (EARTHDATA_USERNAME / EARTHDATA_PASSWORD)"
+            log(f"passes {layer}: {report['error']}")
+            return report
+        comp = passes.composite(layer, region, REGIONS[region], http, auth, store, now, log)
+        if comp is None:
+            report["error"] = "No new passes over SoCal yet" + (" (chlorophyll needs daylight)" if layer == "chl" else "")
+            log(f"passes {layer}: {report['error']}")
+            return report
+        report.update({k: comp.meta.get(k) for k in ("observed_at", "passes", "fresh_share", "today_share")})
+        log(f"passes {layer}: {len(comp.meta['passes'])} passes, newest {comp.meta['observed_at']}, "
+            f"{comp.meta['fresh_share']:.0%} of the box seen today")
+        raw, info = store.get(f"grids/{layer}/{region}/base.npz"), store.get(f"grids/{layer}/{region}/base.json")
+        base_info = json.loads(info) if info else {}
+        # Nov 6: no blank clouds — fill them from the daily map, shifted to match today, with soft edges
+        g = passes.blend(comp, Grid.from_bytes(raw) if raw else None, log_space=(layer == "chl"))
+        if report["mode"] != "on":
+            log(f"passes {layer}: preview only (set the GitHub variable PASSES to on to publish)")
+            return report
+        sats = sorted({p["sat"] for p in comp.meta["passes"] if p.get("sat")})
+        ds = replace(DATASETS[layer], dataset_id="passes", resolution_m=750,
+                     kind="interpolated",   # gap-free now: colors run right up to the shore everywhere
+                     source=f"Today's satellite passes ({', '.join(sats)}) via NASA Earthdata"
+                            + (f"; clouds filled from {base_info.get('source', 'the daily map')} ({base_info.get('day', '')}), matched to today" if raw else "; clouds filled from the water around them"))
+        entry = process_surface(layer, region, "last", http, store, ds, grid=g)
+        entry.update({"passes": comp.meta["passes"], "fresh_share": comp.meta["fresh_share"], "live": True, "source": ds.source})
+        m = _manifest(store, layer)
+        by_date = {d["date"]: d for d in m.get("dates", []) if d.get("tiles")}
+        by_date[entry["date"]] = entry
+        m["dates"] = sorted(by_date.values(), key=lambda e: e["date"], reverse=True)[:KEEP_DAYS]
+        _save_manifest(store, layer, m)
+        report["published"] = entry["date"]
+        return report
+    except PermissionError as e:
+        report["error"] = str(e)
+        log(f"passes {layer}: {e}")
+        return report
+    finally:
+        store.put(f"manifests/passes-{layer}.json", json.dumps(report).encode(), "application/json")
 
 
 def run_surface(layer: str, region: str, days: list[int]):
@@ -404,7 +474,7 @@ def verify():
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("job", choices=["sst", "chl", "surface", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "bottomhd", "bottomhd-socal", "bottomhd-rebuild", "bottomhd-preview", "bottomhd-overview", "bottomhd-restore", "bottomhd-restore-v3", "bottomhd-restore-v4", "bottomhd-restore-v5", "bottomhd-restore-v6", "crm", "crm-rebuild", "regs", "regs-undo", "all", "discover", "verify"])
+    p.add_argument("job", choices=["sst", "chl", "surface", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "bottomhd", "bottomhd-socal", "bottomhd-rebuild", "bottomhd-preview", "bottomhd-overview", "bottomhd-restore", "bottomhd-restore-v3", "bottomhd-restore-v4", "bottomhd-restore-v5", "bottomhd-restore-v6", "crm", "crm-rebuild", "regs", "regs-undo", "passes", "all", "discover", "verify"])
     p.add_argument("--region", default="socal")
     p.add_argument("--days", default="0,1,2,3,7")
     p.add_argument("--file", default=None, help="local seafloor file for `bathy`")
@@ -441,6 +511,13 @@ def main(argv=None):
         from navroute.build import run as run_navmask
         http = httpx.Client(timeout=120, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})
         return run_navmask(get_store(), REGIONS[a.region], a.region, http, log, force=a.force or a.job == "navmask-rebuild")
+    if a.job == "passes":   # Nov 6: today's satellite passes, chlorophyll + water temp (hourly in the daytime)
+        for layer in ("sst", "chl"):
+            try:
+                run_passes(layer, a.region)
+            except Exception as e:
+                log(f"FAILED passes {layer}: {type(e).__name__}: {e}")
+        return
     if a.job == "regs-undo":   # take back every automatic fish-rule change (hand-checked numbers show again)
         from regs.auto import undo
         return undo(get_store(), log)

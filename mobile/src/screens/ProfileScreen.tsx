@@ -1,6 +1,6 @@
 // Account (email code sign-in), profile basics, and the Data Sources page (spec §34, §35, §52).
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Constants from 'expo-constants';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
@@ -21,6 +21,7 @@ import { FeedbackForm } from '../components/Feedback';
 import { AppearanceScreen, appearanceSummary } from '../components/ThemePicker';
 import { AWAKE_LABELS, setAwakeMode, useAwakeMode, type AwakeMode } from '../screenAwake';
 import { FULL_TEXT } from '../legal';
+import { AppSwitch } from '../components/form';
 
 export function ProfileScreen({ onShowOnMap, onOpenSpots, spotCount }: { onShowOnMap: (lat: number, lon: number, name: string) => void; onOpenSpots?: () => void; spotCount?: number }) {
   const st = useSt();
@@ -198,7 +199,7 @@ function UsageStatsRow({ last }: { last?: boolean }) {
   const [out, setOut] = useState(false);
   useEffect(() => { getOptOut().then(setOut); }, []);
   return <ListRow icon="analytics-outline" title="Share anonymous usage stats" subtitle="Counts only, never your location, spots or catches. Keeps the app free."
-    chevron={false} last={last} right={<Switch value={!out} onValueChange={async (v) => { setOut(!v); await setOptOut(!v); }} />} />;
+    chevron={false} last={last} right={<AppSwitch value={!out} onValueChange={async (v) => { setOut(!v); await setOptOut(!v); }} />} />;
 }
 
 function Account({ session }: { session: Session }) {
@@ -310,7 +311,7 @@ function AdminTools({ uid }: { uid: string | null }) {
       <ListGroup>
         <ListRow icon="megaphone-outline" iconColor="#E0A800" title="Ad spaces preview"
           subtitle={on ? `Showing all ${Object.keys(AD_SPACES).length} ad spaces as gold boxes. Tap any box for details.` : 'Show every sponsor slot in the app as a gold placeholder'}
-          right={<Switch value={on} onValueChange={(v) => { setOn(v); setAdPreview(v); track('ad_preview', { on: v }); }} />} chevron={false} />
+          right={<AppSwitch value={on} onValueChange={(v) => { setOn(v); setAdPreview(v); track('ad_preview', { on: v }); }} />} chevron={false} />
         {on ? <ListRow icon="list-outline" title="Where every ad space is" onPress={() => Alert.alert('Ad spaces', Object.values(AD_SPACES).map((a) => `• ${a.name}\n   ${a.where}`).join('\n\n'))} last /> : null}
       </ListGroup>
       <Note>Only you see this. Placeholders are never counted as views. The 5-second intro shows each time you open the app while this is on.</Note>

@@ -1,7 +1,7 @@
 // Opt-in alerts (plan: 'Alerts'): species, bite activity, water temperature, marine warnings.
 // At most 4 per day; each alert at most every 3 hours.
 import { useEffect, useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import * as Location from 'expo-location';
@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { track } from '../analytics';
 import { usePro } from '../pro';
 import { friendly } from '../friendly';
+import { AppSwitch } from '../components/form';
 
 const AREAS = [
   { label: 'Catalina', center: [-118.42, 33.38] }, { label: 'San Clemente Island', center: [-118.5, 32.9] },
@@ -96,7 +97,7 @@ export function AlertsScreen({ onBack }: { onBack: () => void }) {
                   <Text style={st.p} numberOfLines={2}>{describe(s)}</Text>
                   <Text style={st.sub}>{s.last_sent_at ? `Last sent ${new Date(s.last_sent_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : 'Not sent yet'}</Text>
                 </View>
-                <Switch value={s.active} onValueChange={async (v) => { await supabase.from('alert_subscriptions').update({ active: v }).eq('id', s.id); load(); }} />
+                <AppSwitch value={s.active} onValueChange={async (v) => { await supabase.from('alert_subscriptions').update({ active: v }).eq('id', s.id); load(); }} />
                 <Pressable onPress={() => Alert.alert('Remove this alert?', describe(s), [{ text: 'Cancel', style: 'cancel' },
                   { text: 'Remove', style: 'destructive', onPress: async () => { await supabase.from('alert_subscriptions').delete().eq('id', s.id); load(); } }])}
                   hitSlop={8} style={st.trash} accessibilityRole="button" accessibilityLabel="Remove alert">
@@ -137,7 +138,7 @@ export function AlertsScreen({ onBack }: { onBack: () => void }) {
               <Text style={st.step}>3 · Which fish</Text>
               <View style={st.wrap}>{SPECIES.slice(0, 14).map((sp) => <Chip key={sp.code} label={sp.name} on={species.includes(sp.code)} dot={sp.color}
                 onPress={() => setSpecies(species.includes(sp.code) ? species.filter((x) => x !== sp.code) : [...species, sp.code])} />)}</View>
-              {kind === 'species' ? <View style={st.rowB}><Text style={st.p}>Verified reports only</Text><Switch value={verified} onValueChange={setVerified} /></View> : null}
+              {kind === 'species' ? <View style={st.rowB}><Text style={st.p}>Verified reports only</Text><AppSwitch value={verified} onValueChange={setVerified} /></View> : null}
             </>
           ) : null}
           {kind === 'sst' ? (

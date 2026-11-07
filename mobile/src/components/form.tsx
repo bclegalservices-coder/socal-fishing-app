@@ -132,7 +132,13 @@ export function FormRow({ title, sub, right, last }: { title: string; sub?: stri
 }
 
 export function ToggleRow({ title, sub, value, onChange, last }: { title: string; sub?: string; value: boolean; onChange: (v: boolean) => void; last?: boolean }) {
-  return <FormRow title={title} sub={sub} last={last} right={<Switch value={value} onValueChange={onChange} trackColor={{ true: colors.accent, false: colors.line }} />} />;
+  return <FormRow title={title} sub={sub} last={last} right={<AppSwitch value={value} onValueChange={onChange} />} />;
+}
+
+/** On/off switch that's easy to see when it's OFF too (Nov 4: the plain iPhone switch is white-on-white on our cards). */
+export function AppSwitch({ value, onValueChange, disabled }: { value: boolean; onValueChange: (v: boolean) => void; disabled?: boolean }) {
+  return <Switch value={value} onValueChange={onValueChange} disabled={disabled} thumbColor="#FFFFFF"
+    trackColor={{ true: colors.accent, false: colors.faint }} ios_backgroundColor={colors.faint} />;
 }
 
 /** Small label + input box, for putting 2–3 side by side (Weight · Length). */

@@ -9,10 +9,12 @@ on:
     - cron: "50 4,10,16,22 * * *"  # wind: ~5 h after each GFS run
     - cron: "30 15 * * 1"          # rules & hazards (MPAs, wrecks, lanes) + fish size/bag limits checked against CDFW: Mondays
     - cron: "20 8,20 * * *"        # Nov 2: water temp + chlorophyll only, 2 more times a day (grab new maps sooner)
+    - cron: "40 0,1,17-23 * * *"   # Nov 6: today's satellite passes, every hour in the daytime (~9 AM–6 PM Pacific)
+    - cron: "40 4,7,10,13 * * *"   # Nov 6: today's satellite passes at night (water temp only — night passes)
   workflow_dispatch:
     inputs:
       job:
-        description: "sst, chl, surface (water temp + chlorophyll), bathy, wind, rules, regs (fish size and bag limits: check CDFW for changes, read changed pages 3 ways), regs-undo (take back automatic fish-rule changes), harbors, navmask / navmask-rebuild (auto-route water map), bottomhd (HD bottom, pilot area), bottomhd-socal (HD bottom for ALL of SoCal — keeps going by itself until done), bottomhd-overview (HD bottom shows when zoomed out — fast), bottomhd-preview (picture of old vs new HD bottom, changes nothing), bottomhd-restore (go back to the HD bottom from before the smooth-line builds; -v3 / -v4 / -v5 for those), crm (sharper seafloor + contour detail), all, verify or discover"
+        description: "sst, chl, surface (water temp + chlorophyll), passes (today's satellite passes: newest water temp + chlorophyll), bathy, wind, rules, regs (fish size and bag limits: check CDFW for changes, read changed pages 3 ways), regs-undo (take back automatic fish-rule changes), harbors, navmask / navmask-rebuild (auto-route water map), bottomhd (HD bottom, pilot area), bottomhd-socal (HD bottom for ALL of SoCal — keeps going by itself until done), bottomhd-overview (HD bottom shows when zoomed out — fast), bottomhd-preview (picture of old vs new HD bottom, changes nothing), bottomhd-restore (go back to the HD bottom from before the smooth-line builds; -v3 / -v4 / -v5 for those), crm (sharper seafloor + contour detail), all, verify or discover"
         default: "all"
 
 permissions:
@@ -31,6 +33,10 @@ jobs:
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # Nov 3: fish rules self-checking reads (optional)
       REGS_AUTO: ${{ vars.REGS_AUTO }}                     # "on" = apply checked fish-rule changes; anything else = preview
+      EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}   # Nov 6: free NASA login for today's satellite passes
+      EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
+      EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}         # optional instead of username/password
+      PASSES: ${{ vars.PASSES }}                             # "on" = show today's passes in the app; anything else = preview
       R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -60,6 +66,7 @@ jobs:
           elif [ "${{ github.event.schedule }}" = "50 4,10,16,22 * * *" ]; then JOB=wind;
           elif [ "${{ github.event.schedule }}" = "30 15 * * 1" ]; then JOB=rules;
           elif [ "${{ github.event.schedule }}" = "20 8,20 * * *" ]; then JOB=surface;
+          elif [ "${{ github.event.schedule }}" = "40 0,1,17-23 * * *" ] || [ "${{ github.event.schedule }}" = "40 4,7,10,13 * * *" ]; then JOB=passes;
           else JOB=all; fi
           python -m ocean.jobs $JOB
       - name: Save the HD bottom preview picture (bottomhd-preview only)

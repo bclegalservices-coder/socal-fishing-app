@@ -40,7 +40,11 @@ export function TimeBar({ catalog, s, setDay, compare, compareOffset }: Props) {
   if (!info) return null;
   const obs = info.entry?.observed_at;
   const layerLabel = key === 'sst' ? 'Water temp' : 'Chlorophyll';
-  const kind = info.layer?.kind === 'interpolated' ? 'satellite blend' : 'satellite';
+  const live = !!info.entry?.live;
+  const kind = live ? "today's satellite passes" : info.layer?.kind === 'interpolated' ? 'satellite blend' : 'satellite';
+  // Nov 6: for today's passes, say which satellite and what time the newest pass was
+  const newest = live ? [...(info.entry?.passes ?? [])].filter((p) => !p.fill && p.at).sort((a, b) => (a.at! < b.at! ? -1 : 1)).pop() : undefined;
+  const passText = newest ? `newest pass ${new Date(newest.at!).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} (${newest.sat ?? 'satellite'})` : null;
   return (
     <View style={st.wrap}>
       <View style={st.row}>
@@ -52,7 +56,7 @@ export function TimeBar({ catalog, s, setDay, compare, compareOffset }: Props) {
             {compareOffset != null ? `Comparing: ${compareOffset} days earlier` : `${layerLabel} · ${kind}`}
           </Text>
           <Text style={[st.age, isStale(obs) && { color: colors.accent }]}>
-            {info.entry ? `${info.entry.date} · ${ageText(obs)}` : 'No image for this day (clouds or not processed)'}
+            {info.entry ? (passText ? `${passText} · ${ageText(obs)}${info.entry.fresh_share != null && info.entry.fresh_share < 0.5 ? ' · cloudy areas from earlier' : ''}` : `${info.entry.date} · ${ageText(obs)}`) : 'No image for this day (clouds or not processed)'}
           </Text>
         </View>
         <Pressable

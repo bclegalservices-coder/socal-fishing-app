@@ -1,11 +1,12 @@
 // Me → Send feedback or report a bug. Goes to our API → admin console "Feedback & crashes".
 import { useState } from 'react';
-import { Alert, Linking, Platform, Switch, Text, TextInput, View } from 'react-native';
+import { Alert, Linking, Platform, Text, TextInput, View } from 'react-native';
 import Constants from 'expo-constants';
 import { API_URL, SUPPORT_EMAIL } from '../config';
 import { colors, makeStyles } from '../theme';
 import { currentArea, track } from '../analytics';
 import { Btn, Card, Note, Segmented } from './ui';
+import { AppSwitch } from './form';
 
 type Kind = 'bug' | 'idea' | 'data' | 'other';
 
@@ -49,7 +50,7 @@ export function FeedbackForm({ email: start, onSent }: { email: string; onSent: 
         keyboardType="email-address" autoCapitalize="none" autoComplete="email" />
       <View style={st.row}>
         <Text style={[st.h, { flex: 1, marginTop: 0 }]}>Include app version, phone type and general area</Text>
-        <Switch value={withInfo} onValueChange={setWithInfo} />
+        <AppSwitch value={withInfo} onValueChange={setWithInfo} />
       </View>
       <Btn label={busy ? 'Sending…' : 'Send'} kind="primary" icon="paper-plane-outline" onPress={send} disabled={busy || text.trim().length < 3 || !API_URL} />
       <Note>Never includes your exact location, spots or catches.</Note>

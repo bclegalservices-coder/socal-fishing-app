@@ -2,7 +2,7 @@
 // "Come to me", shared catches, spots and routes, messages, and float plans with automatic overdue alerts.
 import { config } from '../appConfig';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as Location from 'expo-location';
 import { colors, touch, makeStyles } from '../theme';
 import { bearingTrue, distanceNm, formatLatLon, formatNm } from '../geo';
@@ -17,6 +17,7 @@ import type { Pt } from '../nav';
 import * as G from './groupsApi';
 import { lastSeen } from '../components/Buddies';
 import { friendly } from '../friendly';
+import { AppSwitch } from '../components/form';
 
 export type GroupNav = {
   onShowOnMap: (lat: number, lon: number, name: string) => void;
@@ -284,11 +285,11 @@ function GroupDetailView({ groupId, me, nav, plan, onPlanChanged, onBack }: {
         {panel === 'settings' ? (
           <View style={{ gap: 8 }}>
             <View style={st.switchRow}><Text style={st.body}>Notifications from this group</Text>
-              <Switch value={mine?.notify !== false} onValueChange={(v) => G.setPrefs(groupId, { notify: v }).then(load).catch(fail)} /></View>
+              <AppSwitch value={mine?.notify !== false} onValueChange={(v) => G.setPrefs(groupId, { notify: v }).then(load).catch(fail)} /></View>
             <View style={st.switchRow}><View style={{ flex: 1 }}><Text style={st.body}>Show my last known position</Text><Text style={st.sub}>For 24 h after you stop sharing — helps if you lose signal.</Text></View>
-              <Switch value={mine?.show_last_known !== false} onValueChange={(v) => G.setPrefs(groupId, { lastKnown: v }).then(load).catch(fail)} /></View>
+              <AppSwitch value={mine?.show_last_known !== false} onValueChange={(v) => G.setPrefs(groupId, { lastKnown: v }).then(load).catch(fail)} /></View>
             <View style={st.switchRow}><Text style={st.body}>Hide me (pause sharing)</Text>
-              <Switch value={!!mine?.hidden} onValueChange={(v) => G.setHidden(groupId, v).then(load).catch(fail)} /></View>
+              <AppSwitch value={!!mine?.hidden} onValueChange={(v) => G.setHidden(groupId, v).then(load).catch(fail)} /></View>
             <BoatName current={mine?.boat_name ?? ''} onSave={(b) => G.setPrefs(groupId, { boat: b }).then(load).catch(fail)} />
           </View>
         ) : null}
@@ -395,7 +396,7 @@ function FloatPlanForm({ groupId, onStarted }: { groupId: string; onStarted: () 
       <TextInput style={st.input} value={typed} onChangeText={setTyped} placeholder="…or type a time, e.g. 5:30pm" placeholderTextColor={colors.muted} autoCorrect={false} />
       {typed.trim() && !typedAt ? <Text style={[st.sub, { color: colors.alert }]}>Try a time like 5:30pm or 17:30</Text> : null}
       <TextInput style={st.input} value={note} onChangeText={setNote} placeholder="Where you're going, who's aboard (optional)" placeholderTextColor={colors.muted} maxLength={300} />
-      <View style={st.switchRow}><Text style={st.body}>Tell all my groups</Text><Switch value={all} onValueChange={setAll} /></View>
+      <View style={st.switchRow}><Text style={st.body}>Tell all my groups</Text><AppSwitch value={all} onValueChange={setAll} /></View>
       <Btn label={backBy ? `Start — back by ${timeOf(backBy.toISOString())}` : 'Start'} kind="primary" disabled={!backBy} onPress={start} />
       <Text style={st.sub}>While the plan is open your boat is shared with those groups. Check in, extend, or tap "Back at the dock" when you're in. This does not replace telling someone ashore, VHF 16 or the Coast Guard.</Text>
     </View>

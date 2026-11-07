@@ -1,7 +1,7 @@
 // Offline maps (plan: 'Offline architecture'). Home waters is automatic; this screen shows what's on
 // the phone and lets you update now or add extra detail for an area.
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView, Switch, Text, View } from 'react-native';
+import { Alert, ScrollView, Text, View } from 'react-native';
 import { getJSON } from '../api';
 import { colors, makeStyles } from '../theme';
 import { autoRefresh, deletePack, getSettings, getStatus, HOME, listPacks, setSettings, type OfflineSettings, type OfflineStatus } from '../offline/packs';
@@ -9,6 +9,7 @@ import { Btn, Card, ListGroup, ListRow, Note, ScreenHeader, SectionLabel, SmallB
 import { Ionicons } from '@expo/vector-icons';
 import { track } from '../analytics';
 import { friendly } from '../friendly';
+import { AppSwitch } from '../components/form';
 
 const mb = (b: number) => `${Math.round(b / 1048576)} MB`;
 const when = (t?: number) => (t ? new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'never');
@@ -59,9 +60,9 @@ export function OfflineScreen({ onBack }: { onBack: () => void }) {
 
         <SectionLabel>Settings</SectionLabel>
         <ListGroup>
-          <ListRow icon="sync-outline" title="Update automatically" right={<Switch value={set.auto} onValueChange={async (v) => { const n = { ...set, auto: v }; setSet(n); await setSettings(n); }} />} />
+          <ListRow icon="sync-outline" title="Update automatically" right={<AppSwitch value={set.auto} onValueChange={async (v) => { const n = { ...set, auto: v }; setSet(n); await setSettings(n); }} />} />
           <ListRow icon="wifi-outline" title="Big chart download on Wi-Fi only" subtitle="Daily water and weather updates are small and use cell data" last
-            right={<Switch value={set.wifiOnly} onValueChange={async (v) => { const n = { ...set, wifiOnly: v }; setSet(n); await setSettings(n); }} />} />
+            right={<AppSwitch value={set.wifiOnly} onValueChange={async (v) => { const n = { ...set, wifiOnly: v }; setSet(n); await setSettings(n); }} />} />
         </ListGroup>
 
         <SectionLabel>Extra detail areas</SectionLabel>

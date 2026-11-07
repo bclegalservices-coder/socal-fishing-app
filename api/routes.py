@@ -58,6 +58,10 @@ async def layers():
     rules = store.get("manifests/rules.json")
     if rules:
         out.append({"key": "rules", **json.loads(rules)})
+    for lk in ("sst", "chl"):   # Nov 6: today's satellite passes (admin data health)
+        pm = store.get(f"manifests/passes-{lk}.json")
+        if pm:
+            out.append({"key": f"passes_{lk}", **json.loads(pm)})
     regs = store.get("manifests/regs.json")   # Nov 3: fish size and bag limits weekly CDFW check (admin data health)
     if regs:
         out.append({"key": "regs", **json.loads(regs)})
