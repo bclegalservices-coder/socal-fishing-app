@@ -37,7 +37,8 @@ RES = float(os.environ.get("PASSES_RES", "0.01"))          # grid spacing in deg
 # What to look for in NASA's catalog (short names; * = any). Overridable without code changes.
 COLLECTIONS = {
     "chl": [p.strip() for p in os.environ.get("PASSES_CHL", "VIIRSN_L2_OC_NRT,VIIRSJ1_L2_OC_NRT,VIIRSJ2_L2_OC_NRT,MODISA_L2_OC_NRT,PACE_OCI_L2_BGC_NRT*").split(",") if p.strip()],
-    "sst": [p.strip() for p in os.environ.get("PASSES_SST", "VIIRS_NPP-OSPO-L2P-*,VIIRS_N20-OSPO-L2P-*,VIIRS_N21-OSPO-L2P-*").split(",") if p.strip()],
+    # Nov 6: NASA renamed the newest ones (e.g. N21-VIIRS-L2P-ACSPO-v2.80), so look for every naming style
+    "sst": [p.strip() for p in os.environ.get("PASSES_SST", "*VIIRS-L2P-ACSPO*,VIIRS_*-OSPO-L2P-*,VIIRS_*-STAR-L2P-*").split(",") if p.strip()],
     "sst_fill": [p.strip() for p in os.environ.get("PASSES_SST_FILL", "ABI_G18-STAR-L3C-*,ABI_G19-STAR-L3C-*").split(",") if p.strip()],
 }
 HOURS = {"chl": 30, "sst": 24, "sst_fill": 8}               # how far back a pass still counts as "today"
@@ -120,11 +121,14 @@ def find_granules(http, coll: dict, bbox: tuple, start: datetime, end: datetime,
 
 def download(auth: httpx.Client, url: str) -> bytes:
     r = auth.get(url)
-    if r.status_code in (401, 403):
-        raise PermissionError("NASA Earthdata said no: check the login, and approve the data apps in your Earthdata profile")
+    where = getattr(getattr(r, "url", None), "host", "") or ""
+    if r.status_code in (401, 403) or "text/html" in r.headers.get("content-type", "") or r.content[:8] != b"\x89HDF\r\n\x1a\n":
+        why = ("wrong NASA username or password" if where == URS and r.status_code == 401
+               else "this NASA data site hasn't been approved for your login yet" if where == URS
+               else f"NASA answered {r.status_code} from {where or 'the data site'}")
+        raise PermissionError(f"NASA Earthdata said no ({why}). Fix: open this link once in your browser, sign in, "
+                              f"and click Authorize/Agree if asked: {url}")
     r.raise_for_status()
-    if "text/html" in r.headers.get("content-type", "") or r.content[:8] != b"\x89HDF\r\n\x1a\n":
-        raise PermissionError("NASA sent a web page instead of data (the Earthdata login may need approving)")
     return r.content
 
 
