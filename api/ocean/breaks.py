@@ -78,6 +78,72 @@ def _keep_long(segs: list, mags: list, min_len_nm: float) -> tuple[list, list]:
     return [segs[i] for i in keep], [mags[i] for i in keep]
 
 
+def _components(segs: list) -> list[list[int]]:
+    """Indexes of segments grouped into connected lines."""
+    parent: dict = {}
+
+    def find(a):
+        while parent.setdefault(a, a) != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+    key = lambda p: (round(p[0], 6), round(p[1], 6))   # noqa: E731
+    for p, q in segs:
+        ra, rb = find(key(p)), find(key(q))
+        if ra != rb:
+            parent[ra] = rb
+    groups: dict = {}
+    for i, (p, _) in enumerate(segs):
+        groups.setdefault(find(key(p)), []).append(i)
+    return list(groups.values())
+
+
+def _span_nm(pts) -> float:
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    mid = math.radians((min(ys) + max(ys)) / 2)
+    return math.hypot((max(ys) - min(ys)) * 60, (max(xs) - min(xs)) * 60 * math.cos(mid))
+
+
+def break_lines_ranked(g: Grid, moderate: float, strong: float, interval: float, sigma_cells: float = 1.0,
+                       water: np.ndarray | None = None, floor: float = 0.6, min_span_nm: float = 2.0) -> dict:
+    """Nov 7: water-temp breaks as separate lines, each with how strong it is (`rel` = its steepest change ÷ the
+    "moderate" threshold) and how far it reaches (`span_nm`), so the app can show Strongest / Strong / More / Most
+    without asking the server again. Lines weaker than `floor` × moderate or reaching less than `min_span_nm` are
+    left out. Strong parts of a line are drawn thicker (`strength`)."""
+    if water is not None:
+        g = Grid(g.lats, g.lons, np.where(water, g.values, np.nan).astype(np.float32), g.meta)
+    sm, mag = gradient_per_nm(g, sigma_cells, False)
+    finite = sm[np.isfinite(sm)]
+    if finite.size == 0:
+        return {"type": "FeatureCollection", "features": []}
+    lo = math.floor(finite.min() / interval) * interval
+    hi = math.ceil(finite.max() / interval) * interval
+    low = moderate * floor
+    features = []
+    level = lo
+    while level <= hi + 1e-9:
+        segs, mags = [], []
+        for p, q, i, j in segments(g.lats, g.lons, sm, level):
+            m = float(np.nanmax(mag[i:i + 2, j:j + 2]))
+            if np.isfinite(m) and m >= low:
+                segs.append((p, q)); mags.append(m)
+        for comp in _components(segs):
+            pts = [pt for k in comp for pt in segs[k]]
+            span = _span_nm(pts)
+            if span < min_span_nm:
+                continue
+            top = max(mags[k] for k in comp)
+            for cls in ("strong", "moderate"):
+                part = [segs[k] for k in comp if (mags[k] >= strong) == (cls == "strong")]
+                if part:
+                    features.append({"type": "Feature",
+                                     "geometry": {"type": "MultiLineString", "coordinates": to_multiline(part)},
+                                     "properties": {"level": round(level, 3), "strength": cls, "max_per_nm": round(top, 3),
+                                                    "rel": round(top / moderate, 3), "span_nm": round(span, 1)}})
+        level += interval
+    return {"type": "FeatureCollection", "features": features}
+
+
 def break_lines(g: Grid, moderate: float, strong: float, interval: float, log10: bool = False, sigma_cells: float = 1.0,
                 water: np.ndarray | None = None, min_len_nm: float = 0.0) -> dict:
     """GeoJSON FeatureCollection of break lines, grouped by isoline level and strength.

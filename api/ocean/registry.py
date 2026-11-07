@@ -77,8 +77,10 @@ CHL_FALLBACKS: list[str] = [
 BREAKS = {
     # Nov 7: fewer, better lines — a line every 1 °F (was 0.5), only where the water changes ≥ 0.8 °F per mile
     # (strong ≥ 1.5), each line reaching at least 3 NM end to end, never on land, within ~0.6 NM of shore, or in filled-in clouds.
+    # Nov 7 (later): the app has a "How many breaks" choice (Strongest / Strong / More / Most), so the server keeps
+    # every line down to 0.6 × moderate, every 0.5 °F, each reaching ≥ 2 NM, and tags how strong and how long it is.
     "sst": {"moderate": float(_env("SST_BREAK_MODERATE_F_PER_NM", "0.8")), "strong": float(_env("SST_BREAK_STRONG_F_PER_NM", "1.5")),
-            "interval": 1.0, "min_len_nm": 3.0, "coast_nm": 0.6},
+            "interval": 0.5, "min_len_nm": 2.0, "coast_nm": 0.6, "ranked": True},
     # chlorophyll works on log10(mg/m3): 0.1 per NM ≈ 26% change per mile
     # (green-to-blue edges: kept exactly as they were — they looked right; only kept off land)
     "chl": {"moderate": float(_env("CHL_EDGE_MODERATE_LOG_PER_NM", "0.06")), "strong": float(_env("CHL_EDGE_STRONG_LOG_PER_NM", "0.12")),

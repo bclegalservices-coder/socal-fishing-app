@@ -119,6 +119,28 @@ function Strength({ value, onPick, label = 'Strength' }: { value: number; onPick
   );
 }
 
+/** Nov 7: how many temperature breaks to draw (like Strength, but for lines). */
+function BreakAmount({ value, onPick }: { value: 1 | 2 | 3 | 4; onPick: (v: 1 | 2 | 3 | 4) => void }) {
+  const st = useSt();
+  const opts: { v: 1 | 2 | 3 | 4; label: string }[] = [{ v: 1, label: 'Strongest' }, { v: 2, label: 'Strong' }, { v: 3, label: 'More' }, { v: 4, label: 'Most' }];
+  return (
+    <View style={st.strength}>
+      <Text style={st.strengthL}>Show</Text>
+      <View style={st.seg}>
+        {opts.map((o) => {
+          const on = value === o.v;
+          return (
+            <Pressable key={o.v} onPress={() => onPick(o.v)} style={[st.segI, on && st.segOn]} hitSlop={4} accessibilityRole="button" accessibilityState={{ selected: on }}
+              accessibilityLabel={`Temperature breaks: ${o.label}`}>
+              <Text style={[st.segT, on && st.segTOn]} numberOfLines={1} adjustsFontSizeToFit>{o.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 function Section({ title, foot, children }: { title?: string; foot?: string; children: any }) {
   const st = useSt();
   return (
@@ -273,6 +295,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
           {Row({ k: "sst", icon: "thermometer-water", tint: C.orange, title: "Water temperature", sub: latest(sst), disabled: !sst?.dates?.length })}
           {s.on.sst ? <Strength value={s.opacity.sst} onPick={(v) => opacity('sst', v)} /> : null}
           {Row({ k: "breaks", icon: "chart-line-variant", tint: C.red, title: "Temperature breaks", sub: "Thicker line = stronger break", disabled: !sst?.dates?.length })}
+          {s.on.breaks ? <BreakAmount value={s.breakLevel ?? 3} onPick={(v) => set((p) => ({ ...p, breakLevel: v }))} /> : null}
           {Row({ k: "chl", icon: "leaf", tint: C.green, title: "Chlorophyll", sub: latest(chl), disabled: !chl?.dates?.length })}
           {s.on.chl ? <Strength value={s.opacity.chl} onPick={(v) => opacity('chl', v)} /> : null}
           {Row({ k: "chlEdges", icon: "vector-polyline", tint: C.mint, title: "Green-to-blue edges", sub: "Where bait-rich and clean water meet", disabled: !chl?.dates?.length, last: true })}

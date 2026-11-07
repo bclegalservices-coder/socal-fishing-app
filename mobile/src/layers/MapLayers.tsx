@@ -12,6 +12,22 @@ const idOf = (s: string) => { let h = 5381; for (let i = 0; i < s.length; i++) h
 
 type Props = { catalog: Catalog | null; s: LayerState; compareOffset: number | null; radarPlaying: boolean; onBuoyPress: (props: any) => void; onRadarLabel?: (label: string | null) => void };
 
+/** Nov 7: "How many breaks" — each line from the server says how strong it is (`rel`: 1 = moderate) and how far it
+ *  reaches (`span_nm`). Strongest/Strong also skip the in-between half-degree lines so lines don't stack up.
+ *  Older maps without these tags show every line. */
+const BREAK_TIERS: Record<number, { rel: number; span: number; whole: boolean }> = {
+  1: { rel: 1.9, span: 4, whole: true },     // Strongest: only the sharpest, longest breaks
+  2: { rel: 1.25, span: 3, whole: true },    // Strong
+  3: { rel: 0.9, span: 2.5, whole: false },  // More (default)
+  4: { rel: 0.6, span: 2, whole: false },    // Most: every break we found
+};
+export function breakFilter(level: number) {
+  const t = BREAK_TIERS[level] ?? BREAK_TIERS[3];
+  const f: any[] = ['all', ['>=', ['coalesce', ['get', 'rel'], 99], t.rel], ['>=', ['coalesce', ['get', 'span_nm'], 99], t.span]];
+  if (t.whole) f.push(['==', ['%', ['*', ['coalesce', ['get', 'level'], 0], 2], 2], 0]);
+  return f;
+}
+
 export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress, onRadarLabel }: Props) {
   const offset = compareOffset ?? DAY_OFFSETS[s.dayIndex] ?? 0;
   const sst = pickDate(grid(catalog, 'sst')?.dates, offset);
@@ -130,7 +146,7 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
       ) : null}
       {keep('breaks', s.on.breaks) && okTile(sst?.breaks) ? (
         <GeoJSONSource key="sst-breaks" id="sst-breaks" data={sst.breaks}>
-          <Layer beforeId={below(FEATURES_TOP)} type="line" id="sst-breaks-line" style={{
+          <Layer beforeId={below(FEATURES_TOP)} type="line" id="sst-breaks-line" filter={breakFilter(s.breakLevel ?? 3) as any} style={{
             visibility: vis(s.on.breaks),
             lineColor: '#ffffff', lineOpacity: ['match', ['get', 'strength'], 'strong', 0.95, 0.6] as any,
             lineWidth: ['match', ['get', 'strength'], 'strong', 3, 1.4] as any,

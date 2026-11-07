@@ -105,8 +105,13 @@ def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds
                 n += 1
     b = break_settings(layer, ds.resolution_m)
     water = _break_water(g, mask, b.get("coast_nm", 0.0), seen)
-    fc = break_lines(g, b["moderate"], b["strong"], b["interval"], log10=(layer == "chl"), sigma_cells=b["sigma"],
-                     water=water, min_len_nm=b.get("min_len_nm", 0.0))
+    if b.get("ranked"):   # water temp: every line tagged with its strength; the app picks how many to show
+        from .breaks import break_lines_ranked
+        fc = break_lines_ranked(g, b["moderate"], b["strong"], b["interval"], sigma_cells=b["sigma"], water=water,
+                                min_span_nm=b.get("min_len_nm", 2.0))
+    else:
+        fc = break_lines(g, b["moderate"], b["strong"], b["interval"], log10=(layer == "chl"), sigma_cells=b["sigma"],
+                         water=water, min_len_nm=b.get("min_len_nm", 0.0))
     store.put(f"vectors/{layer}-breaks/{region}/{day}{tag}.geojson", json.dumps(fc).encode(), "application/geo+json")
     log(f"{layer} {day}: {n} tiles, {len(fc['features'])} break groups")
     return {

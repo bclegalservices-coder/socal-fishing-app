@@ -13,6 +13,7 @@ export type LayerState = {
   contourDetail: 'std' | 'max';   // Depth contours: Standard or Max (lots of lines)
   chart: { look: ChartLook; navaids: boolean; lanes: boolean; seabed: boolean; areas: boolean; services: boolean; lightCircles: boolean; simpleSymbols: boolean; noaaDepths?: boolean };  // NOAA chart details shown
   opacity: { bathy: number; bathyHd: number; sst: number; chl: number; radar: number; overlay: number; wind: number };
+  breakLevel?: 1 | 2 | 3 | 4;   // Nov 7: temperature breaks shown — 1 Strongest · 2 Strong · 3 More · 4 Most
   dayIndex: number;      // 0 = latest satellite day, 1 = the one before ...
   windIndex: number;     // forecast hour index
 };
@@ -34,6 +35,7 @@ export const DEFAULT_LAYERS: LayerState = {
   contourDetail: 'std',
   chart: { look: 'clean', ...CHART_LOOKS.clean, lightCircles: false, simpleSymbols: false, noaaDepths: true },
   opacity: { bathy: 0.8, bathyHd: 0.95, sst: 0.85, chl: 0.9, radar: 0.5, overlay: 0.75, wind: 0.3 },
+  breakLevel: 3,
   dayIndex: 0,
   windIndex: 0,
 };

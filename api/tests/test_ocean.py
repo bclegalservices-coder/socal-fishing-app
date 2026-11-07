@@ -520,3 +520,17 @@ def test_breaks_stay_off_land_out_of_clouds_and_skip_short_squiggles():
     water = ~(LO > -118.3)                                                  # east half is land / cloud-filled
     off_land = break_lines(g, 0.8, 1.5, 1.0, sigma_cells=1.5, water=water, min_len_nm=3.0)
     assert all(x <= -118.29 for x in xs(off_land))                          # nothing drawn over the masked side
+
+
+def test_ranked_breaks_let_the_app_choose_how_many():
+    import numpy as np
+    from ocean.breaks import break_lines_ranked
+    from ocean.grid import Grid
+    lats = np.arange(33.0, 33.5, 0.01); lons = np.arange(-118.6, -118.0, 0.01)
+    LO, LA = np.meshgrid(lons, lats)
+    v = (64 + 3.0 * np.tanh((LO + 118.45) / 0.02) + 1.2 * np.tanh((LO + 118.15) / 0.04)).astype(np.float32)   # strong + gentle front
+    fc = break_lines_ranked(Grid(lats, lons, v, {}), 0.8, 1.5, 0.5, sigma_cells=1.5)
+    rels = [f["properties"]["rel"] for f in fc["features"]]
+    assert fc["features"] and all(f["properties"]["span_nm"] >= 2 for f in fc["features"])
+    assert max(rels) > 1.9 and min(rels) < 1.25                   # both a "Strongest" and a "More/Most" line exist
+    assert all("level" in f["properties"] and f["properties"]["strength"] in ("strong", "moderate") for f in fc["features"])
