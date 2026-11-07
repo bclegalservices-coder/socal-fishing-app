@@ -153,7 +153,7 @@ def test_job_previews_by_default_and_publishes_when_turned_on(monkeypatch):
     monkeypatch.setattr(passes, "earthdata_client", lambda: object())
     monkeypatch.setattr(passes, "composite", lambda *a, **k: comp)
     published = []
-    monkeypatch.setattr(jobs, "process_surface", lambda layer, region, when, http, store, ds, grid, tag="": published.append((ds, grid, tag)) or {"date": "2026-11-06", "tiles": "t"})
+    monkeypatch.setattr(jobs, "process_surface", lambda layer, region, when, http, store, ds, grid, tag="", seen=None: published.append((ds, grid, tag)) or {"date": "2026-11-06", "tiles": "t"})
     monkeypatch.delenv("PASSES", raising=False)
     r = jobs.run_passes("chl", "socal")
     assert r["mode"] == "preview" and not published and json.loads(st.get("manifests/passes-chl.json"))["fresh_share"] == 0.4

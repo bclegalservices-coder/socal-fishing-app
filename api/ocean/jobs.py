@@ -75,7 +75,8 @@ def grid_day(g: Grid) -> str:
     return (g.meta.get("observed_at") or datetime.now(timezone.utc).isoformat())[:10]
 
 
-def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds=None, grid: Grid | None = None, tag: str = "") -> dict:
+def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds=None, grid: Grid | None = None, tag: str = "",
+                    seen: np.ndarray | None = None) -> dict:
     ds = ds or DATASETS[layer]
     g = grid if grid is not None else fetch_surface(layer, region, when, http, ds)
     day = (g.meta.get("observed_at") or datetime.now(timezone.utc).isoformat())[:10]
@@ -103,7 +104,9 @@ def process_surface(layer: str, region: str, when, http: httpx.Client, store, ds
                 store.put(f"tiles/{base}/{zz}/{x}/{y}.png", png, "image/png")
                 n += 1
     b = break_settings(layer, ds.resolution_m)
-    fc = break_lines(g, b["moderate"], b["strong"], b["interval"], log10=(layer == "chl"), sigma_cells=b["sigma"])
+    water = _break_water(g, mask, b.get("coast_nm", 0.0), seen)
+    fc = break_lines(g, b["moderate"], b["strong"], b["interval"], log10=(layer == "chl"), sigma_cells=b["sigma"],
+                     water=water, min_len_nm=b.get("min_len_nm", 0.0))
     store.put(f"vectors/{layer}-breaks/{region}/{day}{tag}.geojson", json.dumps(fc).encode(), "application/geo+json")
     log(f"{layer} {day}: {n} tiles, {len(fc['features'])} break groups")
     return {
@@ -285,6 +288,23 @@ def fill_gaps(newer: Grid, older: Grid) -> Grid:
     return Grid(newer.lats, newer.lons, out.astype(np.asarray(newer.values).dtype), dict(newer.meta))
 
 
+def _break_water(g: Grid, mask, coast_nm: float, seen: np.ndarray | None) -> np.ndarray | None:
+    """Nov 7: where breaks may be drawn — water only, not the strip right along the shore (where land blurs into the
+    satellite pixels), and (for today's passes) only where a satellite actually saw the water, not filled-in clouds."""
+    ok = np.ones(g.values.shape, dtype=bool)
+    if mask is not None:
+        la, lo = np.meshgrid(g.lats, g.lons, indexing="ij")
+        land = np.asarray(mask.is_land(la, lo), dtype=bool)
+        ok &= ~land
+        if coast_nm > 0 and land.any():
+            from scipy.ndimage import distance_transform_edt
+            cell_nm = max(float(abs(g.lats[1] - g.lats[0])) * 60.0, 1e-6)
+            ok &= distance_transform_edt(~land) * cell_nm > coast_nm
+    if seen is not None and seen.shape == ok.shape:
+        ok &= seen
+    return ok
+
+
 def save_base(store, layer: str, region: str, g: Grid, ds):
     """Keep the latest regular daily map: today's satellite passes fill their cloud gaps from it (passes job)."""
     if store is None:
@@ -331,7 +351,8 @@ def run_passes(layer: str, region: str, now: datetime | None = None):
                      kind="interpolated",   # gap-free now: colors run right up to the shore everywhere
                      source=f"Today's satellite passes ({', '.join(sats)}) via NASA Earthdata"
                             + (f"; clouds filled from {base_info.get('source', 'the daily map')} ({base_info.get('day', '')}), matched to today" if raw else "; clouds filled from the water around them"))
-        entry = process_surface(layer, region, "last", http, store, ds, grid=g, tag="-live")
+        entry = process_surface(layer, region, "last", http, store, ds, grid=g, tag="-live",
+                                seen=np.isfinite(comp.values) if layer == "sst" else None)
         entry.update({"passes": comp.meta["passes"], "fresh_share": comp.meta["fresh_share"], "live": True, "source": ds.source})
         m = _manifest(store, layer)
         by_date = {d["date"]: d for d in m.get("dates", []) if d.get("tiles")}

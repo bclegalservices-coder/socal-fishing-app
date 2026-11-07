@@ -458,12 +458,12 @@ def test_breaks_found_on_coarse_5km_map():
     from ocean.registry import BREAKS, break_settings
     lats = np.arange(32.0, 34.0, 0.05); lons = np.arange(-120.0, -118.0, 0.05)
     LO, LA = np.meshgrid(lons, lats)
-    v = (66 + 1.0 * np.tanh((LO + 119.0) / 0.06)).astype(np.float32)   # 64 °F west → 68 °F east, front near -119
+    v = (66 + 2.0 * np.tanh((LO + 119.0) / 0.06)).astype(np.float32)   # 64 °F west → 68 °F east, front near -119
     g = Grid(lats, lons, v, {"resolution_m": 5500})
     old = BREAKS["sst"]
     assert break_lines(g, old["moderate"], old["strong"], old["interval"])["features"] == []
     b = break_settings("sst", 5500)
-    assert 0.15 < b["moderate"] < 0.3 and b["sigma"] == 0.0
+    assert 0.25 < b["moderate"] < 0.4 and b["sigma"] == 0.0   # Nov 7: base threshold raised to 0.8 °F/NM
     assert break_lines(g, b["moderate"], b["strong"], b["interval"], sigma_cells=b["sigma"])["features"]
     assert break_settings("sst", 1000)["moderate"] == old["moderate"]   # sharp 1 km map: unchanged
 
@@ -500,3 +500,23 @@ def test_blocked_noaa_requests_go_through_the_relay():
     r = E.get(Http(), "https://coastwatch.pfeg.noaa.gov/erddap/griddap/x.json?v[(last)]")
     assert r.status_code == 200 and asked[1] == E.RELAY + "/coastwatch.pfeg.noaa.gov/erddap/griddap/x.json?v[(last)]"
     assert E.relay_url("https://example.com/erddap/x") is None
+
+
+def test_breaks_stay_off_land_out_of_clouds_and_skip_short_squiggles():
+    import numpy as np
+    from ocean.breaks import break_lines
+    from ocean.grid import Grid
+    lats = np.arange(33.0, 33.5, 0.01); lons = np.arange(-118.6, -118.0, 0.01)
+    LO, LA = np.meshgrid(lons, lats)
+    v = (64 + 2.0 * np.tanh((LO + 118.3) / 0.02)).astype(np.float32)        # a real 4 °F front along -118.3, ~30 NM long
+    blob = ((LA - 33.4) ** 2 + (LO + 118.5) ** 2) < 0.02 ** 2
+    v[blob] += 3                                                            # a tiny warm speck (not a break)
+    g = Grid(lats, lons, v, {})
+    all_lines = break_lines(g, 0.8, 1.5, 1.0, sigma_cells=1.5)
+    long_only = break_lines(g, 0.8, 1.5, 1.0, sigma_cells=1.5, min_len_nm=3.0)
+    xs = lambda fc: [pt[0] for f in fc["features"] for seg in f["geometry"]["coordinates"] for pt in seg]   # noqa: E731
+    assert any(x < -118.45 for x in xs(all_lines))                          # the speck made little circles…
+    assert xs(long_only) and all(-118.4 < x < -118.2 for x in xs(long_only))   # …gone; the real front stays
+    water = ~(LO > -118.3)                                                  # east half is land / cloud-filled
+    off_land = break_lines(g, 0.8, 1.5, 1.0, sigma_cells=1.5, water=water, min_len_nm=3.0)
+    assert all(x <= -118.29 for x in xs(off_land))                          # nothing drawn over the masked side

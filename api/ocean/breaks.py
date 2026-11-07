@@ -46,8 +46,45 @@ def classify(mag: float | None, moderate: float, strong: float) -> str:
     return "strong" if mag >= strong else "moderate" if mag >= moderate else "none"
 
 
-def break_lines(g: Grid, moderate: float, strong: float, interval: float, log10: bool = False, sigma_cells: float = 1.0) -> dict:
-    """GeoJSON FeatureCollection of break lines, grouped by isoline level and strength."""
+def _keep_long(segs: list, mags: list, min_len_nm: float) -> tuple[list, list]:
+    """Join touching segments into lines and drop lines that reach less than min_len_nm end to end (specks, squiggles)."""
+    if min_len_nm <= 0 or not segs:
+        return segs, mags
+    parent: dict = {}
+
+    def find(a):
+        while parent.setdefault(a, a) != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+    key = lambda p: (round(p[0], 6), round(p[1], 6))   # noqa: E731
+    for p, q in segs:
+        ra, rb = find(key(p)), find(key(q))
+        if ra != rb:
+            parent[ra] = rb
+    # judge each line by how far it reaches end to end (its size), so a little closed ring around a warm or cold
+    # speck doesn't count as a break just because it goes round and round
+    box: dict = {}
+    for p, q in segs:
+        r = find(key(p))
+        b = box.get(r, [p[0], p[0], p[1], p[1]])
+        for x, y in (p, q):
+            b[0], b[1], b[2], b[3] = min(b[0], x), max(b[1], x), min(b[2], y), max(b[3], y)
+        box[r] = b
+    def span(b):
+        mid = math.radians((b[2] + b[3]) / 2)
+        return math.hypot((b[3] - b[2]) * 60, (b[1] - b[0]) * 60 * math.cos(mid))
+    keep = [i for i, (p, q) in enumerate(segs) if span(box[find(key(p))]) >= min_len_nm]
+    return [segs[i] for i in keep], [mags[i] for i in keep]
+
+
+def break_lines(g: Grid, moderate: float, strong: float, interval: float, log10: bool = False, sigma_cells: float = 1.0,
+                water: np.ndarray | None = None, min_len_nm: float = 0.0) -> dict:
+    """GeoJSON FeatureCollection of break lines, grouped by isoline level and strength.
+    Nov 7: `water` (True = real, seen water) keeps lines off land, away from the shoreline strip, and out of
+    cloud areas that were filled in; `min_len_nm` drops short squiggles so only real, solid breaks show."""
+    if water is not None:
+        g = Grid(g.lats, g.lons, np.where(water, g.values, np.nan).astype(np.float32), g.meta)
     sm, mag = gradient_per_nm(g, sigma_cells, log10)
     finite = sm[np.isfinite(sm)]
     if finite.size == 0:
@@ -64,6 +101,12 @@ def break_lines(g: Grid, moderate: float, strong: float, interval: float, log10:
             if cls != "none":
                 groups[cls].append((p, q))
                 groups["_mag"].append(float(m))
+        if min_len_nm > 0:   # judge length on the whole line (moderate + strong parts together)
+            both = [(s_, "moderate") for s_ in groups["moderate"]] + [(s_, "strong") for s_ in groups["strong"]]
+            kept, _ = _keep_long([x[0] for x in both], [x[1] for x in both], min_len_nm)
+            kept_set = {id(k) for k in kept}
+            groups["moderate"] = [s_ for s_ in groups["moderate"] if id(s_) in kept_set]
+            groups["strong"] = [s_ for s_ in groups["strong"] if id(s_) in kept_set]
         for cls in ("moderate", "strong"):
             if groups[cls]:
                 shown = 10 ** level if log10 else level

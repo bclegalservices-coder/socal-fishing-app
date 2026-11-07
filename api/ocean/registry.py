@@ -75,9 +75,14 @@ CHL_FALLBACKS: list[str] = [
 
 # Break thresholds (configurable, spec §12): change per NM of distance.
 BREAKS = {
-    "sst": {"moderate": float(_env("SST_BREAK_MODERATE_F_PER_NM", "0.5")), "strong": float(_env("SST_BREAK_STRONG_F_PER_NM", "1.0")), "interval": 0.5},
+    # Nov 7: fewer, better lines — a line every 1 °F (was 0.5), only where the water changes ≥ 0.8 °F per mile
+    # (strong ≥ 1.5), each line reaching at least 3 NM end to end, never on land, within ~0.6 NM of shore, or in filled-in clouds.
+    "sst": {"moderate": float(_env("SST_BREAK_MODERATE_F_PER_NM", "0.8")), "strong": float(_env("SST_BREAK_STRONG_F_PER_NM", "1.5")),
+            "interval": 1.0, "min_len_nm": 3.0, "coast_nm": 0.6},
     # chlorophyll works on log10(mg/m3): 0.1 per NM ≈ 26% change per mile
-    "chl": {"moderate": float(_env("CHL_EDGE_MODERATE_LOG_PER_NM", "0.06")), "strong": float(_env("CHL_EDGE_STRONG_LOG_PER_NM", "0.12")), "interval": 0.1},
+    # (green-to-blue edges: kept exactly as they were — they looked right; only kept off land)
+    "chl": {"moderate": float(_env("CHL_EDGE_MODERATE_LOG_PER_NM", "0.06")), "strong": float(_env("CHL_EDGE_STRONG_LOG_PER_NM", "0.12")),
+            "interval": 0.1, "min_len_nm": 0.0, "coast_nm": 0.0},
 }
 
 
@@ -94,7 +99,7 @@ def break_settings(layer: str, resolution_m: float | None) -> dict:
         b["strong"] = round(b["strong"] * f, 3)
         b["sigma"] = 0.0
     else:
-        b["sigma"] = 1.0
+        b["sigma"] = 1.5 if layer == "sst" else 1.0   # Nov 7: a bit more smoothing for water-temp breaks at ~1 km
     return b
 
 TILE_ZOOMS = {"sst": range(5, 11), "chl": range(5, 11), "bathy": range(5, 12)}
