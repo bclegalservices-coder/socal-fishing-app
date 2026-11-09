@@ -46,6 +46,7 @@ import { DEFAULT_LAYERS, applyKillSwitch, type LayerState } from '../layers/stat
 import { spotColors } from '../layers/spotColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CatchMarkers, type Cluster } from '../components/CatchMap';
+import { SharedCatchCard } from '../components/SharedCatchCard';
 import { CatchBar } from '../components/CatchBar';
 import { ClusterSheet } from '../components/ReportView';
 import { BuddyMarkers } from '../components/Buddies';
@@ -772,7 +773,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     if (measure) { setMeasure([...measure, lngLatOf(e)]); return; }
     if (Date.now() - featurePressAt.current < 350) return;
     if (draft) { setDraft([...draft, lngLatOf(e)]); return; }
-    setSel(null); setBuoy(null); setClusterSel(null); setRuleSel(null); setSciSel(null); setSpotSel(null);
+    setSel(null); setBuoy(null); setClusterSel(null); setRuleSel(null); setSciSel(null); setSpotSel(null); setSharedCatch(null);
   };
   const onLongPress = (e: any) => {
     if (measure && Date.now() - mDragAt.current < 600) return;
@@ -824,6 +825,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     setSpotHoursState(h); AsyncStorage.setItem('spot-hist-hours', String(h)).catch(() => {}); track('spot_hist_hours', { hours: h });
   };
   const [spotSel, setSpotSel] = useState<SpotSession | null>(null);
+  const [sharedCatch, setSharedCatch] = useState<groupsApi.Pin | null>(null);   // Nov 8: a group-shared catch that was tapped
   const fitSession = (s: SpotSession) => {
     const xs = s.points.map((q) => q[0]), ys = s.points.map((q) => q[1]);
     if (xs.length) fitTo([{ lat: Math.min(...ys), lon: Math.min(...xs) }, { lat: Math.max(...ys), lon: Math.max(...xs) }]);
@@ -1036,6 +1038,12 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       pastFt={H.nearestPastFt(hoopHistory, hoop, here(), hoopNow)} showPast={hoopShowPast} onTogglePast={() => setHoopShowPast((v) => !v)} />;
   } else if (whaleSel) {
     bottom = <WhaleCard w={whaleSel} onClose={() => setWhaleSel(null)} onDeleted={() => { setWhaleSel(null); setWhaleBump((b) => b + 1); setToast('Sighting deleted'); }} />;
+  } else if (sharedCatch) {
+    const sc = sharedCatch;
+    const nm = `${sc.payload?.species ?? 'Catch'} spot${sc.mine ? '' : ` (from ${sc.who})`}`;
+    bottom = <SharedCatchCard p={sc} onClose={() => setSharedCatch(null)}
+      onGo={() => { setSharedCatch(null); goTo([{ lat: sc.lat, lon: sc.lon, name: nm }], nm); }}
+      onSave={() => { setSharedCatch(null); saveSpot({ lat: sc.lat, lon: sc.lon, name: nm }); }} />;
   } else if (clusterSel) {
     bottom = <ClusterSheet c={clusterSel} hours={catchHours} onClose={() => setClusterSel(null)} />;
   } else if (buoy) {
@@ -1159,11 +1167,13 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           onPress={(id) => { featurePressAt.current = Date.now(); setSel(null); setClusterSel(null); setRuleSel(null); setSciSel(id); track('sci_section_tap', { section: id }); }} /> : null}
         <UserLocation heading />
         {layers.on.whales ? <WhaleMarkers rows={whales} night={theme.mode === 'night' || colors.water !== '#AADAFF'} onPress={(w) => { featurePressAt.current = Date.now(); setSel(null); setClusterSel(null); setWhaleSel(w); track('whale_open', { species: w.species }); }} /> : null}
-        {layers.on.catches ? <CatchMarkers clusters={clusters} windowHours={catchHours} night={theme.mode === 'night' || colors.water !== '#AADAFF'} onPress={(c) => { setSel(null); setBuoy(null); setClusterSel(c); track('cluster_open', { species: c.species_code }); }} /> : null}
+        {layers.on.catches ? <CatchMarkers clusters={clusters} windowHours={catchHours} night={theme.mode === 'night' || colors.water !== '#AADAFF'} onPress={(c) => { featurePressAt.current = Date.now(); setSel(null); setBuoy(null); setWhaleSel(null); setSharedCatch(null); setClusterSel(c); track('cluster_open', { species: c.species_code }); }} /> : null}
         {layers.on.buddies ? <BuddyMarkers buddies={buddyList} rotation={view?.heading ?? 0}
           onPress={(b) => { setClusterSel(null); setSel({ kind: 'spot', pt: { lat: b.lat, lon: b.lon, name: b.boat_name ?? b.display_name ?? 'Buddy', subtitle: `Buddy boat · ${b.status === 'live' ? 'live' : 'last known'} position from ${new Date(b.recorded_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` } }); }} /> : null}
         {layers.on.buddies ? <GroupPins pins={groupPins} night={theme.mode === 'night'} onPress={(p) => {
+          featurePressAt.current = Date.now();
           setClusterSel(null); setBuoy(null); track('group_pin_open', { kind: p.kind, from: 'map' });
+          if ((p.kind as string) === 'catch') { setSel(null); setSharedCatch(p); return; }   // Nov 8: every detail of a shared catch
           const what = p.kind === 'catch' ? `${p.payload?.quantity ?? 1} ${p.payload?.species ?? 'fish'}` : p.kind === 'spot' ? (p.payload?.name ?? 'Spot') : p.kind === 'ping' ? 'Come to me' : p.kind === 'overdue' ? 'OVERDUE — last known' : 'Position';
           setSel({ kind: 'spot', pt: { lat: p.lat, lon: p.lon, name: p.kind === 'spot' ? (p.payload?.name ?? 'Shared spot') : `${p.mine ? 'You' : p.who}: ${what}`,
             saveName: p.mine ? undefined : `${p.kind === 'spot' ? (p.payload?.name ?? 'Spot') : p.kind === 'catch' ? `${p.payload?.species ?? 'Catch'} spot` : 'Spot'} (from ${p.who})`,
