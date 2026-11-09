@@ -176,7 +176,7 @@ export function HoopPanel({ set, boat, now, canUndo, onPull, onDrop, onUndo, onC
     { text: 'Zoom in on the boat', onPress: onZoom },
     { text: showPast ? 'Hide earlier drops' : 'Show earlier drops (45 days)', onPress: onTogglePast },
     { text: set.crew <= 1 ? 'Change to 2+ aboard (10 nets)' : 'Change to solo (5 nets)', onPress: onCrew },
-    { text: 'Save & end set', style: 'destructive' as const, onPress: onEnd },
+    { text: 'End set…', style: 'destructive' as const, onPress: onEnd },
     { text: 'Close', style: 'cancel' as const },
   ]);
   const near = sug.kind === 'new' && showPast && pastFt != null && pastFt < 120;

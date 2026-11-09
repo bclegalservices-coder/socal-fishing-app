@@ -73,18 +73,26 @@ function TripList({ tracks, active, activePts, onStartStop, onClose, onOpen }: P
                 <Pressable key={t.id} onPress={() => onOpen(t)} style={({ pressed }) => [st.trip, i < list.length - 1 && st.tripLine, pressed && { opacity: 0.6 }]}
                   accessibilityRole="button" accessibilityLabel={`${t.name}, ${dateLong(t.startedAt)}`}>
                   <View style={st.tripHead}>
-                    <Ionicons name="analytics" size={22} color={speedColor(t.avgMovingKt)} />
+                    {t.kind === 'hoop' ? <Text style={{ fontSize: 20 }}>🦞</Text> : <Ionicons name="analytics" size={22} color={speedColor(t.avgMovingKt)} />}
                     <View style={{ flex: 1 }}>
                       <Text style={st.tripName} numberOfLines={2}>{t.name}</Text>
                       <Text style={st.tripDate}>{dateLong(t.startedAt)}</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={18} color={colors.faint} />
                   </View>
-                  <View style={st.stats3}>
-                    <Stat3 k="Length" v={fmtDist(t.distanceNm, u)} />
-                    <Stat3 k="Time" v={fmtDur(tripMinutes(t))} />
-                    <Stat3 k="Avg speed" v={fmtSpeed(t.avgMovingKt, u)} />
-                  </View>
+                  {t.kind === 'hoop' && t.hoop ? (
+                    <View style={st.stats3}>
+                      <Stat3 k="Nets" v={String(t.hoop.nets)} />
+                      <Stat3 k="Pulls" v={String(t.hoop.pulls.length)} />
+                      <Stat3 k="Time" v={fmtDur(tripMinutes(t))} />
+                    </View>
+                  ) : (
+                    <View style={st.stats3}>
+                      <Stat3 k="Length" v={fmtDist(t.distanceNm, u)} />
+                      <Stat3 k="Time" v={fmtDur(tripMinutes(t))} />
+                      <Stat3 k="Avg speed" v={fmtSpeed(t.avgMovingKt, u)} />
+                    </View>
+                  )}
                 </Pressable>
               ))}
               {!list.length ? <Text style={[st.tripDate, { padding: 16 }]}>No trips match "{q}".</Text> : null}
@@ -94,6 +102,37 @@ function TripList({ tracks, active, activePts, onStartStop, onClose, onOpen }: P
           <Note>No trips yet. Tap Record a trip before you leave the dock. With location set to "Always", it keeps recording with the screen off.</Note>
         )}
       </ScrollView>
+    </View>
+  );
+}
+
+// ---------------- hoop trip details (Nov 8) ----------------
+function HoopCard({ h }: { h: NonNullable<TrackMeta['hoop']> }) {
+  const st = useSt();
+  const soak = (m: number | null) => (m == null ? '—' : m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
+  const pulls = h.pulls.slice().sort((a, b) => a.at - b.at);
+  return (
+    <View style={st.card}>
+      <Text style={st.k}>Hoop set · {h.crew <= 1 ? 'solo (5 nets max)' : '2+ aboard (10 nets max)'}</Text>
+      <View style={st.stats3}>
+        <Stat3 k="Nets" v={String(h.nets)} />
+        <Stat3 k="Drops" v={String(h.drops.length)} />
+        <Stat3 k="Pulls" v={String(h.pulls.length)} />
+      </View>
+      <View style={st.stats3}>
+        <Stat3 k="Avg soak" v={soak(h.avgSoakMin)} />
+        <Stat3 k="Longest soak" v={soak(h.longestSoakMin)} />
+        <Stat3 k="" v="" />
+      </View>
+      {pulls.length ? (
+        <View style={{ gap: 4, marginTop: 6 }}>
+          <Text style={st.k}>Every pull</Text>
+          {pulls.map((p, i) => (
+            <Text key={i} style={st.tripDate}>No. {p.no} · {clock(p.at)} · soaked {soak(p.soakMin)}</Text>
+          ))}
+        </View>
+      ) : null}
+      <Text style={[st.tripDate, { marginTop: 6 }]}>Tap Map to see your path and every drop spot, numbered.</Text>
     </View>
   );
 }
@@ -133,6 +172,7 @@ function TripPage({ trip, tracks, onBack, onPlay, onShowOnMap, onRename, onShare
           <Action icon="trash-outline" label="Delete" tint={colors.alert} onPress={confirmDelete} />
         </View>
 
+        {trip.kind === 'hoop' && trip.hoop ? <HoopCard h={trip.hoop} /> : null}
         <View style={st.grid}>
           <Big k="Distance" v={fmtDist(a?.distanceNm ?? trip.distanceNm, u)} />
           <Big k="Total time" v={fmtDur(tripMinutes(trip))} />

@@ -3,13 +3,22 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Marker } from '@maplibre/maplibre-react-native';
 import { colors, makeStyles } from '../theme';
 import { shareIcon, type Pin } from '../community/groupsApi';
+import { FishPin, agoShort } from './CatchMap';
 
-export function GroupPins({ pins, onPress }: { pins: Pin[]; onPress: (p: Pin) => void }) {
+export function GroupPins({ pins, onPress, night }: { pins: Pin[]; onPress: (p: Pin) => void; night?: boolean }) {
   const st = useSt();
   return (
     <>
       {pins.map((p) => {
         const ageH = (Date.now() - new Date(p.created_at).getTime()) / 3600000;
+        if (p.kind === 'catch') {   // Nov 8: a shared catch uses the same neon fish pin as the catch map
+          const who = p.mine ? 'You' : p.who;
+          return (
+            <Marker key={p.id} lngLat={[p.lon, p.lat]} anchor="bottom">
+              <FishPin hours={ageH} night={night} tag={`${who} · ${agoShort(ageH)}`} onPress={() => onPress(p)} label={`${who} shared a catch, ${agoShort(ageH)} ago`} />
+            </Marker>
+          );
+        }
         return (
           <Marker key={p.id} lngLat={[p.lon, p.lat]} anchor="bottom">
             <Pressable onPress={() => onPress(p)} style={[st.pin, ageH > 6 && { opacity: 0.55 }, p.kind === 'overdue' && st.alert, p.kind === 'ping' && st.ping]}

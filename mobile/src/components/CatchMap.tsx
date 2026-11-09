@@ -53,6 +53,21 @@ export function CatchMarkers({ clusters, night, onPress }: { clusters: Cluster[]
   );
 }
 
+/** Nov 8: the same neon fish pin on its own (used for catches your groups share), with a tag under it. */
+export function FishPin({ hours, night, tag, onPress, label }: { hours: number; night?: boolean; tag: string; onPress?: () => void; label?: string }) {
+  const a = catchAge(hours);
+  return (
+    <Pressable onPress={onPress} hitSlop={6} style={[s.wrap, a.maxH === Infinity && { opacity: 0.62 }]} accessibilityRole="button" accessibilityLabel={label ?? tag}>
+      <View style={[s.glow, { shadowColor: a.color }]}>
+        <View style={[s.pin, { backgroundColor: a.color, borderColor: night ? '#0B1B2E' : '#FFFFFF' }]}>
+          <View style={s.unrotate}><MaterialCommunityIcons name="fish" size={21} color={night ? '#0B1B2E' : '#FFFFFF'} /></View>
+        </View>
+      </View>
+      <View style={[s.tag, { backgroundColor: a.color, shadowColor: a.color, maxWidth: 150 }]}><Text style={[s.tagT, { color: a.ink }]} numberOfLines={1}>{tag}</Text></View>
+    </Pressable>
+  );
+}
+
 const s = StyleSheet.create({
   wrap: { alignItems: 'center', paddingTop: 4, paddingHorizontal: 6 },
   glow: { shadowOpacity: 0.95, shadowRadius: 7, shadowOffset: { width: 0, height: 0 }, elevation: 6 },

@@ -5,7 +5,10 @@ import { readJSON, remove, writeJSON } from './offline/files';
 
 export type SavedSpot = { id: string; name: string; lat: number; lon: number; createdAt: number; folder?: string; notes?: string };
 export type Route = { id: string; name: string; points: Pt[]; createdAt: number };
-export type TrackMeta = { id: string; name: string; startedAt: number; endedAt: number; distanceNm: number; maxKt: number; avgMovingKt: number; points: number };
+export type TrackMeta = { id: string; name: string; startedAt: number; endedAt: number; distanceNm: number; maxKt: number; avgMovingKt: number; points: number;
+  /** Nov 8: a saved hoop netting trip — its numbers plus every drop and pull */
+  kind?: 'hoop'; hoop?: { crew: number; nets: number; drops: { no: number; lat: number; lon: number; at: number }[]; pulls: { no: number; at: number; lat: number; lon: number; soakMin: number }[];
+    avgSoakMin: number | null; longestSoakMin: number | null } };
 export type ActiveTrack = { id: string; startedAt: number; mode: 'background' | 'foreground'; points: TrackPoint[] };
 
 const K = { spots: 'spots:v1', routes: 'routes:v1', tracks: 'tracks:v1', active: 'track:active', track: (id: string) => `track:${id}`, publicSpots: 'public-spots:v1' };

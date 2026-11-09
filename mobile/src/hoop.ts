@@ -13,7 +13,9 @@ export type PotState = 'down' | 'aboard' | 'done';
 export type Pot = { no: number; lat: number; lon: number; droppedAt: number; state: PotState; drops: number; pulledAt?: number; rank?: number };
 /** Every drop of the set, kept so you can see where nets already went (this night and past nights). */
 export type Drop = { no: number; lat: number; lon: number; at: number };
-export type HoopSet = { id: string; startedAt: number; crew: number; pots: Pot[]; endedAt?: number; log?: Drop[] };
+export type Pull = { no: number; at: number; lat: number; lon: number; soakMin: number };
+export type TrailPt = { lat: number; lon: number; t: number; sog: number | null };
+export type HoopSet = { id: string; startedAt: number; crew: number; pots: Pot[]; endedAt?: number; log?: Drop[]; pulls?: Pull[]; trail?: TrailPt[] };
 
 export const CHECK_MS = 2 * 3600 * 1000;          // CA: raise and check every net at least every 2 hours
 export const SOON_MS = CHECK_MS - 15 * 60 * 1000; // warn 15 minutes before
@@ -71,7 +73,40 @@ export function redrop(s: HoopSet, no: number, at: { lat: number; lon: number },
 }
 
 export function pull(s: HoopSet, no: number, now: number): HoopSet {
-  return { ...s, pots: s.pots.map((p) => (p.no === no && p.state === 'down' ? { ...p, state: 'aboard', pulledAt: now } : p)) };
+  const p = s.pots.find((x) => x.no === no && x.state === 'down');
+  if (!p) return s;
+  const rec: Pull = { no, at: now, lat: p.lat, lon: p.lon, soakMin: Math.round((now - p.droppedAt) / 60000) };
+  return { ...s, pots: s.pots.map((x) => (x === p ? { ...x, state: 'aboard', pulledAt: now } : x)), pulls: [...(s.pulls ?? []), rec] };
+}
+
+// ---- The whole trip (Nov 8): the boat's path while hoop netting, so "Save & end" keeps it like a boating trip.
+const TRAIL_MIN_FT = 60;
+const TRAIL_MIN_MS = 30000;
+/** Add the boat's position to the set's path (every ~60 ft or 30 s, whichever comes first). Same object if skipped. */
+export function addTrail(s: HoopSet, pt: TrailPt): HoopSet {
+  const tr = s.trail ?? [];
+  const last = tr[tr.length - 1];
+  if (last) {
+    const ft = distanceNm(last.lat, last.lon, pt.lat, pt.lon) * 6076.12;
+    if (ft < TRAIL_MIN_FT && pt.t - last.t < TRAIL_MIN_MS) return s;
+    if (ft < 8 && pt.t - last.t < 5 * 60000) return s;      // sitting still: one point every 5 min is plenty
+  }
+  return { ...s, trail: [...tr, pt].slice(-6000) };
+}
+
+export type HoopSummary = { crew: number; nets: number; drops: number; pulls: number; avgSoakMin: number | null; longestSoakMin: number | null };
+export function summary(s: HoopSet): HoopSummary {
+  const soaks = (s.pulls ?? []).map((p) => p.soakMin);
+  return { crew: s.crew, nets: s.pots.length, drops: (s.log ?? []).length || s.pots.length, pulls: (s.pulls ?? []).length,
+    avgSoakMin: soaks.length ? Math.round(soaks.reduce((a, b) => a + b, 0) / soaks.length) : null, longestSoakMin: soaks.length ? Math.max(...soaks) : null };
+}
+
+/** The trip to save: the boat's path (or, if GPS didn't record a path, the drop spots in order). */
+export function tripPoints(s: HoopSet): TrailPt[] {
+  if ((s.trail ?? []).length >= 2) return s.trail!;
+  const drops = (s.log ?? []).map((d) => ({ lat: d.lat, lon: d.lon, t: d.at, sog: null }));
+  const pulls = (s.pulls ?? []).map((p) => ({ lat: p.lat, lon: p.lon, t: p.at, sog: null }));
+  return [...drops, ...pulls].sort((a, b) => a.t - b.t);
 }
 
 /** Done with this net for the night (stays aboard, no longer counts as in use). */

@@ -11,7 +11,7 @@ import { API_URL, CHART_ATTRIBUTION, DEFAULT_CENTER, DEFAULT_ZOOM, CHART_TILE_SI
 import { boatColor, cardStyle, colors, makeStyles, routeColor, setThemePosition, touch, useTheme } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { bearingTrue, cardinal, distanceNm, formatLatLon } from '../geo';
-import { crossTrackNm, etaMinutes, SpeedEstimator, steerDelta, type Pt, type TrackPoint } from '../nav';
+import { crossTrackNm, etaMinutes, SpeedEstimator, steerDelta, trackStats, type Pt, type TrackPoint } from '../nav';
 import * as store from '../storage';
 import { getJSON, onWater } from '../api';
 import { appendLocations, startTrack, stopTrack } from '../tracking';
@@ -106,8 +106,8 @@ const waterColor = (look: MapLook) => (lightWater() ? look.water ?? colors.water
 /** Nov 6: at night the NOAA chart is dimmed and its colors muted, so its land isn't a bright khaki next to dark water
  *  (the theme's `chartBrightness` had stopped being used). Day: the chart as NOAA draws it. */
 const chartPaint = (night: boolean) => (night
-  ? { 'raster-fade-duration': 100, 'raster-brightness-max': colors.chartBrightness, 'raster-brightness-min': 0, 'raster-saturation': -0.55, 'raster-contrast': 0.1 }
-  : { 'raster-fade-duration': 100 });
+  ? { 'raster-fade-duration': 0, 'raster-brightness-max': colors.chartBrightness, 'raster-brightness-min': 0, 'raster-saturation': -0.55, 'raster-contrast': 0.1 }
+  : { 'raster-fade-duration': 0 });
 function buildMapStyle(chartUrl: string, depthUrl: string | null, look: MapLook = {}, night = false) {
   return {
     version: 8,
@@ -202,7 +202,10 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   useEffect(() => onConfig((c) => setLook(mapLook(c))), []);
   const lookKey = JSON.stringify(look);
   const depthUrl = useMemo(() => noaaDepthTiles({ ...DEFAULT_LAYERS.chart, ...layers.chart }, theme.mode === 'night', killed.includes('chart_helper'), look), [layers.chart, theme.mode, killed.join(','), lookKey]);
-  const mapStyle = useMemo(() => buildMapStyle(chartUrl, depthUrl, look, theme.mode === 'night'), [chartUrl, depthUrl, colors.water, lookKey, theme.themeId, theme.mode]);
+  const mapStyleRaw = useMemo(() => buildMapStyle(chartUrl, depthUrl, look, theme.mode === 'night'), [chartUrl, depthUrl, colors.water, lookKey, theme.themeId, theme.mode]);
+  // Nov 8: hand the map a new style ONLY when its content changes — a new style object makes the whole map reload (a flash)
+  const styleKey = JSON.stringify(mapStyleRaw);
+  const mapStyle = useMemo(() => mapStyleRaw, [styleKey]);   // eslint-disable-line react-hooks/exhaustive-deps
   // 3D view (Map options): tip the camera back; flat again when switched off.
   useEffect(() => { camera.current?.setStop({ pitch: layers.tilt ? 55 : 0, duration: 600 }).catch(() => {}); }, [layers.tilt]);
   const [compareOffset, setCompareOffset] = useState<number | null>(null);
@@ -405,7 +408,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
 
   useEffect(() => {
     if (!active) return;
-    const t = setInterval(async () => setActive(await store.loadActive()), 5000);
+    const t = setInterval(async () => { const a = await store.loadActive(); setActive((cur) => (cur && a && cur.id === a.id && cur.points.length === a.points.length ? cur : a)); }, 5000);
     return () => clearInterval(t);
   }, [active?.id]);
 
@@ -581,19 +584,27 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
 
   // ---- nav view camera: follow the boat, course-up, boat low on the screen, auto-zoom ----
   const navZoom = useRef<number | null>(null);
+  const navMoving = useRef(false);
+  const navBearing = useRef<number | null>(null);
   useEffect(() => {
     if (!nav || !follow || !fix) return;
     const z = autoZoom(navInfo?.dist ?? null, motion.sogKt);
     if (navZoom.current == null || Math.abs(navZoom.current - z) >= 0.5) navZoom.current = z;   // no zoom jitter
-    const moving = motion.sogKt != null && motion.sogKt >= 2 && motion.cogT != null;
-    const bearing = moving ? motion.cogT! : navInfo?.brg ?? 0;      // course-up when moving, else "waypoint up"
+    // Nov 8: course-up switches on at 2.5 kt and off below 1.5 kt (no flipping back and forth around 2 kt), and the
+    // map only turns when the course changes by 3° or more — so it doesn't jump or shimmer while you run a route.
+    const sog = motion.sogKt ?? 0;
+    if (sog >= 2.5 && motion.cogT != null) navMoving.current = true; else if (sog < 1.5 || motion.cogT == null) navMoving.current = false;
+    const want = navMoving.current ? motion.cogT! : navInfo?.brg ?? 0;   // course-up when moving, else "waypoint up"
+    const prevB = navBearing.current;
+    const bearing = prevB != null && Math.abs(((want - prevB + 540) % 360) - 180) < 3 ? prevB : want;
+    navBearing.current = bearing;
     camera.current?.setStop({ center: [fix.lon, fix.lat], zoom: navZoom.current, bearing, pitch: layers.tilt ? 45 : 0,
       padding: { top: Math.round(screenH * 0.42), bottom: 0, left: 0, right: 0 }, duration: 900, easing: 'linear' }).catch(() => {});
   }, [fix?.time, nav, follow]);
   // Leaving nav view: give the map its normal centre back.
   useEffect(() => {
     if (nav && follow) return;
-    navZoom.current = null;
+    navZoom.current = null; navBearing.current = null; navMoving.current = false;
     camera.current?.setStop({ padding: { top: 0, bottom: 0, left: 0, right: 0 }, ...(orient === 'north' ? { bearing: 0 } : {}), duration: 400 }).catch(() => {});
   }, [!!nav, follow]);
 
@@ -872,6 +883,11 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     const at = H.atNet(hoop, here()); const nu = H.nextUp(hoop);
     if (at && nu && at.no === nu.no && hoopArrived.current !== at.no) { hoopArrived.current = at.no; Vibration.vibrate([0, 300, 150, 300]); }
     if (!at) hoopArrived.current = null;
+    // Nov 8: keep the boat's path while hoop netting, so the whole trip can be saved
+    if (fix) {
+      const next = H.addTrail(hoop, { lat: fix.lat, lon: fix.lon, t: Date.now(), sog: fix.speed != null && fix.speed >= 0 ? fix.speed * 1.943844 : null });
+      if (next !== hoop) setHoop(next, false);
+    }
   }, [fix?.lat, fix?.lon, hoop]);
   const startHoop = () => {
     if (hoop) { setPanel('none'); return; }
@@ -914,16 +930,40 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
     opts.push({ text: 'Cancel', style: 'cancel' });
     Alert.alert(`Net No. ${p.no}`, p.state === 'down' ? `In the water ${H.soakText(Date.now() - p.droppedAt)}${p.drops > 1 ? ` · drop ${p.drops}` : ''}` : 'Aboard', opts);
   };
+  /** Nov 8: Save & end keeps the whole hoop trip in Trips (path, every drop and pull, soak times) and the drop
+   *  spots as faint dots for 45 days; End without saving just clears it. */
+  const saveHoopTrip = async (s: H.HoopSet, now: number) => {
+    const pts = H.tripPoints(s);
+    const sum = H.summary(s);
+    const stats = pts.length > 1 ? trackStats(pts) : { distanceNm: 0, maxKt: 0, avgMovingKt: 0 };
+    const id = `hooptrip-${s.startedAt}`;
+    const day = new Date(s.startedAt).toLocaleDateString([], { month: 'short', day: 'numeric' });
+    const meta: store.TrackMeta = {
+      id, name: `Hoop set · ${day} · ${sum.nets} net${sum.nets === 1 ? '' : 's'}`, startedAt: s.startedAt, endedAt: now,
+      distanceNm: stats.distanceNm, maxKt: stats.maxKt, avgMovingKt: stats.avgMovingKt, points: pts.length, kind: 'hoop',
+      hoop: { crew: s.crew, nets: sum.nets, drops: s.log ?? [], pulls: s.pulls ?? [], avgSoakMin: sum.avgSoakMin, longestSoakMin: sum.longestSoakMin },
+    };
+    await store.saveTrackPoints(id, pts.length ? pts : [{ lat: s.pots[0]?.lat ?? 0, lon: s.pots[0]?.lon ?? 0, t: s.startedAt, sog: null }]);
+    const next = [meta, ...(await store.loadTracks()).filter((t) => t.id !== id)];
+    await store.saveTracks(next); setTracks(next);
+  };
   const hoopEnd = () => {
     if (!hoop) return;
     const n = H.down(hoop).length;
-    Alert.alert('Save & end the hoop set?', `${n ? `${n} net${n === 1 ? ' is' : 's are'} still in the water — their pins come off the map. ` : 'All nets are up. '}Every spot you dropped tonight is saved, and shows as a faint dot next time you go hoop netting (for 45 days), so you can spread out.`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Save & end', style: n ? 'destructive' : 'default', onPress: () => {
-        const hist = H.saveSet(hoopHistory, hoop, Date.now());
+    const s = hoop;
+    const clear = () => { setHoop(null, false); hoopUndo.current = []; };
+    Alert.alert('End the hoop set?', `${n ? `${n} net${n === 1 ? ' is' : 's are'} still in the water — their pins come off the map. ` : 'All nets are up. '}Save & end keeps the whole trip in Trips (your path, every drop and pull, soak times), and tonight's spots show as faint dots next time (for 45 days).`, [
+      { text: 'Save & end', onPress: () => {
+        const now = Date.now();
+        const hist = H.saveSet(hoopHistory, s, now);
         setHoopHistory(hist); AsyncStorage.setItem(HOOP_HISTORY_KEY, JSON.stringify(hist)).catch(() => {});
-        setHoop(null, false); hoopUndo.current = []; track('hoop_ended', { left_down: n, drops: hoop.log?.length ?? hoop.pots.length });
-      } }]);
+        saveHoopTrip(s, now).then(() => setToast('Hoop trip saved to Trips')).catch(() => setToast("Couldn't save the trip"));
+        clear(); track('hoop_ended', { saved: true, left_down: n, drops: s.log?.length ?? s.pots.length, pulls: s.pulls?.length ?? 0 });
+      } },
+      { text: 'End without saving', style: 'destructive', onPress: () => Alert.alert('End without saving?', "Tonight's drops, pulls and path won't be kept.", [
+        { text: 'Keep going', style: 'cancel' },
+        { text: 'End without saving', style: 'destructive', onPress: () => { clear(); track('hoop_ended', { saved: false, left_down: n }); } }]) },
+      { text: 'Cancel', style: 'cancel' }]);
   };
   const jumpToPlane = (p: Plane) => { setAirSel(p.hex); setSel(null); camera.current?.setStop({ center: [p.lon, p.lat], zoom: Math.max(view?.zoom ?? 10, 10.5), duration: 700 }).catch(() => {}); track('air_jump'); };
   // Your own spot names show when zoomed in close, so a busy area doesn't fill with text.
@@ -940,6 +980,9 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   const navFC = useMemo(() => (!nav || !fix ? fc([]) : fc([lineF([{ lat: fix.lat, lon: fix.lon }, ...nav.points.slice(nav.leg)]), ...nav.points.slice(nav.leg).map((p, i) => pointF(p, { n: i + 1 }))])), [nav, fix]);
   const activeFC = useMemo(() => fc(active && active.points.length > 1 ? [lineF(active.points)] : []), [active]);
   const shownFC = useMemo(() => fc(shownLine && shownLine.length > 1 ? [lineF(shownLine)] : []), [shownLine]);
+  // Nov 8: a saved hoop trip shown on the map also shows where each net went in (numbered)
+  const [shownDrops, setShownDrops] = useState<{ no: number; lat: number; lon: number; at: number }[] | null>(null);
+  const shownDropsFC = useMemo(() => fc((shownDrops ?? []).map((d) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [d.lon, d.lat] }, properties: { no: String(d.no) } }) as any)), [shownDrops]);
 
   // ---- bottom area ----
   let bottom: ReactNode = null;
@@ -1064,7 +1107,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
             ) : null}
             {/* Sponsor slot: only when wind is on and you're NOT navigating or recording. */}
             {!openBar && layers.on.wind && !nav && !active && !probe ? <PresentedBy section="Wind" pill /> : null}
-            {shownLine ? <Pressable style={st.chip} onPress={() => setShownLine(null)} accessibilityRole="button"><View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><Text style={st.chipT}>Hide line</Text><Ionicons name="close" size={16} color={colors.text} /></View></Pressable> : null}
+            {shownLine ? <Pressable style={st.chip} onPress={() => { setShownLine(null); setShownDrops(null); }} accessibilityRole="button"><View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><Text style={st.chipT}>Hide line</Text><Ionicons name="close" size={16} color={colors.text} /></View></Pressable> : null}
             {active ? <Pressable style={[st.chip, { borderColor: colors.alert }]} onPress={() => setPanel('tracks')} accessibilityRole="button"><Text style={[st.chipT, { color: colors.alert }]}>● Recording trip</Text></Pressable> : null}
             <Text style={st.disclaimer}>{SHORT_WARNING}</Text>
           </View>
@@ -1091,7 +1134,16 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           const v = e?.nativeEvent; if (!v) return;
           if (probe && v.center) setProbeAt({ lon: v.center[0], lat: v.center[1] });
           const b = v.bounds; // [west, south, east, north]
-          if (b) setView({ maxLon: b[2], maxLat: b[3], minLon: b[0], minLat: b[1], zoom: v.zoom ?? 9, heading: v.bearing ?? 0 });
+          if (b) setView((cur) => {
+            const next = { maxLon: b[2], maxLat: b[3], minLon: b[0], minLat: b[1], zoom: v.zoom ?? 9, heading: v.bearing ?? 0 };
+            // Nov 8: while following the boat on a route, only refresh when the view moved a good bit (fewer redraws)
+            if (cur && nav && follow) {
+              const w = Math.max(1e-6, cur.maxLon - cur.minLon), h = Math.max(1e-6, cur.maxLat - cur.minLat);
+              const moved = Math.abs(next.minLon - cur.minLon) / w > 0.25 || Math.abs(next.minLat - cur.minLat) / h > 0.25 || Math.abs(next.zoom - cur.zoom) > 0.4;
+              if (!moved) return cur;
+            }
+            return next;
+          });
           if (v.center) lastView.current = { lon: v.center[0], lat: v.center[1], zoom: v.zoom ?? START_ZOOM };
         }}>
         <Camera ref={camera} initialViewState={{ center: START_CENTER, zoom: START_ZOOM }}
@@ -1110,7 +1162,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
         {layers.on.catches ? <CatchMarkers clusters={clusters} windowHours={catchHours} night={theme.mode === 'night' || colors.water !== '#AADAFF'} onPress={(c) => { setSel(null); setBuoy(null); setClusterSel(c); track('cluster_open', { species: c.species_code }); }} /> : null}
         {layers.on.buddies ? <BuddyMarkers buddies={buddyList} rotation={view?.heading ?? 0}
           onPress={(b) => { setClusterSel(null); setSel({ kind: 'spot', pt: { lat: b.lat, lon: b.lon, name: b.boat_name ?? b.display_name ?? 'Buddy', subtitle: `Buddy boat · ${b.status === 'live' ? 'live' : 'last known'} position from ${new Date(b.recorded_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` } }); }} /> : null}
-        {layers.on.buddies ? <GroupPins pins={groupPins} onPress={(p) => {
+        {layers.on.buddies ? <GroupPins pins={groupPins} night={theme.mode === 'night'} onPress={(p) => {
           setClusterSel(null); setBuoy(null); track('group_pin_open', { kind: p.kind, from: 'map' });
           const what = p.kind === 'catch' ? `${p.payload?.quantity ?? 1} ${p.payload?.species ?? 'fish'}` : p.kind === 'spot' ? (p.payload?.name ?? 'Spot') : p.kind === 'ping' ? 'Come to me' : p.kind === 'overdue' ? 'OVERDUE — last known' : 'Position';
           setSel({ kind: 'spot', pt: { lat: p.lat, lon: p.lon, name: p.kind === 'spot' ? (p.payload?.name ?? 'Shared spot') : `${p.mine ? 'You' : p.who}: ${what}`,
@@ -1118,6 +1170,10 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
             subtitle: `${p.group_name} · ${new Date(p.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${p.body ? ` · "${p.body}"` : ''}` } });
         }} /> : null}
         <GeoJSONSource id="shown" data={shownFC}><Layer type="line" id="shown-line" style={{ lineColor: colors.live, lineWidth: 3, lineOpacity: 0.7 }} /></GeoJSONSource>
+        <GeoJSONSource id="shown-drops" data={shownDropsFC}>
+          <Layer type="circle" id="shown-drops-dot" style={{ circleRadius: 9, circleColor: '#C2410C', circleStrokeColor: '#FFFFFF', circleStrokeWidth: 2 }} />
+          <Layer type="symbol" id="shown-drops-no" style={{ textField: ['get', 'no'] as any, textSize: 11, textColor: '#FFFFFF', textAllowOverlap: true }} />
+        </GeoJSONSource>
         <GeoJSONSource id="active-track" data={activeFC}><Layer type="line" id="active-track-line" style={{ lineColor: colors.live, lineWidth: 3.5 }} /></GeoJSONSource>
         {measure ? (
           <GeoJSONSource id="measure" data={measureFC(measure)}>
@@ -1328,7 +1384,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       {panel === 'tracks' ? (
         <TripsScreen tracks={tracks} active={active} activePts={active?.points ?? []} onStartStop={toggleTrack}
           onPlay={startReplay}
-          onShowOnMap={async (t) => { const pts = await store.loadTrackPoints(t.id); setShownLine(pts); fitTo(pts); setPanel('none'); }}
+          onShowOnMap={async (t) => { const pts = await store.loadTrackPoints(t.id); setShownLine(pts); setShownDrops(t.hoop?.drops ?? null); fitTo(pts.length > 1 ? pts : (t.hoop?.drops ?? pts)); setPanel('none'); }}
           onRename={async (t, name) => { const next = tracks.map((x) => (x.id === t.id ? { ...x, name } : x)); setTracks(next); await store.saveTracks(next); }}
           onShare={(t) => { exportTrackGPX(t).catch((e) => Alert.alert('Could not share', friendly(e))); }}
           onDelete={async (t) => { const next = tracks.filter((x) => x.id !== t.id); setTracks(next); await store.saveTracks(next); await store.deleteTrackPoints(t.id); }}
