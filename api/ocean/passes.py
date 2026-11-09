@@ -322,7 +322,10 @@ def composite(layer: str, region: str, bbox: tuple, http, auth, store, now: date
         return None
     vals = np.full((lats.size, lons.size), np.nan)
     passes = []
-    for pg in main:                                       # oldest → newest: newest wins
+    if layer == "chl":   # Nov 8: blend the day's passes smoothly instead of pasting them on top of each other
+        vals = blend_chl_passes(main, now)
+        passes = [{"sat": pg.meta.get("sat"), "at": pg.meta.get("observed_at"), "seen": round(float(np.isfinite(pg.values).mean()), 3)} for pg in main]
+    for pg in (main if layer != "chl" else []):           # oldest → newest: newest wins
         v = np.asarray(pg.values, dtype=np.float64)
         vals = np.where(np.isfinite(v), v, vals)
         passes.append({"sat": pg.meta.get("sat"), "at": pg.meta.get("observed_at"), "seen": round(float(np.isfinite(v).mean()), 3)})
@@ -394,3 +397,62 @@ def blend(today: Grid, older: Grid | None, log_space: bool = False, sigma_km: fl
     meta = dict(today.meta)
     meta["blended"] = True
     return Grid(today.lats, today.lons, un(out).astype(np.float32), meta)
+
+
+# ------------------------------------------------------------------ natural-looking chlorophyll (Nov 8)
+def smooth_log(a: np.ndarray, sigma: float) -> np.ndarray:
+    """Soften pixel-to-pixel noise in log space (how chlorophyll is colored), without spreading into empty areas."""
+    from scipy.ndimage import gaussian_filter
+    ok = np.isfinite(a) & (a > 0)
+    if not ok.any() or sigma <= 0:
+        return a
+    l = np.where(ok, np.log10(np.where(ok, a, 1.0)), 0.0)
+    num = gaussian_filter(l, sigma, mode="nearest")
+    den = gaussian_filter(ok.astype(float), sigma, mode="nearest")
+    out = np.full(a.shape, np.nan)
+    out[ok] = 10 ** (num[ok] / np.maximum(den[ok], 1e-9))
+    return out
+
+
+def blend_chl_passes(grids: list, now: datetime, half_life_h: float = 8.0, edge_km: float = 6.0, sigma_cells: float = 1.6) -> np.ndarray:
+    """Chlorophyll from several passes, made to look like one smooth picture:
+      1. each satellite reads a little high or low compared with the others, so every pass is first shifted to match the
+         pass that saw the most water (where they overlap) — that's what made patchy blocks;
+      2. passes are averaged (on a log scale) instead of pasted on top of each other: newer passes count more, and the
+         edges of each pass fade out over a few km so there are no seams;
+      3. light smoothing (~2 km) takes out the speckle from single noisy pixels, keeping real edges."""
+    from scipy.ndimage import distance_transform_edt
+    if not grids:
+        return np.full((0, 0), np.nan)
+    logs = []
+    for g in grids:
+        v = np.asarray(g.values, dtype=np.float64)
+        ok = np.isfinite(v) & (v > 0)
+        logs.append(np.where(ok, np.log10(np.where(ok, v, 1.0)), np.nan))
+    ref_i = int(np.argmax([np.isfinite(l).sum() for l in logs]))
+    ref = logs[ref_i]
+    for i, l in enumerate(logs):
+        if i == ref_i:
+            continue
+        both = np.isfinite(l) & np.isfinite(ref)
+        if both.sum() >= 300:
+            logs[i] = l - float(np.median(l[both] - ref[both]))
+    res_km = 111.0 * float(abs(grids[0].lats[1] - grids[0].lats[0]))
+    num = np.zeros(logs[0].shape); den = np.zeros(logs[0].shape)
+    for g, l in zip(grids, logs):
+        ok = np.isfinite(l)
+        if not ok.any():
+            continue
+        try:
+            age_h = max(0.0, (now - datetime.fromisoformat(str(g.meta.get("observed_at")).replace("Z", "+00:00"))).total_seconds() / 3600)
+        except Exception:
+            age_h = 12.0
+        w_time = 0.5 ** (age_h / half_life_h)
+        edge = np.clip(distance_transform_edt(ok) * res_km / max(edge_km, 0.1), 0.08, 1.0)   # fade toward the pass edge
+        w = np.where(ok, w_time * edge, 0.0)
+        num += np.where(ok, l, 0.0) * w
+        den += w
+    out = np.full(num.shape, np.nan)
+    m = den > 0
+    out[m] = 10 ** (num[m] / den[m])
+    return smooth_log(out, sigma_cells)

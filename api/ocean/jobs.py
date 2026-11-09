@@ -270,6 +270,9 @@ def _latest_surface(layer: str, region: str, http: httpx.Client, store):
         ds = replace(ds, source=f"{ds.source} — cloud gaps filled from older cloud-free maps")
     log(f"chl: using {used[0]} ({day}){' + gaps from ' + ', '.join(used[1:]) if len(used) > 1 else ''} — newest of {', '.join(d for _, d, _ in found)}")
     save_base(store, layer, region, g, ds)
+    if (ds.resolution_m or 9999) <= 1500:   # Nov 8: soften single-pixel speckle on the sharp daily maps (keeps real edges)
+        from .passes import smooth_log
+        g = Grid(g.lats, g.lons, smooth_log(np.asarray(g.values, dtype=np.float64), 1.2).astype(np.float32), g.meta)
     if coverage(g) < 0.999:   # Nov 6: no blank clouds — fill what's left so it blends in with the water around it
         from dataclasses import replace
         from .passes import blend

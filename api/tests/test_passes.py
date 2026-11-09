@@ -106,8 +106,8 @@ def test_newest_pass_wins_gaps_stay_open_and_each_pass_downloads_once(monkeypatc
     st = _Store()
     g = passes.composite("chl", "socal", BOX, cmr, _Auth(), st, NOW, log=lambda *a: None)
     v = lambda la, lo: g.values[np.argmin(abs(lats - la)), np.argmin(abs(lons - lo))]   # noqa: E731
-    assert abs(v(33.0, -118.0) - 5.0) < 1e-5                 # newest pass replaced the older one
-    assert abs(v(34.0, -119.0) - 2.0) < 1e-5                 # cloudy in the newest pass → older pass shows
+    assert np.log10(v(33.0, -118.0)) > np.log10(5.0) / 2     # chlorophyll: passes are blended, the newer one counts more
+    assert abs(v(34.0, -119.0) - 2.0) < 1e-3                 # cloudy in the newest pass → older pass shows
     assert g.meta["observed_at"] == "2026-11-06T20:50:00Z" and [p["sat"] for p in g.meta["passes"]] == ["NOAA-20", "NOAA-20"]
     assert len(downloads) == 2
     passes.composite("chl", "socal", BOX, cmr, _Auth(), st, NOW, log=lambda *a: None)
@@ -214,3 +214,24 @@ def test_daily_job_never_paints_over_a_newer_live_map():
         assert m["dates"][0]["tiles"] == "live-tiles"          # the newer live map stays
     finally:
         mp.undo()
+
+
+def test_chlorophyll_passes_blend_into_one_smooth_picture():
+    from ocean.grid import Grid
+    from ocean.passes import blend_chl_passes, target_grid
+    lats, lons = target_grid((-119.0, 33.0, -118.0, 34.0))
+    LA, LO = np.meshgrid(lats, lons, indexing="ij")
+    truth = 10 ** (-0.5 + 0.6 * (LO + 119.0))                           # smooth offshore → inshore rise
+    rng = np.random.default_rng(1)
+    a = truth * 10 ** rng.normal(0, 0.08, truth.shape)                  # pass A: noisy pixels
+    b = truth * 1.4 * 10 ** rng.normal(0, 0.08, truth.shape)            # pass B: a sensor that reads 40% high
+    a[:, 60:] = np.nan; b[:, :40] = np.nan                              # they overlap in the middle
+    ga = Grid(lats, lons, a.astype(np.float32), {"observed_at": "2026-11-08T19:00:00Z"})
+    gb = Grid(lats, lons, b.astype(np.float32), {"observed_at": "2026-11-08T21:00:00Z"})
+    out = blend_chl_passes([ga, gb], NOW)
+    lo = np.log10(out)
+    step = np.nanmax(np.abs(np.diff(lo, axis=1)))                       # no seam/block edge between the passes
+    noise = np.nanstd(np.diff(lo, axis=0))                              # speckle (north-south, where truth is flat)
+    assert step < 0.05 and noise < 0.03
+    raw_noise = np.nanstd(np.diff(np.log10(a[:, :40]), axis=0))
+    assert noise < raw_noise / 3                                         # far less speckly than a raw pass
