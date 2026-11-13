@@ -480,7 +480,7 @@ async function settings() {
   const input = (r) => typeof r.value === 'boolean' ? `<input type="checkbox" data-cfg="${esc(r.key)}" ${r.value ? 'checked' : ''} style="width:auto">`
     : `<input data-cfg="${esc(r.key)}" value="${esc(r.value == null ? '' : r.value)}" placeholder="(empty = none)">`;
   const off = (cfgRows.find((r) => r.key === 'features_off')?.value) || [];
-  const KILL = [['new_maps', '⏪ OLD MAPS (undo fix-140): tick to bring back the old satellite, Relief, Relief & structure, HD bottom and contour pictures on every phone'], ['wind', 'Wind map'], ['radar', 'Radar'], ['sst', 'Water temperature'], ['chl', 'Chlorophyll / water color'], ['breaks', 'Temperature breaks'],
+  const KILL = [['new_maps', '⏪ OLD MAPS (undo fix-140): tick to bring back the old satellite, HD bottom and contour pictures on every phone'], ['wind', 'Wind map'], ['radar', 'Radar'], ['sst', 'Water temperature'], ['chl', 'Chlorophyll / water color'], ['breaks', 'Temperature breaks'],
     ['bathy', 'Seafloor shading'], ['contours', 'Depth contours'], ['buoys', 'Buoys'], ['catches', 'Catch map'], ['buddies', 'Crew / buddy boats'], ['air', 'Air traffic'], ['spotHist', 'Spotter activity (history)'],
     ['spots', 'Preloaded spots'], ['marinas', 'Marinas'], ['docks', 'Docks & piers'], ['fuel', 'Fuel docks'], ['pumpout', 'Pump-outs'], ['ramps', 'Launch ramps'], ['bait', 'Bait'],
     ['rules', 'MPAs & rules'], ['sci', 'San Clemente closures'], ['hazards', 'Hazards'], ['relief', 'Relief map style'], ['satellite', 'Satellite map style'], ['chart_helper', 'Chart helper (falls back to the plain NOAA chart)'], ['layer_order', 'Map layer order (boat always on top) — takes effect next app start'], ['bathyHd', 'HD bottom']];

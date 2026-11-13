@@ -109,7 +109,7 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
   const seen = useRef<Record<string, boolean>>({});
   const keep = (k: string, on: boolean) => { if (on) seen.current[k] = true; return !!seen.current[k]; };
   const vis = (on: boolean) => (on ? 'visible' : 'none') as 'visible' | 'none';
-  const sat = s.overlay === 'satellite', rel = s.overlay === 'relief' && !newMaps;
+  const sat = s.overlay === 'satellite', rel = s.overlay === 'relief';
   const sharp = useSatSharp(newMaps && sat);
   const lineInk = night ? '#CFE6F5' : '#10263A', haloInk = night ? 'rgba(6,20,32,0.85)' : 'rgba(255,255,255,0.9)';
   const overlayOpacity = s.opacity.overlay ?? 0.75;
@@ -138,9 +138,9 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
           <Layer beforeId={below(SHADING_TOP)} type="raster" id="relief-layer" style={{ visibility: vis(rel), rasterOpacity: overlayOpacity, rasterFadeDuration: 150 }} />
         </RasterSource>
       ) : null}
-      {keep('bathy', s.on.bathy && !newMaps) && bathy && okTile(bathy.tiles) ? (
+      {keep('bathy', s.on.bathy) && bathy && okTile(bathy.tiles) ? (
         <RasterSource key={`bathy-${idOf(bathy.tiles)}`} id={`bathy-${idOf(bathy.tiles)}`} tiles={[bathy.tiles]} tileSize={256} minzoom={5} maxzoom={12}>
-          <Layer beforeId={below(SHADING_TOP)} type="raster" id={`bathy-${idOf(bathy.tiles)}-layer`} style={{ visibility: vis(s.on.bathy && !newMaps), rasterOpacity: s.opacity.bathy, rasterFadeDuration: 0 }} />
+          <Layer beforeId={below(SHADING_TOP)} type="raster" id={`bathy-${idOf(bathy.tiles)}-layer`} style={{ visibility: vis(s.on.bathy), rasterOpacity: s.opacity.bathy, rasterFadeDuration: 0 }} />
         </RasterSource>
       ) : null}
       {/* HD bottom for all of SoCal (zoom 10–14, enlarged smoothly beyond), under the sharper pilot area */}

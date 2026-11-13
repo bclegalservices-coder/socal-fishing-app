@@ -191,7 +191,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
   const hdWide = hdBottomWide(catalog);
   const b2 = newMaps ? bottom2(catalog) : undefined;
   const lines = newMaps ? bottom2Lines(catalog) : undefined;
-  const styleCards = STYLE_CARDS.filter((x) => !(newMaps && x.key === 'relief'));
+  const styleCards = STYLE_CARDS;
   const hdSub = b2
     ? `Smooth depth colors and seafloor relief · all of SoCal${b2.complete === false ? ` · new look being drawn (${b2.progress ?? 'in progress'})` : ''}`
     : hd || hdWide ? `Sharp rocks, ledges and dense contours · ${hdWide ? (hdWide.complete === false ? 'all of SoCal (still being drawn)' : 'all of SoCal') : 'Catalina, Palos Verdes, LA–Long Beach'}${hdWide && hd ? ' · sharpest around Catalina & Palos Verdes' : ''}` : 'Coming soon — being built';
@@ -265,7 +265,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
         <View style={st.presets}>
           {PRESETS.map((p) => {
             const meta = PRESET_LOOK[p.key] ?? { icon: 'tune' as Icon, tint: C.gray, sub: '' };
-            const active = Object.entries(p.on).every(([k, v]) => (newMaps && k === 'bathy') || !!s.on[k as LayerKey] === !!v);
+            const active = Object.entries(p.on).every(([k, v]) => !!s.on[k as LayerKey] === !!v);
             return <PickCard key={p.key} icon={meta.icon} tint={meta.tint} title={p.label} sub={meta.sub} active={active}
               onPress={() => { set((x) => ({ ...x, on: { ...x.on, ...p.on } as any })); track('preset_used', { preset: p.key }); }} />;
           })}
@@ -312,8 +312,8 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
         <Section title="Seafloor" foot="For fishing, not navigation.">
           {Row({ k: "bathyHd", icon: "terrain", tint: '#0E7C86', title: "HD bottom", sub: hdSub, disabled: !hd && !hdWide && !b2 })}
           {s.on.bathyHd ? <Strength value={s.opacity.bathyHd ?? 0.95} onPick={(v) => opacity('bathyHd', v)} /> : null}
-          {!newMaps ? Row({ k: "bathy", icon: "image-filter-hdr", tint: C.brown, title: "Relief & structure", sub: "Drop-offs and canyon walls", disabled: !bathy?.dates?.length }) : null}
-          {!newMaps && s.on.bathy ? <Strength value={s.opacity.bathy} onPick={(v) => opacity('bathy', v)} /> : null}
+          {Row({ k: "bathy", icon: "image-filter-hdr", tint: C.brown, title: "Relief & structure", sub: "Drop-offs and canyon walls", disabled: !bathy?.dates?.length })}
+          {s.on.bathy ? <Strength value={s.opacity.bathy} onPick={(v) => opacity('bathy', v)} /> : null}
           {Row({ k: "contours", icon: "chart-bell-curve", tint: C.blue, title: "Depth contours", sub: lines ? 'Sharp depth lines in feet, numbers on the bold lines' : bathy?.dates?.[0]?.contour_tiles ? 'Depth lines in feet, labeled every 100 ft' : 'Depth lines in feet', disabled: !bathy?.dates?.[0]?.contours && !lines, last: !(s.on.contours && (bathy?.dates?.[0]?.contour_tiles || lines)) })}
           {s.on.contours && (bathy?.dates?.[0]?.contour_tiles || lines) ? (
             <View style={st.strength}>

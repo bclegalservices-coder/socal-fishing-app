@@ -24,8 +24,8 @@ export const featureOff = (k: string) => Array.isArray(current.features_off) && 
  *  "Relief & structure" retired). Admin → Settings → Emergency off-switches → "new_maps" brings the old ones back
  *  on every phone without an app update. */
 export const newMapsOn = (off: string[] = current.features_off ?? []) => !off.includes('new_maps');
-/** Retired by the new maps (hidden while they're on). */
-export const RETIRED_BY_NEW_MAPS = ['bathy', 'relief'];
+/** Retired by the new maps (hidden while they're on). Nov 12 (fix-141): none — Relief and Relief & structure are back by request. */
+export const RETIRED_BY_NEW_MAPS: string[] = [];
 let current: AppConfig = DEFAULTS;
 
 export async function loadConfig(): Promise<AppConfig> {
