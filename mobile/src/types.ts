@@ -26,5 +26,7 @@ export type WindLayer = { key: 'wind'; available?: boolean; label?: string; note
 export type ExternalLayer = { key: string; label: string; kind: Kind; source: string; tiles: string; frames?: string[]; frame_minutes_ago?: number[]; refresh_seconds?: number; note?: string };
 export type HarborLayer = { key: 'harbors'; url?: string; updated_at?: string; counts?: Record<string, number>; attribution?: string; note?: string };
 /** HD bottom (NOAA BlueTopo): sharp relief shading + dense contours, drawn where built (`areas`). */
-export type HdBottomLayer = { key: 'bottomhd' | 'bottomhd_socal'; label?: string; tiles: string; minzoom: number; maxzoom: number; areas: Record<string, number[]>; complete?: boolean; built_at?: string; source?: string; note?: string };
+export type HdBottomLayer = { key: 'bottomhd' | 'bottomhd_socal' | 'bottom2'; label?: string; tiles: string; minzoom: number; maxzoom: number; areas: Record<string, number[]>; complete?: boolean; built_at?: string; source?: string; note?: string;
+  /** Nov 12 (new bottom, key "bottom2"): depth contour lines as vector tiles (layer `contour_layer`; properties lv, major, std, minz). */
+  contours?: string; contour_minzoom?: number; contour_maxzoom?: number; contour_layer?: string; progress?: string };
 export type Catalog = { layers: (GridLayer | WindLayer | ExternalLayer | HarborLayer | HdBottomLayer)[] };

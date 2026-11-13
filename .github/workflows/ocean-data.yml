@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: "sst, chl, surface (water temp + chlorophyll), passes (today's satellite passes: newest water temp + chlorophyll), bathy, wind, rules, regs (fish size and bag limits: check CDFW for changes, read changed pages 3 ways), regs-undo (take back automatic fish-rule changes), harbors, navmask / navmask-rebuild (auto-route water map), bottomhd (HD bottom, pilot area), bottomhd-socal (HD bottom for ALL of SoCal — keeps going by itself until done), bottomhd-overview (HD bottom shows when zoomed out — fast), bottomhd-preview (picture of old vs new HD bottom, changes nothing), bottomhd-restore (go back to the HD bottom from before the smooth-line builds; -v3 / -v4 / -v5 for those), crm (sharper seafloor + contour detail), all, verify or discover"
+        description: "sst, chl, surface (water temp + chlorophyll), passes (today's satellite passes: newest water temp + chlorophyll), bathy, wind, rules, regs (fish size and bag limits: check CDFW for changes, read changed pages 3 ways), regs-undo (take back automatic fish-rule changes), harbors, navmask / navmask-rebuild (auto-route water map), bottomhd (HD bottom, pilot area), bottomhd-socal (HD bottom for ALL of SoCal — keeps going by itself until done), bottomhd-overview (HD bottom shows when zoomed out — fast), bottomhd-preview (picture of old vs new HD bottom, changes nothing), bottomhd-restore (go back to the HD bottom from before the smooth-line builds; -v3 / -v4 / -v5 for those), bottom2 (Nov 12 NEW smooth bottom + sharp vector contour lines for all of SoCal — keeps going by itself until done), crm (sharper seafloor + contour detail), all, verify or discover"
         default: "all"
 
 permissions:

@@ -12,8 +12,13 @@ from datetime import datetime, timezone
 
 import httpx
 
-OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter",
-            "https://maps.mail.ru/osm/tools/overpass/api/interpreter"]
+OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"]
+
+
+class KeptPrevious(RuntimeError):
+    """Nov 9: this week's harbor download came back too small, so last week's harbor file stays. Not an emergency:
+    the job reports it as a warning, not a failed (red) run."""
 ATTRIBUTION = "© OpenStreetMap contributors (ODbL)"
 # Point Conception to the Mexican border, coast only (south, west, north, east).
 COAST_BBOX = (32.45, -120.75, 34.6, -117.05)
@@ -162,22 +167,32 @@ def extras() -> list[dict]:
     return out
 
 
-def fetch(http: httpx.Client, log=print) -> list[dict]:
+def fetch(http: httpx.Client, log=print, tries: int = 2, wait_s: float = 20.0) -> list[dict]:
+    """Nov 9: each OpenStreetMap server gets two tries, and a stuck server is given up on after 90 s (one hung for 5 min)."""
+    import time
     q = query()
     last = None
-    for url in OVERPASS:
-        try:
-            r = http.post(url, data={"data": q})
-            r.raise_for_status()
-            return r.json().get("elements", [])
-        except Exception as e:
-            last = e
-            log(f"harbors: {url} failed ({str(e)[:150]})")
+    for attempt in range(tries):
+        for url in OVERPASS:
+            try:
+                r = http.post(url, data={"data": q}, timeout=90)
+                r.raise_for_status()
+                els = r.json().get("elements", [])
+                if els:
+                    return els
+                raise RuntimeError("empty answer")
+            except Exception as e:
+                last = e
+                log(f"harbors: {url} failed ({str(e)[:150]})")
+        if attempt < tries - 1:
+            time.sleep(wait_s)
     raise RuntimeError(f"All OpenStreetMap servers failed: {last}")
 
 
 def run(store, log=print) -> dict:
-    http = httpx.Client(timeout=300, follow_redirects=True, headers={"User-Agent": "ChannelNav-fishing-app/1.0 (weekly harbor data job)"})
+    # Nov 9: IPv4 only — GitHub's computers sometimes can't reach servers over IPv6 ("Network is unreachable")
+    http = httpx.Client(timeout=90, follow_redirects=True, transport=httpx.HTTPTransport(local_address="0.0.0.0", retries=2),
+                        headers={"User-Agent": "ChannelNav-fishing-app/1.0 (weekly harbor data job)"})
     try:
         osm = to_features(fetch(http, log))
     except Exception as e:   # OpenStreetMap down: still publish the official list
@@ -195,7 +210,7 @@ def run(store, log=print) -> dict:
         if not f["properties"].get("center"):
             counts[f["properties"]["kind"]] = counts.get(f["properties"]["kind"], 0) + 1
     if len(feats) < 50:
-        raise RuntimeError(f"Only {len(feats)} harbor features came back; keeping the previous file.")
+        raise KeptPrevious(f"Only {len(feats)} harbor features came back (OpenStreetMap was down); kept last week's harbor file.")
     key = "vectors/harbors/socal.geojson"
     store.put(key, json.dumps({"type": "FeatureCollection", "features": feats}, separators=(",", ":")).encode(), "application/geo+json")
     manifest = {"layer": "harbors", "updated_at": datetime.now(timezone.utc).isoformat(), "url": store.url(key),

@@ -9,6 +9,9 @@
 //   /chart?bbox=<xmin,ymin,xmax,ymax>&layers=0,1,2,6&ls=1&cs=0&ps=2&look=clean&hd=1   → NOAA chart tile (PNG)
 //     look = clean | standard | full (see LOOKS) · hd=1 = sharper coastline when zoomed out (see HD_STEPS)
 //   /relief?bbox=<xmin,ymin,xmax,ymax>                                  → NOAA NCEI colored seafloor relief tile
+//   /sat/info · /sat/<z>/<y>/<x>   (Nov 12) → sharp satellite photos (Esri World Imagery) for zoom 17–19 only, with the
+//                                    secret ESRI_KEY, under a monthly limit so the Esri bill stays $0 (see below)
+//   /glyphs/<font>/<range>.pbf     (Nov 12) → letters for the depth numbers on the new contour lines
 
 // The app's server, pinged by the keep-awake timer at the bottom of this file.
 const KEEP_AWAKE = 'https://fishing-app-api-pzto.onrender.com/health';
@@ -100,7 +103,7 @@ function chartUrl(p, blue = ({ '1': 1, '2': 2 })[p.get('wb')] || 0) {
 // The chart is asked for as an 8-bit (palette) PNG, so the repaint only touches the color list (a few hundred bytes) —
 // no pixels are decoded, which keeps the helper well inside Cloudflare's free CPU limit. Anything unexpected → the
 // picture is sent unchanged.
-const VERSION = '2026-11-02b';
+const VERSION = '2026-11-12b';
 const WATER_TARGET = [170, 218, 255];            // #AADAFF — every normal water blue becomes exactly this
 const WATER_SHADE_FROM = 190;                     // NOAA blues darker than this (the very shallow strip) stay a bit darker
 function isWater(r, g, b) { return b - r >= 18 && b >= g - 6 && r >= 70 && b >= 160; }
@@ -171,11 +174,125 @@ async function tile(url, fallback, recolor = false, info = null) {
   return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });   // "no tile here", never an error page
 }
 
+// ------------------------------------------------------------------ Nov 12: sharp satellite photos (free-forever setup)
+// The app shows the free USGS photos up to zoom 16. Only when someone zooms in closer (zoom 17–19) does it ask here
+// for Esri World Imagery (sharp airplane photos, like Google's). The Esri key is a Worker secret named ESRI_KEY
+// (Settings → Variables and Secrets), never inside the app.
+// MONTHLY LIMIT: Esri gives 2,000,000 squares free a month, then $0.15 per 1,000. This helper counts every square
+// it fetches from Esri (in the TILES bucket, file meta/esri-count-YYYY-MM.json) and stops at SAT_MONTHLY_LIMIT
+// (default 1,800,000 — kept under 2 million on purpose). Past the limit it answers "no picture", so the app keeps
+// showing the USGS photos until the 1st of next month. Result: the Esri bill stays $0.
+// To allow more later (when sponsors pay): add a Variable SAT_MONTHLY_LIMIT, e.g. 5000000 (= about $450 a month max).
+const ESRI_SAT = 'https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile';
+const SHARP_FROM = 17;                  // zoom where USGS runs out and Esri takes over
+const DEFAULT_LIMIT = 1800000;
+let esriBlank = null;                   // Esri's "Map data not yet available" picture (out at sea, zoomed far in) — skipped
+const used = { month: '', total: 0, pending: 0, readAt: 0, flushAt: 0 };
+
+async function sha(buf) {
+  const d = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+const monthKey = () => new Date().toISOString().slice(0, 7);
+const limitOf = (env) => {
+  const n = Number(env && env.SAT_MONTHLY_LIMIT);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_LIMIT;
+};
+
+async function usedThisMonth(env) {
+  const m = monthKey();
+  if (used.month !== m) Object.assign(used, { month: m, total: 0, pending: 0, readAt: 0, flushAt: Date.now() });
+  if (env && env.TILES && Date.now() - used.readAt > 120000) {
+    used.readAt = Date.now();
+    try {
+      const o = await env.TILES.get(`meta/esri-count-${m}.json`);
+      if (o) used.total = Math.max(used.total, Number((await o.json()).count) || 0);
+    } catch (e) { /* keep what we know */ }
+  }
+  return used.total + used.pending;
+}
+
+async function flushCount(env) {
+  if (!(env && env.TILES) || !used.pending) return;
+  const m = used.month, add = used.pending;
+  used.pending = 0; used.flushAt = Date.now();
+  try {
+    const key = `meta/esri-count-${m}.json`;
+    const o = await env.TILES.get(key);
+    const before = o ? Number((await o.json()).count) || 0 : 0;
+    used.total = Math.max(used.total, before + add);
+    await env.TILES.put(key, JSON.stringify({ count: before + add, updated: new Date().toISOString() }), { httpMetadata: { contentType: 'application/json' } });
+  } catch (e) { used.pending += add; }
+}
+
+async function satLine(env) {
+  const i = await satInfo(env);
+  return `ON · ${i.used.toLocaleString('en-US')} of ${i.limit.toLocaleString('en-US')} free squares used this month${i.paused ? ' (limit reached: free photos until the 1st)' : ''}`;
+}
+
+async function satInfo(env) {
+  const key = !!(env && env.ESRI_KEY), limit = limitOf(env), n = key ? await usedThisMonth(env) : 0;
+  return { esri: key && !!(env && env.TILES), sharp_from: SHARP_FROM, maxzoom: 19, used: n, limit, paused: key && n >= limit, version: VERSION };
+}
+
+async function satTile(u, env, ctx) {
+  const m = u.pathname.match(/^\/sat\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})(\.\w+)?$/);
+  if (!m) return new Response('bad tile', { status: 400 });
+  const [z, y, x] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const key = env && env.ESRI_KEY;
+  const none = () => new Response(null, { status: 204, headers: { 'cache-control': 'public, max-age=3600' } });   // app keeps USGS
+  if (!key || !(env && env.TILES) || z < SHARP_FROM || z > 19) return none();
+  if ((await usedThisMonth(env)) >= limitOf(env)) return none();                 // monthly limit reached → free photos
+  const r = await fetch(`${ESRI_SAT}/${z}/${y}/${x}?token=${encodeURIComponent(key)}`,
+    { headers: { 'User-Agent': 'ChannelNav-chart-helper' }, cf: { cacheTtl: 86400, cacheEverything: true } });
+  if (r.headers.get('cf-cache-status') !== 'HIT') {                             // only real trips to Esri count
+    used.pending += 1;
+    if (used.pending >= 200 || Date.now() - used.flushAt > 60000) {
+      const f = flushCount(env);
+      if (ctx) ctx.waitUntil(f); else await f;
+    }
+  }
+  const type = r.headers.get('content-type') || '';
+  if (!r.ok || !type.startsWith('image/')) return none();
+  const body = await r.arrayBuffer();
+  try {
+    if (esriBlank === null) {          // a square far out in the Pacific at zoom 19 is always the "no data" picture
+      const b = await fetch(`${ESRI_SAT}/19/232417/58254?token=${encodeURIComponent(key)}`, { cf: { cacheTtl: 604800, cacheEverything: true } });
+      const bb = await b.arrayBuffer();
+      esriBlank = { len: bb.byteLength, hash: await sha(bb) };
+    }
+    if (body.byteLength === esriBlank.len && (await sha(body)) === esriBlank.hash) return none();
+  } catch (e) { /* can't tell: show it */ }
+  return new Response(body, { headers: { 'content-type': type, 'cache-control': 'public, max-age=86400', 'access-control-allow-origin': '*' } });
+}
+
+// Letters for map labels (depth numbers on the contour lines). Public MapLibre font server, backup: OpenFreeMap.
+async function glyphs(u) {
+  const m = u.pathname.match(/^\/glyphs\/([^/]{1,80})\/(\d{1,5}-\d{1,5})\.pbf$/);
+  if (!m) return new Response('bad', { status: 400 });
+  const range = m[2];
+  const tries = [`https://demotiles.maplibre.org/font/${m[1]}/${range}.pbf`,
+    `https://tiles.openfreemap.org/fonts/${encodeURIComponent('Noto Sans Bold')}/${range}.pbf`];
+  for (const t of tries) {
+    try {
+      const r = await fetch(t, { cf: { cacheTtl: 2592000, cacheEverything: true } });
+      if (r.ok) return new Response(r.body, { headers: { 'content-type': 'application/x-protobuf', 'cache-control': 'public, max-age=2592000', 'access-control-allow-origin': '*' } });
+    } catch (e) { /* next */ }
+  }
+  return new Response(null, { status: 204 });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const u = new URL(request.url);
     const p = u.searchParams;
-    if (u.pathname === '/' || u.pathname === '/health') return new Response(`Channel Nav chart helper: ok · version ${VERSION} · speed cache ${env && env.TILES ? 'ON' : 'off'}`);
+    if (u.pathname === '/' || u.pathname === '/health') return new Response(`Channel Nav chart helper: ok · version ${VERSION} · speed cache ${env && env.TILES ? 'ON' : 'off'} · sharp satellite ${env && env.ESRI_KEY ? await satLine(env) : 'off (add the ESRI_KEY secret)'}`);
+    if (u.pathname === '/sat/info') {
+      return new Response(JSON.stringify(await satInfo(env)),
+        { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=600', 'access-control-allow-origin': '*' } });
+    }
+    if (u.pathname.startsWith('/sat/')) return satTile(u, env, ctx);
+    if (u.pathname.startsWith('/glyphs/')) return glyphs(u);
     // Open https://<this helper>/check in a browser: draws one chart square off Catalina and reports what happened.
     if (u.pathname === '/check') {
       const q = new URLSearchParams('bbox=-13190000,3930000,-13170000,3950000&layers=0,1,2&ls=1&cs=0&ps=2&look=standard&hd=1&wb=2&wc=1');

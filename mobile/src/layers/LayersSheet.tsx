@@ -14,7 +14,7 @@ import { ageText } from '../api';
 import { colors, makeStyles, useTheme } from '../theme';
 import { CHART_SETTINGS_AVAILABLE } from '../config';
 import type { Catalog } from '../types';
-import { external, grid, harborsOf, hdBottom, hdBottomWide, wind } from './catalog';
+import { bottom2, bottom2Lines, external, grid, harborsOf, hdBottom, hdBottomWide, wind } from './catalog';
 import { SPOT_COLORS } from './spotColors';
 import { CHART_LOOKS, DEFAULT_LAYERS, PRESETS, type ChartLook, type LayerKey, type LayerState, type MapOverlay } from './state';
 import { track } from '../analytics';
@@ -22,7 +22,9 @@ import { PresentedBy } from '../ads/Sponsor';
 import { WhaleIcon } from '../components/WhaleIcon';
 
 type Props = { catalog: Catalog | null; cached: boolean; savedAt?: number | null; onRetry?: () => void; s: LayerState; set: (fn: (s: LayerState) => LayerState) => void;
-  radarPlaying: boolean; setRadarPlaying: (b: boolean) => void; onClose: () => void; rulesChecked?: string | null; onSaveArea?: () => void; killed?: string[] };
+  radarPlaying: boolean; setRadarPlaying: (b: boolean) => void; onClose: () => void; rulesChecked?: string | null; onSaveArea?: () => void; killed?: string[];
+  /** Nov 12: new maps on → no Relief map style / Relief & structure (retired), new HD bottom + sharp contour lines. */
+  newMaps?: boolean };
 type Icon = keyof typeof MaterialCommunityIcons.glyphMap;
 
 const OPACITIES = [0.15, 0.3, 0.5, 0.75, 1];
@@ -170,7 +172,7 @@ function PickCard({ icon, tint, title, sub, active, onPress, narrow, role = 'but
 
 // ---------------------------------------------------------------- the sheet
 
-function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlaying, setRadarPlaying, onClose, rulesChecked, onSaveArea, killed = [] }: Props) {
+function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlaying, setRadarPlaying, onClose, rulesChecked, onSaveArea, killed = [], newMaps = false }: Props) {
   const st = useSt();
   const insets = useSafeAreaInsets();
   const setOverlay = (o: MapOverlay) => { if (o !== 'none' && killed.includes(o)) return; set((p) => ({ ...p, overlay: o })); track('map_style', { style: o }); };
@@ -187,6 +189,12 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
   const sst = grid(catalog, 'sst'), chl = grid(catalog, 'chl'), bathy = grid(catalog, 'bathy'), w = wind(catalog), radar = external(catalog, 'radar');
   const hd = hdBottom(catalog);
   const hdWide = hdBottomWide(catalog);
+  const b2 = newMaps ? bottom2(catalog) : undefined;
+  const lines = newMaps ? bottom2Lines(catalog) : undefined;
+  const styleCards = STYLE_CARDS.filter((x) => !(newMaps && x.key === 'relief'));
+  const hdSub = b2
+    ? `Smooth depth colors and seafloor relief · all of SoCal${b2.complete === false ? ` · new look being drawn (${b2.progress ?? 'in progress'})` : ''}`
+    : hd || hdWide ? `Sharp rocks, ledges and dense contours · ${hdWide ? (hdWide.complete === false ? 'all of SoCal (still being drawn)' : 'all of SoCal') : 'Catalina, Palos Verdes, LA–Long Beach'}${hdWide && hd ? ' · sharpest around Catalina & Palos Verdes' : ''}` : 'Coming soon — being built';
   const latest = (l?: { dates?: { observed_at?: string | null }[]; available?: boolean }) =>
     !l || l.available === false || !l.dates?.length ? 'Not available yet' : `Satellite · ${ageText(l.dates[0].observed_at ?? null)}`;
 
@@ -257,7 +265,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
         <View style={st.presets}>
           {PRESETS.map((p) => {
             const meta = PRESET_LOOK[p.key] ?? { icon: 'tune' as Icon, tint: C.gray, sub: '' };
-            const active = Object.entries(p.on).every(([k, v]) => !!s.on[k as LayerKey] === !!v);
+            const active = Object.entries(p.on).every(([k, v]) => (newMaps && k === 'bathy') || !!s.on[k as LayerKey] === !!v);
             return <PickCard key={p.key} icon={meta.icon} tint={meta.tint} title={p.label} sub={meta.sub} active={active}
               onPress={() => { set((x) => ({ ...x, on: { ...x.on, ...p.on } as any })); track('preset_used', { preset: p.key }); }} />;
           })}
@@ -266,7 +274,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
         {/* Map style */}
         <Text style={st.caption}>Base map</Text>
         <View style={st.styles}>
-          {STYLE_CARDS.map((m) => {
+          {styleCards.map((m) => {
             const on = (s.overlay ?? 'none') === m.key;
             return (
               <Pressable key={m.key} onPress={() => setOverlay(m.key)} style={st.styleCard} accessibilityRole="radio" accessibilityState={{ selected: on }} accessibilityLabel={m.label}>
@@ -291,7 +299,7 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
           ))}
         </View>
 
-        <Section title="Ocean" foot="Water temp and chlorophyll update every morning from satellites. They take turns: turning one on turns the other off, since both color the whole sea.">
+        <Section title="Ocean" foot="Water temp and chlorophyll update through the day as satellites pass over (water temp at night too). They take turns: turning one on turns the other off, since both color the whole sea.">
           {Row({ k: "sst", icon: "thermometer-water", tint: C.orange, title: "Water temperature", sub: latest(sst), disabled: !sst?.dates?.length })}
           {s.on.sst ? <Strength value={s.opacity.sst} onPick={(v) => opacity('sst', v)} /> : null}
           {Row({ k: "breaks", icon: "chart-line-variant", tint: C.red, title: "Temperature breaks", sub: "Thicker line = stronger break", disabled: !sst?.dates?.length })}
@@ -302,12 +310,12 @@ function LayersSheetInner({ catalog, cached, savedAt, onRetry, s, set, radarPlay
         </Section>
 
         <Section title="Seafloor" foot="For fishing, not navigation.">
-          {Row({ k: "bathyHd", icon: "terrain", tint: '#0E7C86', title: "HD bottom", sub: hd || hdWide ? `Sharp rocks, ledges and dense contours · ${hdWide ? (hdWide.complete === false ? 'all of SoCal (still being drawn)' : 'all of SoCal') : 'Catalina, Palos Verdes, LA–Long Beach'}${hdWide && hd ? ' · sharpest around Catalina & Palos Verdes' : ''}` : 'Coming soon — being built', disabled: !hd && !hdWide })}
+          {Row({ k: "bathyHd", icon: "terrain", tint: '#0E7C86', title: "HD bottom", sub: hdSub, disabled: !hd && !hdWide && !b2 })}
           {s.on.bathyHd ? <Strength value={s.opacity.bathyHd ?? 0.95} onPick={(v) => opacity('bathyHd', v)} /> : null}
-          {Row({ k: "bathy", icon: "image-filter-hdr", tint: C.brown, title: "Relief & structure", sub: "Drop-offs and canyon walls", disabled: !bathy?.dates?.length })}
-          {s.on.bathy ? <Strength value={s.opacity.bathy} onPick={(v) => opacity('bathy', v)} /> : null}
-          {Row({ k: "contours", icon: "chart-bell-curve", tint: C.blue, title: "Depth contours", sub: bathy?.dates?.[0]?.contour_tiles ? 'Depth lines in feet, labeled every 100 ft' : 'Depth lines in feet', disabled: !bathy?.dates?.[0]?.contours, last: !(s.on.contours && bathy?.dates?.[0]?.contour_tiles) })}
-          {s.on.contours && bathy?.dates?.[0]?.contour_tiles ? (
+          {!newMaps ? Row({ k: "bathy", icon: "image-filter-hdr", tint: C.brown, title: "Relief & structure", sub: "Drop-offs and canyon walls", disabled: !bathy?.dates?.length }) : null}
+          {!newMaps && s.on.bathy ? <Strength value={s.opacity.bathy} onPick={(v) => opacity('bathy', v)} /> : null}
+          {Row({ k: "contours", icon: "chart-bell-curve", tint: C.blue, title: "Depth contours", sub: lines ? 'Sharp depth lines in feet, numbers on the bold lines' : bathy?.dates?.[0]?.contour_tiles ? 'Depth lines in feet, labeled every 100 ft' : 'Depth lines in feet', disabled: !bathy?.dates?.[0]?.contours && !lines, last: !(s.on.contours && (bathy?.dates?.[0]?.contour_tiles || lines)) })}
+          {s.on.contours && (bathy?.dates?.[0]?.contour_tiles || lines) ? (
             <View style={st.strength}>
               <Text style={st.strengthL}>Detail</Text>
               <View style={st.seg}>

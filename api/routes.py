@@ -52,6 +52,9 @@ async def layers():
     hd_wide = store.get("manifests/bottomhd-socal.json")  # Oct 29: HD bottom for all of SoCal (to zoom 14), under the pilot
     if hd_wide:
         out.append(json.loads(hd_wide))
+    b2 = store.get("manifests/bottom2-socal.json")   # Nov 12: new smooth bottom + vector contour lines (key "bottom2")
+    if b2:
+        out.append(json.loads(b2))
     harbors = store.get("manifests/harbors.json")
     if harbors:
         out.append({"key": "harbors", **json.loads(harbors)})

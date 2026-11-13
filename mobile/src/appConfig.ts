@@ -20,6 +20,12 @@ const listeners = new Set<(c: AppConfig) => void>();
 /** Runs whenever new settings arrive (start-up and when the app comes back to the foreground). */
 export function onConfig(fn: (c: AppConfig) => void) { listeners.add(fn); return () => { listeners.delete(fn); }; }
 export const featureOff = (k: string) => Array.isArray(current.features_off) && current.features_off.includes(k);
+/** Nov 12 (fix-140): the new maps (sharp satellite, new smooth HD bottom, vector contour lines; Relief map style and
+ *  "Relief & structure" retired). Admin → Settings → Emergency off-switches → "new_maps" brings the old ones back
+ *  on every phone without an app update. */
+export const newMapsOn = (off: string[] = current.features_off ?? []) => !off.includes('new_maps');
+/** Retired by the new maps (hidden while they're on). */
+export const RETIRED_BY_NEW_MAPS = ['bathy', 'relief'];
 let current: AppConfig = DEFAULTS;
 
 export async function loadConfig(): Promise<AppConfig> {

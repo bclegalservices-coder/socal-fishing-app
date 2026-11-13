@@ -68,7 +68,15 @@ export const SATELLITE_ATTRIBUTION = 'USGS The National Map · USDA NAIP';
 // Underneath it: NASA Blue Marble (whole planet incl. ocean, with seafloor shading), sharp from orbit, soft up close.
 export const SATELLITE_BASE_TILES = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg';
 export const SATELLITE_BASE_ATTRIBUTION = 'NASA Blue Marble (GIBS)';
-export const SATELLITE_DETAIL_MINZOOM = 11;   // below this, USGS tiles are patchy along the coast
+export const SATELLITE_DETAIL_MINZOOM = 11;
+// Nov 12 (new maps): sharp satellite photos through the chart helper (Esri World Imagery, the key stays in the helper).
+// The helper says at /sat/info whether the key is set up; until it is, the app keeps the USGS photos above.
+export const SAT_INFO_URL = CHART_SETTINGS_AVAILABLE ? `${CHART_HELPER}/sat/info` : null;
+export const SAT_SHARP_TILES = `${CHART_HELPER}/sat/{z}/{y}/{x}`;
+export const SAT_SHARP_ATTRIBUTION = 'Esri World Imagery (Esri, Maxar, Earthstar Geographics)';
+// Letters for map labels (depth numbers on the contour lines), served by the chart helper.
+export const GLYPHS_URL = CHART_SETTINGS_AVAILABLE ? `${CHART_HELPER}/glyphs/{fontstack}/{range}.pbf` : null;
+export const LABEL_FONT = ['Open Sans Semibold'];   // below this, USGS tiles are patchy along the coast
 // Relief = NOAA NCEI elevation & bathymetry mosaic drawn as colored hillshade (seafloor detail down to a few meters
 // where multibeam surveys exist, which includes most of the SoCal Bight).
 // Served through the chart helper: the relief color setting is JSON, which would put %-codes in the address.

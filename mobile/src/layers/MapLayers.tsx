@@ -1,16 +1,41 @@
 // Everything drawn on top of the NOAA chart. Order here = stacking order (later is on top).
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { GeoJSONSource, Layer, RasterSource } from '@maplibre/maplibre-react-native';
-import { API_URL, okTile, RADAR_ATTRIBUTION, radarAt, CHART_SETTINGS_AVAILABLE, CHART_TILE_SIZE, RELIEF_ATTRIBUTION, RELIEF_TILES, SATELLITE_ATTRIBUTION, SATELLITE_BASE_ATTRIBUTION, SATELLITE_BASE_TILES, SATELLITE_DETAIL_MINZOOM, SATELLITE_TILES } from '../config';
+import { GeoJSONSource, Layer, RasterSource, VectorSource } from '@maplibre/maplibre-react-native';
+import { API_URL, okTile, RADAR_ATTRIBUTION, radarAt, CHART_SETTINGS_AVAILABLE, CHART_TILE_SIZE, RELIEF_ATTRIBUTION, RELIEF_TILES, SATELLITE_ATTRIBUTION, SATELLITE_BASE_ATTRIBUTION, SATELLITE_BASE_TILES, SATELLITE_DETAIL_MINZOOM, SATELLITE_TILES, SAT_INFO_URL, SAT_SHARP_ATTRIBUTION, SAT_SHARP_TILES, LABEL_FONT } from '../config';
+import { useTheme } from '../theme';
 import type { Catalog } from '../types';
-import { DAY_OFFSETS, external, grid, hdBottom, hdBottomWide, pickDate, wind } from './catalog';
+import { DAY_OFFSETS, bottom2, bottom2Lines, external, grid, hdBottom, hdBottomWide, pickDate, wind } from './catalog';
 import type { LayerState } from './state';
 import { FEATURES_TOP, SHADING_TOP, below } from './order';
 
 /** Short stable id for a tile address (djb2 hash). */
 const idOf = (s: string) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
 
-type Props = { catalog: Catalog | null; s: LayerState; compareOffset: number | null; radarPlaying: boolean; onBuoyPress: (props: any) => void; onRadarLabel?: (label: string | null) => void };
+type Props = { catalog: Catalog | null; s: LayerState; compareOffset: number | null; radarPlaying: boolean; onBuoyPress: (props: any) => void; onRadarLabel?: (label: string | null) => void;
+  /** Nov 12: new maps on (Admin off-switch "new_maps" turns them off → the old satellite, HD bottom and contours). */
+  newMaps?: boolean };
+
+/** Nov 12: does the chart helper have the sharp-satellite key? Asked once per app start, only when satellite is on. */
+let satSharpKnown: boolean | null = null;
+function useSatSharp(want: boolean) {
+  const [ok, setOk] = useState<boolean>(!!satSharpKnown);
+  useEffect(() => {
+    if (!want || !SAT_INFO_URL || satSharpKnown !== null) return;
+    let live = true;
+    fetch(SAT_INFO_URL).then((r) => r.json()).then((j) => { satSharpKnown = !!j?.esri; if (live) setOk(satSharpKnown); }).catch(() => {});
+    return () => { live = false; };
+  }, [want]);
+  return want && ok;
+}
+
+/** Nov 12: contour lines (vector). Each line piece says from which zoom it has room (`minz`): one line layer per zoom
+ *  step, so on steep walls the 5–10 ft lines appear only once you've zoomed in far enough to tell them apart.
+ *  Standard detail shows the `std` lines; Max shows all. */
+export function contourFilter(z: number, detail: 'std' | 'max') {
+  const base = z <= 14 ? ['<=', ['get', 'minz'], 14] : z >= 17 ? ['>=', ['get', 'minz'], 17] : ['==', ['get', 'minz'], z];
+  return detail === 'std' ? ['all', base, ['==', ['get', 'std'], 1]] : base;
+}
+const CONTOUR_STEPS = [14, 15, 16, 17];
 
 /** Nov 7: "How many breaks" — each line from the server says how strong it is (`rel`: 1 = moderate) and how far it
  *  reaches (`span_nm`). Strongest/Strong also skip the in-between half-degree lines so lines don't stack up.
@@ -28,7 +53,8 @@ export function breakFilter(level: number) {
   return f;
 }
 
-export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress, onRadarLabel }: Props) {
+export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress, onRadarLabel, newMaps = false }: Props) {
+  const night = useTheme().mode === 'night';
   const offset = compareOffset ?? DAY_OFFSETS[s.dayIndex] ?? 0;
   const sst = pickDate(grid(catalog, 'sst')?.dates, offset);
   const chl = pickDate(grid(catalog, 'chl')?.dates, offset);
@@ -38,6 +64,8 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
   const detail = s.contourDetail ?? 'std';
   const contourTiles = okTile(bathy?.contour_tiles?.[detail]) ? bathy!.contour_tiles![detail]! : null;
   const w = wind(catalog);
+  const b2 = newMaps ? bottom2(catalog) : undefined;          // new smooth bottom (may still be being drawn)
+  const lines = newMaps ? bottom2Lines(catalog) : undefined;  // its vector contour lines (once finished)
   const windHour = w?.hours?.[Math.min(s.windIndex, (w?.hours?.length ?? 1) - 1)];
   const radar = external(catalog, 'radar');
 
@@ -81,7 +109,9 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
   const seen = useRef<Record<string, boolean>>({});
   const keep = (k: string, on: boolean) => { if (on) seen.current[k] = true; return !!seen.current[k]; };
   const vis = (on: boolean) => (on ? 'visible' : 'none') as 'visible' | 'none';
-  const sat = s.overlay === 'satellite', rel = s.overlay === 'relief';
+  const sat = s.overlay === 'satellite', rel = s.overlay === 'relief' && !newMaps;
+  const sharp = useSatSharp(newMaps && sat);
+  const lineInk = night ? '#CFE6F5' : '#10263A', haloInk = night ? 'rgba(6,20,32,0.85)' : 'rgba(255,255,255,0.9)';
   const overlayOpacity = s.opacity.overlay ?? 0.75;
   return (
     <>
@@ -96,37 +126,66 @@ export function MapLayers({ catalog, s, compareOffset, radarPlaying, onBuoyPress
           <Layer beforeId={below(SHADING_TOP)} type="raster" id="satellite-layer" style={{ visibility: vis(sat), rasterOpacity: overlayOpacity, rasterFadeDuration: 150 }} />
         </RasterSource>
       ) : null}
+      {/* Nov 12: zoomed in close (17–19), sharp Esri photos on top of the free USGS ones. The chart helper keeps a
+          monthly limit under Esri's free 2 million; past it (or with no key) it sends nothing and USGS shows through. */}
+      {keep('satellite-sharp', sat && sharp) ? (
+        <RasterSource key="satellite-sharp" id="satellite-sharp" tiles={[SAT_SHARP_TILES]} tileSize={256} minzoom={17} maxzoom={19} attribution={SAT_SHARP_ATTRIBUTION}>
+          <Layer beforeId={below(SHADING_TOP)} type="raster" id="satellite-sharp-layer" minzoom={17} style={{ visibility: vis(sat && sharp), rasterOpacity: overlayOpacity, rasterFadeDuration: 150 }} />
+        </RasterSource>
+      ) : null}
       {keep('relief', rel) && CHART_SETTINGS_AVAILABLE ? (
         <RasterSource key="relief" id="relief" tiles={[RELIEF_TILES]} tileSize={CHART_TILE_SIZE} maxzoom={17} attribution={RELIEF_ATTRIBUTION}>
           <Layer beforeId={below(SHADING_TOP)} type="raster" id="relief-layer" style={{ visibility: vis(rel), rasterOpacity: overlayOpacity, rasterFadeDuration: 150 }} />
         </RasterSource>
       ) : null}
-      {keep('bathy', s.on.bathy) && bathy && okTile(bathy.tiles) ? (
+      {keep('bathy', s.on.bathy && !newMaps) && bathy && okTile(bathy.tiles) ? (
         <RasterSource key={`bathy-${idOf(bathy.tiles)}`} id={`bathy-${idOf(bathy.tiles)}`} tiles={[bathy.tiles]} tileSize={256} minzoom={5} maxzoom={12}>
-          <Layer beforeId={below(SHADING_TOP)} type="raster" id={`bathy-${idOf(bathy.tiles)}-layer`} style={{ visibility: vis(s.on.bathy), rasterOpacity: s.opacity.bathy, rasterFadeDuration: 0 }} />
+          <Layer beforeId={below(SHADING_TOP)} type="raster" id={`bathy-${idOf(bathy.tiles)}-layer`} style={{ visibility: vis(s.on.bathy && !newMaps), rasterOpacity: s.opacity.bathy, rasterFadeDuration: 0 }} />
         </RasterSource>
       ) : null}
       {/* HD bottom for all of SoCal (zoom 10–14, enlarged smoothly beyond), under the sharper pilot area */}
+      {/* Nov 12 new maps: the old all-SoCal HD bottom only fills in where the new one isn't drawn yet */}
       {keep('bathyHd', s.on.bathyHd) && hdWide && okTile(hdWide.tiles) ? (
         <RasterSource key={`bathyhdw-${idOf(hdWide.tiles)}`} id={`bathyhdw-${idOf(hdWide.tiles)}`} tiles={[hdWide.tiles]} tileSize={256} minzoom={hdWide.minzoom ?? 10} maxzoom={hdWide.maxzoom ?? 14}>
-          <Layer beforeId={below(SHADING_TOP)} type="raster" id={`bathyhdw-${idOf(hdWide.tiles)}-layer`} style={{ visibility: vis(s.on.bathyHd), rasterOpacity: s.opacity.bathyHd ?? 0.95, rasterFadeDuration: 0 }} />
+          <Layer beforeId={below(SHADING_TOP)} type="raster" id={`bathyhdw-${idOf(hdWide.tiles)}-layer`} style={{ visibility: vis(s.on.bathyHd && !(b2 && b2.complete)), rasterOpacity: s.opacity.bathyHd ?? 0.95, rasterFadeDuration: 0 }} />
         </RasterSource>
       ) : null}
       {/* HD bottom: sharp relief + dense contours (NOAA BlueTopo), on top of the coarse relief where it's built */}
       {keep('bathyHd', s.on.bathyHd) && hd && okTile(hd.tiles) ? (
         <RasterSource key={`bathyhd-${idOf(hd.tiles)}`} id={`bathyhd-${idOf(hd.tiles)}`} tiles={[hd.tiles]} tileSize={256} minzoom={hd.minzoom ?? 11} maxzoom={hd.maxzoom ?? 16}>
-          <Layer beforeId={below(SHADING_TOP)} type="raster" id={`bathyhd-${idOf(hd.tiles)}-layer`} style={{ visibility: vis(s.on.bathyHd), rasterOpacity: s.opacity.bathyHd ?? 0.95, rasterFadeDuration: 0 }} />
+          <Layer beforeId={below(SHADING_TOP)} type="raster" id={`bathyhd-${idOf(hd.tiles)}-layer`} style={{ visibility: vis(s.on.bathyHd && !b2), rasterOpacity: s.opacity.bathyHd ?? 0.95, rasterFadeDuration: 0 }} />
+        </RasterSource>
+      ) : null}
+      {/* Nov 12: the new bottom — smooth colors and relief, no lines baked in (the lines are vector, below) */}
+      {keep('bottom2', s.on.bathyHd && !!b2) && b2 && okTile(b2.tiles) ? (
+        <RasterSource key={`b2-${idOf(b2.tiles)}`} id={`b2-${idOf(b2.tiles)}`} tiles={[b2.tiles]} tileSize={256} minzoom={b2.minzoom ?? 6} maxzoom={b2.maxzoom ?? 14}>
+          <Layer beforeId={below(SHADING_TOP)} type="raster" id={`b2-${idOf(b2.tiles)}-layer`} style={{ visibility: vis(s.on.bathyHd), rasterOpacity: s.opacity.bathyHd ?? 0.95, rasterFadeDuration: 0, rasterResampling: 'linear' }} />
         </RasterSource>
       ) : null}
       {/* Depth contours: drawn line layers (Standard / Max) from the Coastal Relief Model at zoom 9+, the vector lines below that */}
       {keep('contours', s.on.contours) && okTile(bathy?.contours) ? (
         <GeoJSONSource key="contours" id="contours" data={bathy.contours}>
-          <Layer beforeId={below(FEATURES_TOP)} type="line" id="contours-line" maxzoom={contourTiles ? 9 : 24} style={{ visibility: vis(s.on.contours), lineColor: '#123247', lineWidth: 1.1, lineOpacity: 0.75 }} />
+          <Layer beforeId={below(FEATURES_TOP)} type="line" id="contours-line" maxzoom={lines ? 10 : contourTiles ? 9 : 24} style={{ visibility: vis(s.on.contours), lineColor: '#123247', lineWidth: 1.1, lineOpacity: 0.75 }} />
         </GeoJSONSource>
       ) : null}
-      {keep(`contours-${detail}`, s.on.contours) && contourTiles ? (
+      {/* Nov 12: vector contour lines from zoom 10 — thin and sharp at every zoom, depth numbers on the bold lines */}
+      {keep('contours2', s.on.contours && !!lines) && lines ? (
+        <VectorSource key={`c2-${idOf(lines)}`} id={`c2-${idOf(lines)}`} tiles={[lines]} minzoom={10} maxzoom={14}>
+          {CONTOUR_STEPS.map((z) => (
+            <Layer key={`c2-${idOf(lines)}-l${z}`} beforeId={below(FEATURES_TOP)} type="line" id={`c2-${idOf(lines)}-l${z}`} source-layer="contours"
+              minzoom={z <= 14 ? 10 : z} filter={contourFilter(z, detail) as any}
+              style={{ visibility: vis(s.on.contours), lineColor: lineInk, lineJoin: 'round', lineCap: 'round',
+                lineWidth: ['case', ['==', ['get', 'major'], 1], 1.5, 0.75] as any, lineOpacity: ['case', ['==', ['get', 'major'], 1], 0.9, 0.6] as any }} />
+          ))}
+          <Layer beforeId={below(FEATURES_TOP)} type="symbol" id={`c2-${idOf(lines)}-labels`} source-layer="contours" minzoom={11}
+            filter={['all', ['==', ['get', 'major'], 1], ['<=', ['get', 'minz'], 14]] as any}
+            style={{ visibility: vis(s.on.contours), symbolPlacement: 'line', symbolSpacing: 280, textField: ['to-string', ['get', 'lv']] as any,
+              textFont: LABEL_FONT, textSize: 11, textColor: lineInk, textHaloColor: haloInk, textHaloWidth: 1.4, textKeepUpright: true, textMaxAngle: 35, textPadding: 2 }} />
+        </VectorSource>
+      ) : null}
+      {keep(`contours-${detail}`, s.on.contours && !lines) && contourTiles ? (
         <RasterSource key={`ctr-${detail}-${idOf(contourTiles)}`} id={`contours-${detail}-${idOf(contourTiles)}`} tiles={[contourTiles]} tileSize={256} minzoom={9} maxzoom={14}>
-          <Layer beforeId={below(FEATURES_TOP)} type="raster" id={`contours-${detail}-${idOf(contourTiles)}-layer`} minzoom={8.5} style={{ visibility: vis(s.on.contours), rasterOpacity: 1, rasterFadeDuration: 0 }} />
+          <Layer beforeId={below(FEATURES_TOP)} type="raster" id={`contours-${detail}-${idOf(contourTiles)}-layer`} minzoom={8.5} style={{ visibility: vis(s.on.contours && !lines), rasterOpacity: 1, rasterFadeDuration: 0 }} />
         </RasterSource>
       ) : null}
       {(['std', 'max'] as const).filter((d) => d !== detail && seen.current[`contours-${d}`] && bathy?.contour_tiles?.[d]).map((d) => (

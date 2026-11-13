@@ -7,7 +7,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { useAwakeMode } from '../screenAwake';
 import { Camera, GeoJSONSource, Layer, LogManager, Map as MapView, Marker, UserLocation, ViewAnnotation } from '@maplibre/maplibre-react-native';
 import type { CameraRef } from '@maplibre/maplibre-react-native';
-import { API_URL, CHART_ATTRIBUTION, DEFAULT_CENTER, DEFAULT_ZOOM, CHART_TILE_SIZE, NOAA_CHART_MAXZOOM, NOAA_CHART_MINZOOM, noaaChartTiles, noaaDepthTiles } from '../config';
+import { API_URL, GLYPHS_URL, CHART_ATTRIBUTION, DEFAULT_CENTER, DEFAULT_ZOOM, CHART_TILE_SIZE, NOAA_CHART_MAXZOOM, NOAA_CHART_MINZOOM, noaaChartTiles, noaaDepthTiles } from '../config';
 import { boatColor, cardStyle, colors, makeStyles, routeColor, setThemePosition, touch, useTheme } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { bearingTrue, cardinal, distanceNm, formatLatLon } from '../geo';
@@ -84,7 +84,7 @@ import { fetchAutoRoute, getSafetyFt, setSafetyFt, type AutoRoute } from '../aut
 import { RoutePreview } from '../components/RoutePreview';
 import { WindCard } from '../components/WindCard';
 import { reportError } from '../errors';
-import { config, mapLook, onConfig, type MapLook } from '../appConfig';
+import { config, mapLook, newMapsOn, onConfig, RETIRED_BY_NEW_MAPS, type MapLook } from '../appConfig';
 
 const ARRIVE_NM = 0.1;
 const LAYERS_KEY = 'layers:v3'; // v3: everyone starts once on the new clean chart (Oct 21)
@@ -112,6 +112,8 @@ const chartPaint = (night: boolean) => (night
 function buildMapStyle(chartUrl: string, depthUrl: string | null, look: MapLook = {}, night = false) {
   return {
     version: 8,
+    // Nov 12: letters for map labels (depth numbers on the new contour lines), through the chart helper
+    ...(GLYPHS_URL ? { glyphs: GLYPHS_URL } : {}),
     sources: {
       noaa: { type: 'raster', tiles: [chartUrl], tileSize: CHART_TILE_SIZE, minzoom: NOAA_CHART_MINZOOM, maxzoom: NOAA_CHART_MAXZOOM, attribution: CHART_ATTRIBUTION },
       land: { type: 'geojson', data: mainlandGeoJSON() },
@@ -192,7 +194,10 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   // Layer order (boat & route always on top). null = still checking the safety flag; overlays wait for it.
   const [orderOn, setOrderOn] = useState<boolean | null>(null);
   useEffect(() => onConfig((c) => setKilled(c.features_off ?? [])), []);
-  useEffect(() => { setLayers((p) => applyKillSwitch(p, killed)); }, [killed.join(','), layers.on, layers.overlay]);
+  // Nov 12: new maps on (unless Admin ticked "new_maps") → the retired Relief map style and "Relief & structure" stay off.
+  const newMaps = newMapsOn(killed);
+  const offLayers = useMemo(() => (newMaps ? [...killed, ...RETIRED_BY_NEW_MAPS] : killed), [killed.join(','), newMaps]);
+  useEffect(() => { setLayers((p) => applyKillSwitch(p, offLayers)); }, [offLayers.join(','), layers.on, layers.overlay]);
   // Oct 31: while navigating (Go To / a route is running), buoys, beacons & lights (navaids) and rocks, wrecks &
   // obstructions (seabed) are always on the chart, whatever the chart detail setting. They go back to the person's
   // own setting when navigation ends.
@@ -540,7 +545,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
   };
 
   // Stable callbacks so the Map layers sheet doesn't redraw on every GPS update (see LayersSheet.tsx).
-  const killedRef = useRef(killed); killedRef.current = killed;
+  const killedRef = useRef(offLayers); killedRef.current = offLayers;
   const setLayersSafe = useCallback((fn: (s: LayerState) => LayerState) => setLayers((p) => applyKillSwitch(fn(p), killedRef.current)), []);
   const closePanel = useCallback(() => setPanel('none'), []);
   const saveAreaRef = useRef(saveArea); saveAreaRef.current = saveArea;
@@ -1158,7 +1163,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
           trackUserLocation={nav && follow ? undefined : orient === 'heading' ? 'heading' : orient === 'course' ? 'course' : undefined}
           onTrackUserLocationChange={(e: any) => { if (e?.nativeEvent?.trackUserLocation == null && orient !== 'north') setOrient('north'); }} />
         {orderOn !== null ? <SafeLayer name="ocean" resetKey={JSON.stringify(layers.on)}>
-          <MapLayers catalog={catalog} s={layers} compareOffset={compareOffset} radarPlaying={radarPlaying} onRadarLabel={setRadarLabel} onBuoyPress={(p) => { featurePressAt.current = Date.now(); setSel(null); setBuoy(p); }} />
+          <MapLayers newMaps={newMaps} catalog={catalog} s={layers} compareOffset={compareOffset} radarPlaying={radarPlaying} onRadarLabel={setRadarLabel} onBuoyPress={(p) => { featurePressAt.current = Date.now(); setSel(null); setBuoy(p); }} />
         </SafeLayer> : null}
         {/* MPAs on top of every overlay so they're never hidden under relief or satellite */}
         {orderOn !== null ? <RulesLayers data={rules} showProtected={layers.on.rules} showHazards={layers.on.hazards}
@@ -1402,7 +1407,7 @@ export function MapScreen({ pick, clearPick, onSpotsChanged, reloadKey = 0, onWe
       ) : null}
 
       {panel === 'layers' ? (
-        <LayersSheet catalog={catalog} cached={catalogCached} savedAt={catalogSavedAt} onRetry={retryCatalog} s={layers} set={setLayersSafe} killed={killed} radarPlaying={radarPlaying} setRadarPlaying={setRadarPlaying}
+        <LayersSheet catalog={catalog} cached={catalogCached} savedAt={catalogSavedAt} onRetry={retryCatalog} s={layers} set={setLayersSafe} killed={killed} newMaps={newMaps} radarPlaying={radarPlaying} setRadarPlaying={setRadarPlaying}
           onClose={closePanel} rulesChecked={rules?.checked_at ?? null} onSaveArea={view ? saveAreaStable : undefined} />
       ) : null}
       {whaleAt ? (

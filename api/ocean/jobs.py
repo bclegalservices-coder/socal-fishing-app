@@ -313,6 +313,13 @@ def _break_water(g: Grid, mask, coast_nm: float, seen: np.ndarray | None) -> np.
     return ok
 
 
+def warn(msg: str):
+    """A problem worth knowing about that doesn't hurt the app (old data kept). Shows as a yellow warning on the
+    GitHub run instead of turning the whole run red and emailing you."""
+    log(f"WARNING {msg}")
+    print(f"::warning::{msg[:900]}", flush=True)
+
+
 def save_base(store, layer: str, region: str, g: Grid, ds):
     """Keep the latest regular daily map: today's satellite passes fill their cloud gaps from it (passes job)."""
     if store is None:
@@ -508,7 +515,7 @@ def verify():
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("job", choices=["sst", "chl", "surface", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "bottomhd", "bottomhd-socal", "bottomhd-rebuild", "bottomhd-preview", "bottomhd-overview", "bottomhd-restore", "bottomhd-restore-v3", "bottomhd-restore-v4", "bottomhd-restore-v5", "bottomhd-restore-v6", "crm", "crm-rebuild", "regs", "regs-undo", "passes", "all", "discover", "verify"])
+    p.add_argument("job", choices=["sst", "chl", "surface", "bathy", "wind", "rules", "harbors", "navmask", "navmask-rebuild", "bottomhd", "bottomhd-socal", "bottomhd-rebuild", "bottomhd-preview", "bottomhd-overview", "bottomhd-restore", "bottomhd-restore-v3", "bottomhd-restore-v4", "bottomhd-restore-v5", "bottomhd-restore-v6", "bottom2", "bottom2-rebuild", "crm", "crm-rebuild", "regs", "regs-undo", "passes", "all", "discover", "verify"])
     p.add_argument("--region", default="socal")
     p.add_argument("--days", default="0,1,2,3,7")
     p.add_argument("--file", default=None, help="local seafloor file for `bathy`")
@@ -536,6 +543,10 @@ def main(argv=None):
         http = httpx.Client(timeout=300, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})
         preview(get_store(), a.area, http, log, out_path="bottomhd-preview.png")
         return None
+    if a.job in ("bottom2", "bottom2-rebuild"):   # Nov 12: new smooth bottom + vector contour lines (resumable, keeps going)
+        from .bottom2 import run as run_bottom2
+        http = httpx.Client(timeout=300, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})
+        return run_bottom2(get_store(), http, log, force=a.force or a.job == "bottom2-rebuild")
     if a.job in ("bottomhd", "bottomhd-socal", "bottomhd-rebuild"):   # HD bottom (resumable; keeps going run after run)
         from .bottomhd import run as run_bottomhd
         http = httpx.Client(timeout=300, follow_redirects=True, headers={"User-Agent": "fishing-app-pipeline"})
@@ -572,17 +583,13 @@ def main(argv=None):
         try:   # Nov 3: fish size and bag limits are checked against CDFW every week too
             from regs.watch import run as run_regs
             run_regs(get_store(), httpx.Client(timeout=60, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (compatible; ChannelNav rules check)"}), log)
-        except Exception as e:
-            failed_weekly.append("regs")
-            log(f"FAILED regs: {e}")
+        except Exception as e:   # Nov 9: the fish rules page check is a side job: warn, don't turn the run red
+            warn(f"fish rules check skipped this week: {e}")
         try:   # harbors ride along with the weekly rules job
             from harbors.job import run as run_harbors
             run_harbors(get_store(), log)
-        except Exception as e:
-            failed_weekly.append("harbors")
-            log(f"FAILED harbors: {e}")
-        if failed_weekly:
-            sys.exit(1)
+        except Exception as e:   # last week's harbor file stays, so the app is fine: a warning, not a failed run
+            warn(f"harbors not updated this week (last week's file kept): {e}")
         return
     if a.job == "wind":
         from .wind import run as run_wind
