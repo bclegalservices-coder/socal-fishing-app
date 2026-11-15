@@ -6,6 +6,7 @@ import { Btn, Note, Row, Sheet, Stat, Title } from './ui';
 import { ConditionsView } from './ConditionsView';
 import { PresentedBy } from '../ads/Sponsor';
 import { useWaterTemp } from '../waterTemp';
+import { spotSub } from '../spotText';
 
 type Props = {
   spot: Pt & { subtitle?: string; sponsor?: string; sponsorTags?: string[] }; boat: Pt | null; kind: 'spot' | 'pin' | 'saved';
@@ -19,7 +20,7 @@ export function SpotCard({ spot, boat, kind, onGo, onAddToRoute, onSave, onDelet
   return (
     <Sheet maxHeight={620} onClose={onClose}>
       {kind === 'pin' ? <Text style={{ color: colors.live, fontWeight: '600' }}>Dropped pin</Text> : <Title>{spot.name}</Title>}
-      {spot.subtitle ? <Note>{spot.subtitle}</Note> : null}
+      {spotSub(spot.subtitle) ? <Note>{spotSub(spot.subtitle)}</Note> : null}
       {protectedHere?.length ? (
         <Text style={{ color: colors.alert, backgroundColor: colors.alertBg, borderColor: colors.alert, borderWidth: 1, borderRadius: 10, padding: 8, fontWeight: '700' }}>
           {protectedHere[0].properties?.take === 'no_take' ? '⛔' : '⚠'} Inside {protectedHere[0].properties?.name ?? 'a protected area'}: {protectedHere[0].properties?.rule}

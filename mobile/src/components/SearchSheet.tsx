@@ -12,6 +12,7 @@ import { colors, touch, makeStyles } from '../theme';
 import { track } from '../analytics';
 import { HARBOR_KINDS, harborCard } from '../layers/Harbors';
 import type { LayerKey } from '../layers/state';
+import { spotSub } from '../spotText';
 
 export type SearchHit = { key: string; kind: 'spot' | 'saved' | 'place'; name: string; sub: string; lat: number; lon: number; nm: number | null; id?: string;
   placeKind?: string; layer?: LayerKey; props?: any };
@@ -121,7 +122,7 @@ export function SearchSheet({ boat, center, mySpots, publicSpots, harbors, onPic
       : [];
     const spots: SearchHit[] = (cat === 'all' && term) || cat === 'spots'
       ? (publicSpots?.features ?? []).filter((f: any) => textMatch(String(f.properties?.name ?? '')))
-          .map((f: any) => ({ key: `c${f.properties.id}`, kind: 'spot', id: f.properties.id, name: f.properties.name, sub: f.properties.subtitle ?? 'Fishing spot', lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], nm: null }))
+          .map((f: any) => ({ key: `c${f.properties.id}`, kind: 'spot', id: f.properties.id, name: f.properties.name, sub: spotSub(f.properties.subtitle) || 'Fishing spot', lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], nm: null }))
       : [];
 
     const seen = new Set<string>();
@@ -138,7 +139,7 @@ export function SearchSheet({ boat, center, mySpots, publicSpots, harbors, onPic
     const mine = mySpots.map((s) => ({ key: `m${s.id}`, kind: 'saved' as const, id: s.id, name: s.name, sub: 'My spot · private', lat: s.lat, lon: s.lon, nm: dist(s.lat, s.lon) }))
       .sort((a, b) => (a.nm ?? 1e9) - (b.nm ?? 1e9)).slice(0, 5);
     const nearSpots: SearchHit[] = (publicSpots?.features ?? []).map((f: any) => ({ key: `c${f.properties.id}`, kind: 'spot' as const, id: f.properties.id, name: f.properties.name,
-      sub: f.properties.subtitle ?? 'Fishing spot', lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], nm: dist(f.geometry.coordinates[1], f.geometry.coordinates[0]) }))
+      sub: spotSub(f.properties.subtitle) || 'Fishing spot', lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], nm: dist(f.geometry.coordinates[1], f.geometry.coordinates[0]) }))
       .sort((a: SearchHit, b: SearchHit) => (a.nm ?? 1e9) - (b.nm ?? 1e9)).slice(0, 8);
     const sections: { title: string; items: SearchHit[] }[] = [
       { title: 'My spots', items: mine },

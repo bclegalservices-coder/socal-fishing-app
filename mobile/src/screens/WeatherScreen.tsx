@@ -24,6 +24,7 @@ import {
   n0, n1, saveBoat, seasText, weatherPath, type Boat, type BuoyRow, type Hour, type WeatherResponse,
 } from '../weather/model';
 import { friendly } from '../friendly';
+import { spotSub } from '../spotText';
 
 type Section = 'forecast' | 'wind' | 'history' | 'tides' | 'moon';
 export type WeatherPlace = { lat: number; lon: number; label: string; source: 'gps' | 'search' | 'map' | 'harbor'; tab?: Section };
@@ -84,7 +85,7 @@ export function WeatherScreen({ at, mySpots }: { at: WeatherPlace | null; mySpot
   if (searching) {
     const spots = [
       ...mySpots.map((s: any) => ({ name: s.name, lat: s.lat, lon: s.lon, sub: 'My spot' })),
-      ...((publicSpots?.features ?? []) as any[]).map((f) => ({ name: f.properties?.name, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], sub: f.properties?.subtitle })),
+      ...((publicSpots?.features ?? []) as any[]).map((f) => ({ name: f.properties?.name, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], sub: spotSub(f.properties?.subtitle) })),
     ];
     return <PlaceSearch spots={spots} onClose={() => setSearching(false)}
       onPick={(r) => { go({ lat: r.lat, lon: r.lon, label: r.label, source: 'search' }); track('weather_search_pick'); }} />;

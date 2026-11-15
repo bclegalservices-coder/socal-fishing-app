@@ -15,6 +15,7 @@ import { ScreenHeader, Btn, Segmented } from '../components/ui';
 import { track } from '../analytics';
 import type { PickRequest } from './MapScreen';
 import { friendly } from '../friendly';
+import { spotSub } from '../spotText';
 
 type Item = { key: string; kind: 'spot' | 'saved'; name: string; sub: string; lat: number; lon: number; id?: string; folder?: string; createdAt?: number; distNm?: number | null };
 type SortKey = 'name' | 'folder' | 'date' | 'distance';
@@ -41,7 +42,7 @@ export function SpotsScreen({ mySpots, onPick, onImported }: { mySpots: SavedSpo
     const list: Item[] = tab === 'mine'
       ? mySpots.map((s) => ({ key: s.id, kind: 'saved', id: s.id, name: s.name, folder: s.folder, createdAt: s.createdAt, lat: s.lat, lon: s.lon, distNm: dist(s.lat, s.lon),
           sub: `${s.folder ? `${s.folder} · ` : ''}${new Date(s.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}` }))
-      : (pub?.features ?? []).map((f: any) => ({ key: String(f.properties.id), kind: 'spot', id: f.properties.id, name: f.properties.name, sub: f.properties.subtitle ?? '',
+      : (pub?.features ?? []).map((f: any) => ({ key: String(f.properties.id), kind: 'spot', id: f.properties.id, name: f.properties.name, sub: spotSub(f.properties.subtitle),
           lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], distNm: dist(f.geometry.coordinates[1], f.geometry.coordinates[0]) }));
     const shown = list.filter((i) => !term || i.name.toLowerCase().includes(term) || (i.folder ?? '').toLowerCase().includes(term));
     const by: Record<SortKey, (a: Item, b: Item) => number> = {

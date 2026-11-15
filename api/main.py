@@ -164,7 +164,7 @@ async def spots_in_bbox(bbox: str = Query(..., description="minLon,minLat,maxLon
                 "geometry": {"type": "Point", "coordinates": [r["lon"], r["lat"]]},
                 "properties": {
                     "id": r["id"], "name": r["canonical_name"],
-                    "subtitle": f"{r['spot_type'].replace('_', ' ').title()} · source: {r['source_name']}",
+                    "subtitle": r['spot_type'].replace('_', ' ').title(),   # Nov 15: no source credit shown in the app
                 },
             }
             for r in rows
