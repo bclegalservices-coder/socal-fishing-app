@@ -1,6 +1,7 @@
 """Where processed layers live. Local folder for development; Cloudflare R2 (S3-compatible,
 no egress fees) in production. Phones download tiles straight from the public URL."""
 import os
+import time
 from pathlib import Path
 
 
@@ -36,17 +37,30 @@ class R2Store:
         import boto3  # only needed in production
         self.bucket = os.environ["R2_BUCKET"]
         self.public_base = os.environ["PUBLIC_DATA_URL"]  # e.g. https://pub-xxxx.r2.dev
+        from botocore.config import Config
         self.s3 = boto3.client(
             "s3",
             endpoint_url=os.environ["R2_ENDPOINT"],
             aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
             aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
             region_name="auto",
+            # Nov 18: Cloudflare R2 sometimes answers "InternalError, please try again" for a moment. Retry more
+            # (with growing waits) instead of the default 2 tries, which failed a whole wind run.
+            config=Config(retries={"max_attempts": 8, "mode": "adaptive"}, connect_timeout=20, read_timeout=60),
         )
 
     def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
         cache = "public, max-age=300" if key.startswith("manifests/") else "public, max-age=86400"
-        self.s3.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type, CacheControl=cache)
+        # ...and if R2 is still having a bad minute, wait and try a few more times before giving up.
+        for attempt in range(4):
+            try:
+                self.s3.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type, CacheControl=cache)
+                return
+            except Exception as e:
+                if attempt == 3:
+                    raise
+                print(f"storage: saving {key} failed ({type(e).__name__}), trying again in {5 * 2 ** attempt} s", flush=True)
+                time.sleep(5 * 2 ** attempt)
 
     def get(self, key: str) -> bytes | None:
         try:
